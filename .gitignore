@@ -1,0 +1,53 @@
+# Runtime / live trading data
+shared/
+logs/
+*.log
+*.tmp
+
+# JSON live state / decisions
+market_state.json
+decision.json
+*.tmp.json
+
+# Secrets / credentials
+.env
+*.env
+credentials.*
+tokens.*
+*.key
+*.pem
+config_live.*
+account*.json
+telegram*.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# MT5 compiled files
+*.ex5
+
+# Windows / editor
+Thumbs.db
+Desktop.ini
+.vscode/
+versions/
+codex_tasks/
+# MT5 installed program files - do not upload
+mt5/MetaTrader 5 RP_AI_EA/
+*.exe
+*.dll
+*.dat
+*.pak
+# MT5 installed terminal - do not upload
+mt5/MetaTrader 5 RP_AI_EA/
+*.exe
+*.dll
+
+# Runtime data
+logs/
+shared/
+*.log
+*.tmp

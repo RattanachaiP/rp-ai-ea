@@ -1,0 +1,184 @@
+RP TRADING SYSTEM DASHBOARD
+Updated: 2026-05-04
+
+==================================================
+1) CURRENT SYSTEM STATUS
+==================================================
+
+Project:
+RP AI + EA Trading System
+
+Main Symbols:
+- XAUUSD
+- BTCUSD
+
+Current Focus:
+- XAUUSD AI + EA
+- Nova Brain Layer
+- BE + BB DEV4 Filter
+- HOLD_TRAIL / SCALP_TP Management
+
+Current Python Version:
+ai_decision_engine_xauusd_v16_nova_brain.py
+
+Current EA Writer:
+RP_Market_State_Writer_V11_BB_DEV4_COMMON_ONLY
+
+Current EA Executor:
+RP_AI_Executor_V11_BE_BB_FILTER_COMMON_ONLY
+
+Current Timeframe:
+- Writer: XAUUSD M15
+- Executor: XAUUSD M3
+
+==================================================
+2) SYSTEM ARCHITECTURE
+==================================================
+
+RP Trading GPT / Nova:
+- Designer
+- Commander
+- System Auditor
+- Logic Developer
+- Code Reviewer
+
+RP PC:
+- Bridge host
+- Runs Python AI
+- Reads market_state.json
+- Writes decision.json
+
+AI Python:
+- Real-time Brain
+- Classifies market
+- Decides TRADE / NO_TRADE
+- Sends decision to EA
+
+EA MT5:
+- Execution Engine
+- Opens trades
+- Manages SL / TP
+- BE / Trail / Lock Profit
+- Blocks overtrade
+
+Shared Path:
+D:\RP_AI_EA\shared\XAUUSD\
+
+Files:
+- market_state.json
+- decision.json
+
+==================================================
+3) CURRENT LOGIC
+==================================================
+
+Market Modes:
+- TREND
+- RANGE
+- SPIKE
+- TRANSITION
+
+BB State:
+- NORMAL
+- WALK_UP
+- WALK_DOWN
+- REVERSAL_UP
+- REVERSAL_DOWN
+- COMPRESSION
+
+Management:
+- SCALP_TP
+- HOLD_TRAIL
+- NO_TRADE
+
+Current Safety:
+- Cooldown
+- Max signals per bar
+- Slot block
+- BB DEV4 extreme filter
+- Nova Brain Final Gate
+
+==================================================
+4) CURRENT OBSERVATION
+==================================================
+
+Latest Signal:
+MODE:TREND
+BB:WALK_DOWN
+BUY_SCORE:0
+SELL_SCORE:5
+RSI:37.xx
+MACDHist:-0.xx
+ACTION:SELL
+SLOT:2
+MGMT:HOLD_TRAIL
+
+Status:
+- AI detects SELL correctly
+- EA blocks duplicate slot correctly
+- Cooldown / max signal block working correctly
+- No overtrade detected
+
+==================================================
+5) CURRENT ISSUE TO WATCH
+==================================================
+
+Main thing to monitor now:
+- BE moves correctly or not
+- HOLD_TRAIL works correctly or not
+- SL locks profit after price moves in profit
+- Trade does not turn from profit into large loss
+- BB DEV4 bounce behavior
+
+Important:
+Entry system looks OK.
+Now focus on EXIT / BE / TRAIL.
+
+==================================================
+6) NEXT DEVELOPMENT PLAN
+==================================================
+
+Phase 1:
+- Monitor V16 live behavior
+
+Phase 2:
+- Upgrade Exit Master
+- Improve BE trigger
+- Add BB DEV4 profit protection
+- If price reaches BB DEV4 extreme, protect profit faster
+
+Phase 3:
+- Loss streak control
+- Daily max loss
+- Auto pause after bad condition
+
+Phase 4:
+- BTCUSD version
+- Multi-symbol dashboard
+
+==================================================
+7) RULE FOR CHAT SYNC
+==================================================
+
+When opening a new ChatGPT chat, paste this file first.
+
+Tell Nova:
+"Nova, this is current SYSTEM_STATE. Continue from here."
+
+==================================================
+8) LAST CONFIRMED GOOD BEHAVIOR
+==================================================
+
+Confirmed:
+- AI writes SELL decision
+- Executor reads decision
+- Slot block works
+- Cooldown works
+- BB WALK_DOWN detected
+- HOLD_TRAIL selected correctly
+
+Need confirm next:
+- BE
+- Trail
+- Profit lock
+- Exit behavior
