@@ -227,6 +227,7 @@ STRONG_CONTINUATION_SELL_MAX_RSI = 45.0
 STRONG_CONTINUATION_BUY_MIN_MACD = 0.0
 STRONG_CONTINUATION_SELL_MAX_MACD = 0.0
 strong_continuation_bar_used = {}
+decision_sequence_id = 0
 
 # V24_0 Candle Intelligence Layer V1
 CANDLE_INTELLIGENCE_ENABLED = True
@@ -854,6 +855,46 @@ def no_trade(reason, market_mode="UNKNOWN", bb_state="UNKNOWN"):
     }
 
 
+def _next_sequence_id():
+    global decision_sequence_id
+    decision_sequence_id += 1
+    return decision_sequence_id
+
+
+def finalize_decision_output(decision, fallback_bias="NEUTRAL", execution_state=None):
+    if not isinstance(decision, dict):
+        decision = no_trade("invalid decision payload")
+
+    decision_type = str(decision.get("decision", "NO_TRADE")).upper()
+    bias = str(decision.get("bias", fallback_bias)).upper()
+    if bias not in ("BUY", "SELL", "NEUTRAL"):
+        bias = "NEUTRAL"
+    if decision_type == "TRADE" and bias == "NEUTRAL" and fallback_bias in ("BUY", "SELL"):
+        bias = fallback_bias
+    decision["bias"] = bias
+
+    decision["heartbeat_unix"] = int(time.time())
+    decision["sequence_id"] = _next_sequence_id()
+
+    if execution_state:
+        decision["execution_state"] = execution_state
+    elif decision_type == "TRADE":
+        mgmt = str(decision.get("management", "")).upper()
+        slot = safe_int(decision.get("entry_slot", 0), 0)
+        decision["execution_state"] = "EXECUTE_AGGRESSIVE" if slot >= 3 else ("EXECUTE_CAUTIOUS" if mgmt == "SCALP_TP" else "EXECUTE_NORMAL")
+    else:
+        decision["execution_state"] = "WAIT" if bias in ("BUY", "SELL") else "NO_TRADE"
+
+    if decision_type == "NO_TRADE":
+        reason = str(decision.get("reason", "")).strip()
+        decision["hard_block_reason"] = decision.get("hard_block_reason", "")
+        if not reason:
+            decision["reason"] = "NO_TRADE | confidence too low after penalties"
+        if decision["execution_state"] == "NO_TRADE" and not decision["hard_block_reason"]:
+            decision["confidence_explanation"] = decision.get("confidence_explanation", decision.get("reason", "confidence insufficient"))
+    return decision
+
+
 def is_strong_trend_normal_buy_mild_macd(market_mode, bb_state, bb_extreme, rsi, macd_hist, buy_score, sell_score):
     """
     V19.4 Gate Exception
@@ -936,6 +977,7 @@ def nova_brain_filter(decision, market_mode, bb_state, bb_extreme, rsi, macd_his
 
 
 def apply_nova_brain_or_block(decision, market_mode, bb_state, bb_extreme, rsi, macd_hist, buy_score, sell_score):
+    original_bias = str(decision.get("bias", "NEUTRAL")).upper()
     ok, nova_reason = nova_brain_filter(
         decision, market_mode, bb_state, bb_extreme, rsi, macd_hist, buy_score, sell_score
     )
@@ -943,6 +985,7 @@ def apply_nova_brain_or_block(decision, market_mode, bb_state, bb_extreme, rsi, 
     if not ok:
         print(nova_reason)
         blocked = no_trade(nova_reason, market_mode, bb_state)
+        blocked["bias"] = original_bias if original_bias in ("BUY", "SELL") else blocked.get("bias", "NEUTRAL")
         for key in (
             "buy_score", "sell_score", "score_gap", "dir_m15", "dir_m3",
             "rsi", "macd_hist", "bb_mid", "bb_upper2", "bb_lower2",
@@ -3504,10 +3547,12 @@ def entry_quality_gate(decision, data, market_mode, bb_state, bb_extreme, buy_sc
 
 
 def apply_entry_quality_or_block(decision, data, market_mode, bb_state, bb_extreme, buy_score, sell_score):
+    original_bias = str(decision.get("bias", "NEUTRAL")).upper()
     ok, gate_reason = entry_quality_gate(decision, data, market_mode, bb_state, bb_extreme, buy_score, sell_score)
     if not ok:
         print(gate_reason)
         blocked = no_trade(gate_reason, market_mode, bb_state)
+        blocked["bias"] = original_bias if original_bias in ("BUY", "SELL") else blocked.get("bias", "NEUTRAL")
         for key in (
             "buy_score", "sell_score", "score_gap", "dir_m15", "dir_m3",
             "rsi", "macd_hist", "bb_mid", "bb_upper2", "bb_lower2",
@@ -4062,7 +4107,7 @@ def run():
     while True:
         data = read_market()
         if data is None:
-            write_decision(no_trade("market_state read failed"))
+            write_decision(finalize_decision_output(no_trade("market_state read failed"), execution_state="NO_TRADE"))
             time.sleep(1)
             continue
         try:
@@ -4070,12 +4115,17 @@ def run():
             decision = attach_manual_trend_report(decision, data)
             fire_ok, fire_reason = can_fire_or_strong_override(key, bar_time, decision, data)
             if fire_ok:
-                write_decision(decision)
+                write_decision(finalize_decision_output(decision))
             else:
                 print("COOLDOWN / MAX SIGNAL BLOCK:", key, "|", fire_reason)
+                wait_decision = dict(decision) if isinstance(decision, dict) else no_trade("cooldown wait")
+                wait_decision["decision"] = "NO_TRADE"
+                wait_decision["entry_allowed"] = False
+                wait_decision["reason"] = f"WAIT | {fire_reason}"
+                write_decision(finalize_decision_output(wait_decision, fallback_bias=str(wait_decision.get("bias", "NEUTRAL")).upper(), execution_state="WAIT"))
         except Exception as e:
             print("LOGIC ERROR:", e)
-            write_decision(no_trade(f"logic error: {e}"))
+            write_decision(finalize_decision_output(no_trade(f"logic error: {e}"), execution_state="NO_TRADE"))
         time.sleep(1)
 
 
