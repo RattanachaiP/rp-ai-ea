@@ -1,110 +1,62 @@
-\# AI ARCHITECTURE
+# RP TRADING GPT — AI ARCHITECTURE
 
-
-
-\## Core Philosophy
-
-
+==================================================
+CORE AI THINKING MODEL
+======================
 
 Price Action First
-
 Structure Second
-
 Momentum Third
-
 Indicator Confirmation Last
 
+==================================================
+MULTI-TF STRUCTURE
+==================
 
+D1/H4:
+macro trend / liquidity / structure
 
-\## Trading Sequence
+H1:
+operational trend / momentum
 
+M15:
+setup timeframe / pullback quality
 
+M3/M1:
+execution trigger
 
-Trend
+==================================================
+AI DECISION FLOW
+================
 
-→ Expansion
+trend
+→ expansion
+→ pullback
+→ continuation
+→ exhaustion
 
-→ Pullback
+==================================================
+CURRENT AI ENGINES
+==================
 
-→ Continuation
+1. Pullback Continuation Engine
+2. Candle Intelligence Layer
+3. Exhaustion Detection
+4. Volume Intelligence
+5. RR-First Decision Gate
+6. Dynamic Conviction Lot Sizing
 
-→ Exhaustion
+==================================================
+MAIN OBJECTIVE
+==============
 
+Build AI capable of understanding:
 
+* trend behavior
+* pullback quality
+* exhaustion
+* momentum continuation
+* market structure
+* expectancy quality
 
-\## Main AI Layers
-
-
-
-1\. Market Mode Detection
-
-2\. BB State Detection
-
-3\. Soft Direction Lock
-
-4\. Transition Decay
-
-5\. Candle Intelligence
-
-6\. Trend Exhaustion
-
-7\. Market Structure Gate
-
-8\. Entry Quality Gate
-
-9\. Nova Brain Final Gate
-
-10\. RR / Runner Decision
-
-
-
-\## Entry Philosophy
-
-
-
-Do not chase expansion.
-
-Wait for healthy pullback.
-
-Enter when continuation returns.
-
-Avoid late continuation.
-
-Avoid exhaustion zones.
-
-## V24 Pullback Continuation Philosophy
-
-
-
-Do not chase expansion.
-
-
-
-Wait for:
-
-\- healthy pullback
-
-\- controlled counter candles
-
-\- continuation return
-
-\- momentum recovery
-
-
-
-Block:
-
-\- late continuation
-
-\- expansion exhaustion
-
-\- repeated momentum candles
-
-\- overextended BB move
-
-
-
-Goal:
-
-Improve entry timing and RR.
-
+instead of relying on indicators only.

@@ -1,36 +1,46 @@
-\# KNOWN BUGS
+# RP TRADING GPT — KNOWN BUGS
 
+==================================================
+CURRENT MAJOR ISSUES
+====================
 
+1. Small-win / big-loss expectancy structure
 
-\## Current Issues
+Problem:
+Average winners too small.
+Average losses too large.
 
+==================================================
 
+2. Late continuation entries
 
-\- occasional err5004 file lock retry
+Problem:
+AI often enters after expansion already occurred.
 
-\- stale decision risk partially fixed
+==================================================
 
-\- pullback continuation not implemented yet
+3. Runner exits too early
 
-\- RR still weak
+Problem:
+BE/trailing activates too fast.
 
-\- runner entries sometimes late
+==================================================
 
+4. Weak exhaustion detection
 
+Problem:
+AI still vulnerable to buying tops/selling bottoms.
 
-\## Monitoring
+==================================================
 
+5. Weak volume intelligence
 
+Problem:
+AI cannot properly validate breakout strength yet.
 
-Check:
+==================================================
 
-\- MARKET\_STATE\_READ
+6. Possible over-filter / AI freeze risk
 
-\- decision.json freshness
-
-\- soft lock reset
-
-\- transition decay reset
-
-
-
+Problem:
+Too many filters may reduce valid trades excessively.

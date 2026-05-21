@@ -1,66 +1,153 @@
-# RP TRADING GPT MASTER STATE
+# RP TRADING GPT — MASTER STATE
 
-## CURRENT ACTIVE SYSTEM
-Python AI:
-- ai_decision_engine_xauusd_v23_3_fresh_market_state_read_fix.py
+## CURRENT SYSTEM STATUS
 
-Writer EA:
-- RP_Market_State_Writer_V13_FULL_LOGIC_ATOMIC_WRITE
+System Phase:
+REAL MARKET OBSERVATION + V24 AI ARCHITECTURE DEVELOPMENT
 
-Executor EA:
-- RP_AI_Executor_V20_1_STALE_DECISION_WARNING_READY
+Main Goal:
+Transform RP_AI_EA from indicator-based EA into market behavior intelligence system.
 
-## CURRENT SYSTEM PHILOSOPHY
-- Price Action First
-- Structure Second
-- Momentum Third
-- Indicator Last
+==================================================
+ACTIVE COMPONENTS
+=================
 
-## CURRENT ACTIVE FEATURES
-- Soft Direction Lock V2
-- Transition Decay Logic
-- Candle Intelligence Layer V1
-- Trend Exhaustion Detection
-- Market Structure + Exhaustion Master Gate
-- Fresh Market State Read Fix
-- Atomic decision.json write
-- Stale state reset
+## PYTHON AI
 
-## CURRENT MAJOR PROBLEMS
-- Late continuation entries
-- RR still weak
-- Pullback continuation not fully implemented
-- No full structure engine yet
-- No RR-first gate yet
+Current Active AI:
+ai_decision_engine_xauusd_v23_3_fresh_market_state_read_fix.py
 
-## CURRENT PRIORITY
-V24 Pullback Continuation Engine
+Current AI Focus:
 
-Goal:
-- enter earlier
-- avoid late continuation
-- improve RR
-- allow healthy trend runners
+* pullback continuation
+* candle intelligence
+* expectancy improvement
+* late-entry reduction
+* trend continuation quality
+* RR-first logic
 
-## CURRENT MARKET UNDERSTANDING
-Avoid:
-- buying near exhaustion
-- selling near reversal
-- chasing expansion candles
+==================================================
 
-Prefer:
-- healthy pullback continuation
-- structure-confirmed continuation
-- momentum recovery entries
+## EXECUTOR EA
 
-## NEXT ROADMAP
-V24.0 Pullback Continuation Engine
-V24.1 Exhaustion Score
-V24.2 Structure Engine
-V24.3 Volume Intelligence
-V24.4 RR-First Decision Gate
+Current Executor:
+RP_AI_Executor_V19_1_HIGH_QUALITY_OVERRIDE_READY.mq5
 
-## KNOWN ISSUES
-- occasional err5004 lock retry
-- VPS sync latency possible
-- stale decision risk partially fixed in V23.3
+Main Features:
+
+* high quality override
+* anti-flip filter
+* BE/trailing management
+* runner mode
+* daily guard
+* file share fix
+
+==================================================
+
+## WRITER EA
+
+Current Writer:
+RP_Market_State_Writer_V13_FULL_LOGIC_ATOMIC_WRITE.mq5
+
+Main Features:
+
+* atomic write
+* retry logic
+* BB state detection
+* market state stabilization
+
+==================================================
+
+## TELEGRAM
+
+Current Monitor:
+RP_Telegram_AI_EA_Monitor_V1_1_UTF8_FIX.mq5
+
+Role:
+monitoring + alerts only
+
+==================================================
+CURRENT AI PHILOSOPHY
+=====================
+
+Price Action First
+Structure Second
+Momentum Third
+Indicator Confirmation Last
+
+Main Trading Philosophy:
+
+* do not chase expansion
+* wait for pullback continuation
+* prioritize expectancy over frequency
+
+==================================================
+CURRENT MAJOR DEVELOPMENT PRIORITIES
+====================================
+
+1. Pullback Continuation Engine
+2. Candle Intelligence Layer
+3. Late Entry Filter
+4. Runner Improvement
+5. Volume Intelligence
+6. Exhaustion Detection
+7. RR-First Decision Gate
+8. Dynamic Conviction Lot Sizing
+
+==================================================
+CURRENT KNOWN SYSTEM PROBLEMS
+=============================
+
+1. Small-win / big-loss structure
+2. Late continuation entries
+3. Runner exits too early
+4. Weak exhaustion detection
+5. Fake breakout vulnerability
+6. No real volume intelligence yet
+
+==================================================
+ROOM STRUCTURE
+==============
+
+MAIN ROOM:
+strategy / architecture / AI thinking
+
+RP AI Engine:
+Python AI development
+
+RP EA Executor:
+MT5 execution / trade management
+
+RP Debug Logs:
+live behavior observation
+
+RP Codex Engineering:
+GitHub / Codex / workflow / engineering
+
+==================================================
+IMPORTANT GLOBAL RULES
+======================
+
+1. Never overwrite production directly
+2. Backup before major changes
+3. Version-by-version development only
+4. Modify one module at a time
+5. Test on demo before live deployment
+6. Keep decision.json compatibility unless approved
+7. Observe behavior before increasing complexity
+
+==================================================
+LONG-TERM GOAL
+==============
+
+Build RP Trading GPT into:
+
+AI Trading Infrastructure System
+
+with:
+
+* AI market understanding
+* structured execution
+* persistent memory
+* scalable architecture
+* future autonomous trading capability
