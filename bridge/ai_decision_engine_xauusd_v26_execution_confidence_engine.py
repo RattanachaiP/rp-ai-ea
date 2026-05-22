@@ -1824,14 +1824,6 @@ def ensure_ea_v17_compat_fields(data):
     return data
 
 def write_decision(data):
-    data = apply_v26_execution_confidence_engine(data)
-    data = apply_spike_pullback_reentry_v25_6(data, data)
-    data = apply_structure_aware_hold_intelligence_v25_5(data)
-    data = apply_bb_smoothing_fields_to_decision_v25_4(data, data)
-    data = apply_v25_3_rsi_soft_penalty_recovery(data)
-    data = apply_final_decision_gate_trace_v25_2(data)
-    data = attach_v25_adaptive_style_fields(data)
-    data = normalize_decision_schema_v20_2(data)
     """
     Safe atomic write for decision.json.
 
@@ -1842,13 +1834,13 @@ def write_decision(data):
     - Atomically replace decision.json only after temp is complete.
     This reduces the chance that EA reads decision.json while Python is writing it.
     """
-    data = ensure_ea_v17_compat_fields(data)
     BASE_PATH.mkdir(parents=True, exist_ok=True)
     temp_path = OUTPUT_PATH.with_suffix(".tmp")
 
     for _ in range(5):
         try:
             with open(temp_path, "w", encoding="utf-8") as f:
+                data = ensure_ea_v17_compat_fields(data)
                 data = attach_v25_adaptive_style_fields(data)
                 data = apply_spike_pullback_reentry_v25_6(data, data)
                 data = apply_v26_execution_confidence_engine(data)
@@ -5586,6 +5578,16 @@ def run():
                 write_decision(decision)
             else:
                 print("COOLDOWN / MAX SIGNAL BLOCK:", key, "|", fire_reason)
+                blocked_decision = no_trade(f"COOLDOWN_MAX_SIGNAL_BLOCK | {fire_reason}")
+                blocked_decision["market_mode"] = decision.get("market_mode", "UNKNOWN")
+                blocked_decision["bb_state"] = decision.get("bb_state", "UNKNOWN")
+                blocked_decision["heartbeat_unix"] = safe_int(data.get("heartbeat_unix", 0), 0)
+                blocked_decision["sequence_id"] = safe_int(data.get("sequence_id", 0), 0)
+                blocked_decision["market_state_sequence_id"] = safe_int(data.get("sequence_id", 0), 0)
+                blocked_decision["market_state_age_sec"] = safe_int(data.get("market_state_age_sec", -1), -1)
+                blocked_decision["decision_age_sec"] = 0
+                blocked_decision["time_sync_standard"] = TIME_SYNC_STANDARD
+                write_decision(blocked_decision)
         except Exception as e:
             print("LOGIC ERROR:", e)
             write_decision(no_trade(f"logic error: {e}"))
