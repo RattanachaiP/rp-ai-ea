@@ -130,6 +130,8 @@ VALID_BB_STATES = {"NORMAL", "WALK_UP", "WALK_DOWN", "REVERSAL_UP", "REVERSAL_DO
 VALID_DECISIONS = {"TRADE", "NO_TRADE"}
 VALID_BIASES = {"BUY", "SELL", "NEUTRAL"}
 VALID_MANAGEMENT = {"SCALP_TP", "HOLD_TRAIL", "NO_TRADE", "NORMAL"}
+VALID_ACTIONS = {"BUY", "SELL", "WAIT", "NO_TRADE", "NEUTRAL"}
+VALID_EXECUTION_STATES = {"EXECUTE_AGGRESSIVE", "EXECUTE_NORMAL", "EXECUTE_CAUTIOUS", "WAIT", "NO_TRADE"}
 decision_sequence_counter = int(time.time())
 
 # V25 RP TIME SYNC STANDARD V1
@@ -1823,6 +1825,59 @@ def ensure_ea_v17_compat_fields(data):
 
     return data
 
+def validate_final_decision_payload(data):
+    """
+    Final lightweight payload integrity gate before decision.json write.
+    Never emits a corrupted TRADE packet.
+    """
+    if not isinstance(data, dict):
+        fallback = no_trade("payload_validation_failed | payload_not_dict")
+        fallback["entry_allowed"] = False
+        fallback["payload_validation_failed"] = True
+        fallback["payload_validation_reason"] = "payload_not_dict"
+        return fallback
+
+    symbol = str(data.get("symbol", "")).upper().strip()
+    decision = str(data.get("decision", "")).upper().strip()
+    action = str(data.get("action", data.get("bias", ""))).upper().strip()
+    execution_state = str(data.get("execution_state", "")).upper().strip()
+    management = str(data.get("management", data.get("mgmt", ""))).upper().strip()
+
+    errors = []
+    if symbol != SYMBOL:
+        errors.append(f"symbol_invalid={symbol}")
+    if action not in VALID_ACTIONS:
+        errors.append(f"action_invalid={action}")
+    if execution_state and execution_state not in VALID_EXECUTION_STATES:
+        errors.append(f"execution_state_invalid={execution_state}")
+    if management not in VALID_MANAGEMENT:
+        errors.append(f"management_invalid={management}")
+
+    if decision == "TRADE":
+        sl = safe_float(data.get("sl", 0), 0.0)
+        tp = safe_float(data.get("tp", 0), 0.0)
+        if sl <= 0:
+            errors.append(f"sl_invalid={sl}")
+        if tp <= 0:
+            errors.append(f"tp_invalid={tp}")
+
+    if errors:
+        reason = "payload_validation_failed | " + "; ".join(errors)
+        fallback = no_trade(reason)
+        fallback["entry_allowed"] = False
+        fallback["payload_validation_failed"] = True
+        fallback["payload_validation_reason"] = "; ".join(errors)
+        fallback["payload_validation_source_decision"] = decision or "UNKNOWN"
+        fallback["payload_validation_source_action"] = action or "UNKNOWN"
+        fallback["payload_validation_source_management"] = management or "UNKNOWN"
+        fallback["loop_duration_sec"] = safe_float(data.get("loop_duration_sec", 0), 0.0)
+        fallback["total_cycle_time"] = safe_float(data.get("total_cycle_time", 0), 0.0)
+        return fallback
+
+    data["payload_validation_failed"] = False
+    data["payload_validation_reason"] = ""
+    return data
+
 def write_decision(data):
     """
     Safe atomic write for decision.json.
@@ -1837,6 +1892,7 @@ def write_decision(data):
     BASE_PATH.mkdir(parents=True, exist_ok=True)
     temp_path = OUTPUT_PATH.with_suffix(".tmp")
 
+    write_start = time.time()
     for _ in range(5):
         try:
             with open(temp_path, "w", encoding="utf-8") as f:
@@ -1849,11 +1905,17 @@ def write_decision(data):
                 data = apply_v25_3_rsi_soft_penalty_recovery(data)
                 data = apply_final_decision_gate_trace_v25_2(data)
                 data = normalize_decision_schema_v20_2(data)
+                data = validate_final_decision_payload(data)
+                data["decision_write_duration"] = round(time.time() - write_start, 6)
+                data.setdefault("file_write_latency", 0.0)
                 json.dump(data, f, indent=2)
                 f.flush()
                 os.fsync(f.fileno())
 
+            replace_start = time.time()
             os.replace(str(temp_path), str(OUTPUT_PATH))
+            replace_latency = round(time.time() - replace_start, 6)
+            total_write = round(time.time() - write_start, 6)
 
             print(
                 "AI DECISION:", data.get("decision", ""),
@@ -1862,6 +1924,8 @@ def write_decision(data):
                 "| bb", data.get("bb_state", ""),
                 "| mgmt", data.get("management", ""),
                 "| slot", data.get("entry_slot", 0),
+                "| write_sec", total_write,
+                "| replace_sec", replace_latency,
                 "|", data.get("reason", ""),
             )
             return True
@@ -5565,17 +5629,29 @@ def run():
     print(f"MAX_SIGNALS_PER_BAR = {MAX_SIGNALS_PER_BAR} | COOLDOWN_SECONDS = {COOLDOWN_SECONDS}")
 
     while True:
+        cycle_start = time.time()
         data = read_market()
         if data is None:
-            write_decision(no_trade("market_state read failed"))
+            fallback = no_trade("market_state read failed")
+            fallback["loop_duration_sec"] = round(time.time() - cycle_start, 6)
+            fallback["stale_prevention_timing_sec"] = fallback["loop_duration_sec"]
+            fallback["decision_write_duration"] = 0.0
+            fallback["file_write_latency"] = 0.0
+            fallback["total_cycle_time"] = fallback["loop_duration_sec"]
+            write_decision(fallback)
             time.sleep(1)
             continue
         try:
             key, bar_time, decision = build_decision(data)
             decision = attach_manual_trend_report(decision, data)
+            decision["loop_duration_sec"] = round(time.time() - cycle_start, 6)
+            decision["stale_prevention_timing_sec"] = decision["loop_duration_sec"]
             fire_ok, fire_reason = can_fire_or_strong_override(key, bar_time, decision, data)
             if fire_ok:
+                write_start = time.time()
                 write_decision(decision)
+                decision["decision_write_duration"] = round(time.time() - write_start, 6)
+                decision["total_cycle_time"] = round(time.time() - cycle_start, 6)
             else:
                 print("COOLDOWN / MAX SIGNAL BLOCK:", key, "|", fire_reason)
                 blocked_decision = no_trade(f"COOLDOWN_MAX_SIGNAL_BLOCK | {fire_reason}")
@@ -5587,10 +5663,21 @@ def run():
                 blocked_decision["market_state_age_sec"] = safe_int(data.get("market_state_age_sec", -1), -1)
                 blocked_decision["decision_age_sec"] = 0
                 blocked_decision["time_sync_standard"] = TIME_SYNC_STANDARD
+                blocked_decision["loop_duration_sec"] = round(time.time() - cycle_start, 6)
+                blocked_decision["stale_prevention_timing_sec"] = blocked_decision["loop_duration_sec"]
+                write_start = time.time()
                 write_decision(blocked_decision)
+                blocked_decision["decision_write_duration"] = round(time.time() - write_start, 6)
+                blocked_decision["total_cycle_time"] = round(time.time() - cycle_start, 6)
         except Exception as e:
             print("LOGIC ERROR:", e)
-            write_decision(no_trade(f"logic error: {e}"))
+            err_decision = no_trade(f"logic error: {e}")
+            err_decision["loop_duration_sec"] = round(time.time() - cycle_start, 6)
+            err_decision["stale_prevention_timing_sec"] = err_decision["loop_duration_sec"]
+            err_decision["decision_write_duration"] = 0.0
+            err_decision["file_write_latency"] = 0.0
+            err_decision["total_cycle_time"] = err_decision["loop_duration_sec"]
+            write_decision(err_decision)
         time.sleep(1)
 
 
