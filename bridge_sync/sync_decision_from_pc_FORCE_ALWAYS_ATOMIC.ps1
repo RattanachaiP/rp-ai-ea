@@ -9,10 +9,16 @@ $target = "C:\Users\trader\AppData\Roaming\MetaQuotes\Terminal\Common\Files\RP_A
 $intervalMs = 500
 $maxRetries = 10
 $retrySleepMs = 100
+$HeartbeatEvery = 20
 $staleWarnSeconds = 10
 
 $script:lastTargetSignal = ""
 $script:lastTargetSignalChange = Get-Date
+$script:lastSeenSequence = ""
+$script:lastSeenWriteUtc = [datetime]::MinValue
+$script:skip_count = 0
+$script:lock_retry_count = 0
+$script:loop_count = 0
 
 function Get-JsonField {
     param([string]$Path, [string]$Field)
@@ -52,8 +58,9 @@ function Remove-WithRetry {
             Remove-Item -Path $Path -Force -ErrorAction Stop
             return $true
         } catch {
+            $script:lock_retry_count++
             Write-Host "$(Get-Date -Format HH:mm:ss.fff) delete retry $i/$maxRetries | $($_.Exception.Message)"
-            Start-Sleep -Milliseconds $retrySleepMs
+            Start-Sleep -Milliseconds ($retrySleepMs * [math]::Min($i, 10))
         }
     }
     return $false
@@ -68,14 +75,31 @@ function Rename-WithRetry {
             Rename-Item -Path $TempPath -NewName $targetName -ErrorAction Stop
             return $true
         } catch {
+            $script:lock_retry_count++
             Write-Host "$(Get-Date -Format HH:mm:ss.fff) rename retry $i/$maxRetries | $($_.Exception.Message)"
-            Start-Sleep -Milliseconds $retrySleepMs
+            Start-Sleep -Milliseconds ($retrySleepMs * [math]::Min($i, 10))
+        }
+    }
+    return $false
+}
+
+function Replace-AtomicallyWithRetry {
+    param([string]$TempPath, [string]$TargetPath)
+    for ($i = 1; $i -le $maxRetries; $i++) {
+        try {
+            Move-Item -Path $TempPath -Destination $TargetPath -Force -ErrorAction Stop
+            return $true
+        } catch {
+            $script:lock_retry_count++
+            Write-Host "$(Get-Date -Format HH:mm:ss.fff) move retry $i/$maxRetries | $($_.Exception.Message)"
+            Start-Sleep -Milliseconds ($retrySleepMs * [math]::Min($i, 10))
         }
     }
     return $false
 }
 
 function Sync-DecisionAlwaysAtomic {
+    $script:loop_count++
     if (!(Test-Path $source)) {
         Write-Host "$(Get-Date -Format HH:mm:ss.fff) SOURCE MISSING | $source"
         return $false
@@ -95,6 +119,17 @@ function Sync-DecisionAlwaysAtomic {
     if ([string]::IsNullOrWhiteSpace($srcSignal)) {
         $srcSignal = Get-JsonField -Path $source -Field "signal_time"
     }
+    $srcSequence = Get-JsonField -Path $source -Field "sequence_id"
+    $srcWriteUtc = (Get-Item $source -ErrorAction Stop).LastWriteTimeUtc
+    $changeKey = if (![string]::IsNullOrWhiteSpace($srcSequence)) { "SEQ:$srcSequence" } else { "UTC:$($srcWriteUtc.Ticks)" }
+    $lastKey = if (![string]::IsNullOrWhiteSpace($script:lastSeenSequence)) { "SEQ:$script:lastSeenSequence" } else { "UTC:$($script:lastSeenWriteUtc.Ticks)" }
+    if ($changeKey -eq $lastKey) {
+        $script:skip_count++
+        if (($script:skip_count % $HeartbeatEvery) -eq 0) {
+            Write-Host "$(Get-Date -Format HH:mm:ss.fff) HEARTBEAT skip=$($script:skip_count) lock_retry_count=$($script:lock_retry_count) sequence_id=$srcSequence LastWriteTimeUtc=$srcWriteUtc"
+        }
+        return $true
+    }
 
     try {
         Copy-Item -Path $source -Destination $tempTarget -Force -ErrorAction Stop
@@ -111,21 +146,10 @@ function Sync-DecisionAlwaysAtomic {
             return $false
         }
 
-        if (!(Remove-WithRetry -Path $target)) {
+        if (!(Replace-AtomicallyWithRetry -TempPath $tempTarget -TargetPath $target)) {
             Write-Host "$(Get-Date -Format HH:mm:ss.fff) REPLACE SKIP | target locked, old decision preserved"
             Remove-Item -Path $tempTarget -Force -ErrorAction SilentlyContinue
             return $false
-        }
-
-        if (!(Rename-WithRetry -TempPath $tempTarget -TargetPath $target)) {
-            Write-Host "$(Get-Date -Format HH:mm:ss.fff) RENAME FAIL | attempting safe copy fallback"
-            try {
-                Copy-Item -Path $tempTarget -Destination $target -Force -ErrorAction Stop
-                Remove-Item -Path $tempTarget -Force -ErrorAction SilentlyContinue
-            } catch {
-                Write-Host "$(Get-Date -Format HH:mm:ss.fff) FALLBACK FAIL | $($_.Exception.Message)"
-                return $false
-            }
         }
 
         $targetTimeAfter = Get-FileTimeText $target
@@ -146,6 +170,9 @@ function Sync-DecisionAlwaysAtomic {
             }
         }
 
+        $script:lastSeenSequence = $srcSequence
+        $script:lastSeenWriteUtc = $srcWriteUtc
+        $script:skip_count = 0
         Write-Host "$(Get-Date -Format HH:mm:ss.fff) FORCE SYNC OK | sourceTime=$srcTimeBefore | oldTarget=$targetTimeBefore | newTarget=$targetTimeAfter | srcSignal=$srcSignal | targetSignal=$targetSignal | len=$targetLen"
         return $true
     } catch {

@@ -9,10 +9,16 @@ $target = "\\tsclient\D\RP_AI_EA\shared\XAUUSD\market_state.json"
 $intervalMs = 500
 $maxRetries = 10
 $retrySleepMs = 100
+$HeartbeatEvery = 20
 $staleWarnSeconds = 5
 
 $script:lastTargetServerTime = ""
 $script:lastTargetServerTimeChange = Get-Date
+$script:lastSeenSequence = ""
+$script:lastSeenWriteUtc = [datetime]::MinValue
+$script:skip_count = 0
+$script:lock_retry_count = 0
+$script:loop_count = 0
 
 function Get-JsonField {
     param([string]$Path, [string]$Field)
@@ -59,8 +65,9 @@ function Remove-WithRetry {
             Remove-Item -Path $Path -Force -ErrorAction Stop
             return $true
         } catch {
+            $script:lock_retry_count++
             Write-Host "$(Get-Date -Format HH:mm:ss.fff) delete retry $i/$maxRetries | $($_.Exception.Message)"
-            Start-Sleep -Milliseconds $retrySleepMs
+            Start-Sleep -Milliseconds ($retrySleepMs * [math]::Min($i, 10))
         }
     }
     return $false
@@ -74,14 +81,31 @@ function Rename-WithRetry {
             Rename-Item -Path $TempPath -NewName $targetName -ErrorAction Stop
             return $true
         } catch {
+            $script:lock_retry_count++
             Write-Host "$(Get-Date -Format HH:mm:ss.fff) rename retry $i/$maxRetries | $($_.Exception.Message)"
-            Start-Sleep -Milliseconds $retrySleepMs
+            Start-Sleep -Milliseconds ($retrySleepMs * [math]::Min($i, 10))
+        }
+    }
+    return $false
+}
+
+function Replace-AtomicallyWithRetry {
+    param([string]$TempPath, [string]$TargetPath)
+    for ($i = 1; $i -le $maxRetries; $i++) {
+        try {
+            Move-Item -Path $TempPath -Destination $TargetPath -Force -ErrorAction Stop
+            return $true
+        } catch {
+            $script:lock_retry_count++
+            Write-Host "$(Get-Date -Format HH:mm:ss.fff) move retry $i/$maxRetries | $($_.Exception.Message)"
+            Start-Sleep -Milliseconds ($retrySleepMs * [math]::Min($i, 10))
         }
     }
     return $false
 }
 
 function Sync-MarketStateAlwaysAtomic {
+    $script:loop_count++
     if (!(Test-Path $source)) {
         Write-Host "$(Get-Date -Format HH:mm:ss.fff) SOURCE MISSING | $source"
         return $false
@@ -101,12 +125,24 @@ function Sync-MarketStateAlwaysAtomic {
     $targetAge = Get-FileAgeSeconds $target
 
     $srcServerTime = Get-JsonField -Path $source -Field "server_time"
+    $srcSequence   = Get-JsonField -Path $source -Field "sequence_id"
+    $srcWriteUtc   = (Get-Item $source -ErrorAction Stop).LastWriteTimeUtc
     $srcBarTime    = Get-JsonField -Path $source -Field "bar_time"
     $srcBid        = Get-JsonField -Path $source -Field "bid"
     $srcBuyScore   = Get-JsonField -Path $source -Field "buyScore"
     $srcSellScore  = Get-JsonField -Path $source -Field "sellScore"
     if ([string]::IsNullOrWhiteSpace($srcBuyScore)) { $srcBuyScore = Get-JsonField -Path $source -Field "buy_score" }
     if ([string]::IsNullOrWhiteSpace($srcSellScore)) { $srcSellScore = Get-JsonField -Path $source -Field "sell_score" }
+
+    $changeKey = if (![string]::IsNullOrWhiteSpace($srcSequence)) { "SEQ:$srcSequence" } else { "UTC:$($srcWriteUtc.Ticks)" }
+    $lastKey = if (![string]::IsNullOrWhiteSpace($script:lastSeenSequence)) { "SEQ:$script:lastSeenSequence" } else { "UTC:$($script:lastSeenWriteUtc.Ticks)" }
+    if ($changeKey -eq $lastKey) {
+        $script:skip_count++
+        if (($script:skip_count % $HeartbeatEvery) -eq 0) {
+            Write-Host "$(Get-Date -Format HH:mm:ss.fff) HEARTBEAT skip=$($script:skip_count) lock_retry_count=$($script:lock_retry_count) sequence_id=$srcSequence LastWriteTimeUtc=$srcWriteUtc"
+        }
+        return $true
+    }
 
     if ($srcAge -gt $staleWarnSeconds) {
         Write-Host "$(Get-Date -Format HH:mm:ss.fff) SOURCE STALE WARNING | source age=$srcAge sec | server_time=$srcServerTime | source=$source"
@@ -127,21 +163,10 @@ function Sync-MarketStateAlwaysAtomic {
             return $false
         }
 
-        if (!(Remove-WithRetry -Path $target)) {
+        if (!(Replace-AtomicallyWithRetry -TempPath $tempTarget -TargetPath $target)) {
             Write-Host "$(Get-Date -Format HH:mm:ss.fff) REPLACE SKIP | target locked, old market_state preserved"
             Remove-Item -Path $tempTarget -Force -ErrorAction SilentlyContinue
             return $false
-        }
-
-        if (!(Rename-WithRetry -TempPath $tempTarget -TargetPath $target)) {
-            Write-Host "$(Get-Date -Format HH:mm:ss.fff) RENAME FAIL | attempting safe copy fallback"
-            try {
-                Copy-Item -Path $tempTarget -Destination $target -Force -ErrorAction Stop
-                Remove-Item -Path $tempTarget -Force -ErrorAction SilentlyContinue
-            } catch {
-                Write-Host "$(Get-Date -Format HH:mm:ss.fff) FALLBACK FAIL | $($_.Exception.Message)"
-                return $false
-            }
         }
 
         $targetTimeAfter = Get-FileTimeText $target
@@ -169,6 +194,9 @@ function Sync-MarketStateAlwaysAtomic {
             Write-Host "$(Get-Date -Format HH:mm:ss.fff) TARGET FILETIME STALE WARNING | target age=$targetAgeAfter sec | target=$target"
         }
 
+        $script:lastSeenSequence = $srcSequence
+        $script:lastSeenWriteUtc = $srcWriteUtc
+        $script:skip_count = 0
         Write-Host "$(Get-Date -Format HH:mm:ss.fff) FORCE MARKET SYNC OK | srcTime=$srcTime | oldTarget=$targetTimeBefore | newTarget=$targetTimeAfter | srcAge=$srcAge sec | targetAgeBefore=$targetAge sec | server=$srcServerTime | bar=$srcBarTime | bid=$srcBid->$targetBid | score=${srcBuyScore}:${srcSellScore}->${targetBuyScore}:${targetSellScore} | len=$targetLen"
         return $true
     } catch {
