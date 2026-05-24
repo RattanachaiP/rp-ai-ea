@@ -45,6 +45,12 @@ BASE_PATH = Path(r"D:\RP_AI_EA\shared") / SYMBOL
 FILE_PATH = BASE_PATH / "market_state.json"
 OUTPUT_PATH = BASE_PATH / "decision.json"
 
+
+RUNTIME_BRANCH = "codex-dev"
+ARCH_VERSION = "V26.4.1"
+BUILD_TAG = "governance-stabilization"
+RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
+
 # V26 Execution Confidence Engine
 V26_EXECUTION_CONFIDENCE_ENABLED = True
 V26_WAIT_IS_NOT_NO_TRADE = True
@@ -1906,6 +1912,10 @@ def write_decision(data):
                 data = apply_final_decision_gate_trace_v25_2(data)
                 data = normalize_decision_schema_v20_2(data)
                 data = validate_final_decision_payload(data)
+                data["runtime_branch"] = RUNTIME_BRANCH
+                data["arch_version"] = ARCH_VERSION
+                data["build_tag"] = BUILD_TAG
+                data["runtime_signature"] = RUNTIME_SIGNATURE
                 data["decision_write_duration"] = round(time.time() - write_start, 6)
                 data.setdefault("file_write_latency", 0.0)
                 json.dump(data, f, indent=2)
@@ -5618,6 +5628,7 @@ def build_decision(data):
 
 def run():
     print("RP AI Decision Engine XAUUSD V21.2 SOFT DIRECTION LOCK + SPIKE CONTINUATION + EA SCHEMA FIX started")
+    print(f"RUNTIME_BRANCH={RUNTIME_BRANCH} | ARCH_VERSION={ARCH_VERSION} | BUILD_TAG={BUILD_TAG} | RUNTIME_SIGNATURE={RUNTIME_SIGNATURE}")
     print(f"BASE_PATH = {BASE_PATH}")
     print("Modes: TREND / RANGE / SPIKE / TRANSITION + BB adaptive state")
     print("Management: SCALP_TP / HOLD_TRAIL")
