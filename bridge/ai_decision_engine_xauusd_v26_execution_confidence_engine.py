@@ -41,7 +41,13 @@ from pathlib import Path
 SYMBOL = "XAUUSD"
 TIMEFRAME = "M15"
 
-BASE_PATH = Path(r"D:\RP_AI_EA\shared") / SYMBOL
+COMMON_SHARED_ROOT = Path(r"C:\Users\rp_fu\AppData\Roaming\MetaQuotes\Terminal\Common\Files\RP_AI_EA\shared")
+DEFAULT_SHARED_ROOT = Path(r"D:\RP_AI_EA\shared")
+BASE_PATH = (
+    COMMON_SHARED_ROOT / SYMBOL
+    if (COMMON_SHARED_ROOT / SYMBOL).exists()
+    else DEFAULT_SHARED_ROOT / SYMBOL
+)
 FILE_PATH = BASE_PATH / "market_state.json"
 OUTPUT_PATH = BASE_PATH / "decision.json"
 
