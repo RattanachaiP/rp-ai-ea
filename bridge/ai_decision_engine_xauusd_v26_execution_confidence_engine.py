@@ -53,8 +53,8 @@ OUTPUT_PATH = BASE_PATH / "decision.json"
 
 
 RUNTIME_BRANCH = "codex-dev"
-ARCH_VERSION = "V26.4.3"
-BUILD_TAG = "graded-participation-governance"
+ARCH_VERSION = "V26.4.4"
+BUILD_TAG = "directional-dominance-classifier-dilution-fix"
 RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
 
 # V26 Execution Confidence Engine
@@ -75,6 +75,9 @@ V26_FAST_PARTICIPATION_OVERRIDE_ENABLED = True
 V26_FAST_PARTICIPATION_MIN_SCORE_GAP = 4
 V26_FAST_PARTICIPATION_MAX_MARKET_AGE_SEC = 20
 V26_FAST_PARTICIPATION_MIN_BB_CONFIDENCE = 70
+V26_DIRECTIONAL_DOMINANCE_ENABLED = True
+V26_DOMINANCE_MACD_STRONG_POS = 1.2
+V26_DOMINANCE_MACD_STRONG_NEG = -1.2
 
 # V25.6 Spike Pullback Re-entry Logic
 SPIKE_PULLBACK_REENTRY_ENABLED = True
@@ -583,6 +586,54 @@ def _fast_participation_override_allowed(decision, data):
     return True, f"FAST_PARTICIPATION_OK gap={score_gap} bb_conf={bb_confidence} age={market_age}s"
 
 
+def detect_directional_dominance(data, decision=None):
+    """
+    V26.4.4 directional dominance classifier dilution fix.
+    Detect strong directional context so weak opposite micro-signals cannot collapse to NEUTRAL/NO_TRADE.
+    """
+    if not V26_DIRECTIONAL_DOMINANCE_ENABLED or not isinstance(data, dict):
+        return None, ""
+
+    mode = str(data.get("market_mode", data.get("mode", "") if isinstance(data, dict) else "")).upper()
+    bb = str(data.get("bb_state", data.get("bb", "") if isinstance(data, dict) else "")).upper()
+    rsi = safe_float(data.get("rsi", 50), 50)
+    macd_hist = safe_float(data.get("macd_hist", 0), 0)
+    fresh = bool(data.get("market_state_fresh", True))
+    market_age = safe_int(data.get("market_state_age_sec", 0), 0)
+    hard_block = str(data.get("hard_block", "")).upper() in ("TRUE", "1", "YES")
+
+    buy_score = safe_int(data.get("buy_score", data.get("buyScore", 0)), 0)
+    sell_score = safe_int(data.get("sell_score", data.get("sellScore", 0)), 0)
+    if isinstance(decision, dict):
+        buy_score = safe_int(decision.get("buy_score", decision.get("buyScore", buy_score)), buy_score)
+        sell_score = safe_int(decision.get("sell_score", decision.get("sellScore", sell_score)), sell_score)
+
+    if mode not in ("SPIKE", "TREND"):
+        return None, "mode not dominance"
+    if not fresh or market_age > TEMP_MARKET_STATE_STALE_LIMIT_SEC:
+        return None, f"market not fresh age={market_age}"
+    if hard_block:
+        return None, "hard safety block active"
+
+    if (
+        bb in ("REVERSAL_DOWN", "WALK_DOWN")
+        and rsi <= 30.0
+        and macd_hist <= V26_DOMINANCE_MACD_STRONG_NEG
+        and sell_score >= buy_score
+    ):
+        return "SELL", f"DOMINANCE_SELL mode={mode} bb={bb} rsi={rsi:.2f} macd={macd_hist:.2f} scores={buy_score}/{sell_score}"
+
+    if (
+        bb in ("REVERSAL_UP", "WALK_UP")
+        and rsi >= 70.0
+        and macd_hist >= V26_DOMINANCE_MACD_STRONG_POS
+        and buy_score >= sell_score
+    ):
+        return "BUY", f"DOMINANCE_BUY mode={mode} bb={bb} rsi={rsi:.2f} macd={macd_hist:.2f} scores={buy_score}/{sell_score}"
+
+    return None, "no dominance"
+
+
 def can_fire_or_strong_override(key, bar_time, decision, data):
     """
     V26.4.2 cooldown/max-signal gate.
@@ -643,6 +694,9 @@ def build_cooldown_wait_decision(decision, data, fire_reason, cycle_start):
     blocked_decision["cooldown_active"] = True
     blocked_decision["suppression_active"] = True
     blocked_decision["cooldown_wait_reason"] = str(fire_reason)
+    blocked_decision["directional_dominance_active"] = bool(decision.get("directional_dominance_active", False))
+    blocked_decision["directional_dominance_bias"] = str(decision.get("directional_dominance_bias", "NONE"))
+    blocked_decision["directional_dominance_reason"] = str(decision.get("directional_dominance_reason", ""))
 
     src_bias = str(decision.get("bias", "NEUTRAL")).upper()
     src_action = str(decision.get("action", src_bias)).upper()
@@ -1130,6 +1184,9 @@ def apply_v26_execution_confidence_engine(decision):
     transition_decay_count = safe_int(decision.get("transition_decay_count", 0), 0)
     transition_decay_required = max(1, safe_int(decision.get("transition_decay_required", TRANSITION_DECAY_REQUIRED_COUNT), TRANSITION_DECAY_REQUIRED_COUNT))
 
+    dominance_bias, dominance_reason = detect_directional_dominance(decision, decision)
+    dominance_active = dominance_bias in ("BUY", "SELL")
+
     score = 0
     reasons = []
 
@@ -1267,6 +1324,11 @@ def apply_v26_execution_confidence_engine(decision):
         reasons.append(f"market age acceptable={mkt_age}")
 
     score = _v26_clamp_score(score)
+    if dominance_active:
+        if bias not in ("BUY", "SELL"):
+            bias = dominance_bias
+        score = max(score, V26_EXECUTE_CAUTIOUS_SCORE)
+        reasons.append(f"{dominance_reason} -> dominance floor EXECUTE_CAUTIOUS")
 
     # State selection.
     if score >= V26_EXECUTE_AGGRESSIVE_SCORE:
@@ -1321,7 +1383,21 @@ def apply_v26_execution_confidence_engine(decision):
         decision["mgmt"] = "NO_TRADE"
         decision["wait_reason"] = ""
         decision["next_trigger"] = ""
-        decision["reason"] = (str(decision.get("reason", "")) + " | V26_LOW_CONFIDENCE_NO_TRADE").strip()
+        if dominance_active and bias in ("BUY", "SELL"):
+            decision["execution_state"] = "WAIT"
+            decision["wait_reason"] = "dominance active but confidence not ready"
+            decision["next_trigger"] = "confidence recovery with directional dominance preserved"
+            decision["intended_action"] = bias
+            decision["manual_action"] = f"{bias}_BIAS_WAIT_RECOVERY"
+            decision["wait_recovery_lifecycle"] = "ACTIVE"
+            decision["wait_directional_memory"] = bias
+            decision["reason"] = (str(decision.get("reason", "")) + " | V26_DOMINANCE_LOW_CONFIDENCE_PENALTY_WAIT").strip()
+        else:
+            decision["reason"] = (str(decision.get("reason", "")) + " | V26_LOW_CONFIDENCE_NO_TRADE").strip()
+
+    decision["directional_dominance_active"] = bool(dominance_active)
+    decision["directional_dominance_bias"] = dominance_bias if dominance_active else "NONE"
+    decision["directional_dominance_reason"] = dominance_reason if dominance_active else ""
 
     return decision
 
@@ -5593,8 +5669,21 @@ def build_decision(data):
     range_reversal_bias, range_reversal_reason = get_selective_range_reversal_bias(
         bb_state, rsi, macd_hist, buy_score, sell_score
     )
+    dominance_bias, dominance_reason = detect_directional_dominance(
+        {
+            "market_mode": market_mode,
+            "bb_state": bb_state,
+            "rsi": rsi,
+            "macd_hist": macd_hist,
+            "buy_score": buy_score,
+            "sell_score": sell_score,
+            "market_state_fresh": bool(data.get("market_state_fresh", True)),
+            "market_state_age_sec": safe_int(data.get("market_state_age_sec", 0), 0),
+            "hard_block": data.get("hard_block", "")
+        }
+    )
 
-    if buy_score == sell_score and not range_reversal_bias:
+    if buy_score == sell_score and not range_reversal_bias and not dominance_bias:
         reason = f"NO TRADE | equal score without reversal momentum | buyScore {buy_score} = sellScore {sell_score}"
         print(f"MODE:{market_mode} BB:{bb_state} EXT:{bb_extreme} SCORE BUY:{buy_score} SELL:{sell_score} RSI:{rsi:.2f} MACDHist:{macd_hist:.2f} ACTION:NO_TRADE")
         return base_key, bar_time, no_trade(reason, market_mode, bb_state)
@@ -5624,7 +5713,13 @@ def build_decision(data):
     # V21.2 SPIKE CONTINUATION MODE
     # Do not fully block SPIKE. Allow only confirmed breakout continuation; otherwise
     # let the quality gate reject weak/no-follow-through spike setups.
-    if market_mode == "SPIKE":
+    if dominance_bias in ("BUY", "SELL"):
+        action = dominance_bias
+        entry_slot = 2
+        entry_type = f"XAU_{market_mode}_DOMINANCE_{dominance_bias}_SLOT2"
+        management = "SCALP_TP"
+        reason = f"{dominance_reason} | DOMINANCE_OVERRIDE_ACTIVE"
+    elif market_mode == "SPIKE":
         if buy_score > sell_score:
             spike_ok, spike_reason = spike_continuation_signal(data, "BUY", bid, rsi, macd_hist, buy_score, sell_score)
             if spike_ok:
