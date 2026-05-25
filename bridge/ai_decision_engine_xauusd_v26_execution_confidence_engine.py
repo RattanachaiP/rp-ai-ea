@@ -1954,17 +1954,42 @@ def ensure_ea_v17_compat_fields(data):
 
     return data
 
+
+
+def _build_wait_or_block_payload(source_data, reason, state_label, payload_reason, bias_hint="NEUTRAL", market_mode="UNKNOWN", bb_state="UNKNOWN"):
+    """
+    Create explicit non-trade output states while preserving lifecycle freshness.
+    state_label: WAIT_VALID or INVALID_PAYLOAD_BLOCK
+    """
+    fallback = no_trade(reason, market_mode, bb_state)
+    fallback["bias"] = bias_hint if bias_hint in ("BUY", "SELL") else "NEUTRAL"
+    fallback["trend_bias"] = fallback["bias"]
+    fallback["entry_allowed"] = False
+    fallback["decision_output_state"] = state_label
+    fallback["payload_validation_failed"] = state_label == "INVALID_PAYLOAD_BLOCK"
+    fallback["payload_validation_reason"] = payload_reason
+    fallback["payload_validation_source_decision"] = str(source_data.get("decision", "UNKNOWN")).upper()
+    fallback["payload_validation_source_action"] = str(source_data.get("action", source_data.get("bias", "UNKNOWN"))).upper()
+    fallback["payload_validation_source_management"] = str(source_data.get("management", source_data.get("mgmt", "UNKNOWN"))).upper()
+    fallback["loop_duration_sec"] = safe_float(source_data.get("loop_duration_sec", 0), 0.0)
+    fallback["total_cycle_time"] = safe_float(source_data.get("total_cycle_time", 0), 0.0)
+    fallback["market_state_age_sec"] = safe_int(source_data.get("market_state_age_sec", source_data.get("_market_state_age_sec", -1)), -1)
+    fallback["market_state_sequence_id"] = safe_int(source_data.get("market_state_sequence_id", source_data.get("sequence_id", 0)), 0)
+    fallback["execution_state"] = "WAIT" if state_label == "WAIT_VALID" else "NO_TRADE"
+    return fallback
+
 def validate_final_decision_payload(data):
     """
     Final lightweight payload integrity gate before decision.json write.
     Never emits a corrupted TRADE packet.
     """
     if not isinstance(data, dict):
-        fallback = no_trade("payload_validation_failed | payload_not_dict")
-        fallback["entry_allowed"] = False
-        fallback["payload_validation_failed"] = True
-        fallback["payload_validation_reason"] = "payload_not_dict"
-        return fallback
+        return _build_wait_or_block_payload(
+            {},
+            "payload_validation_failed | payload_not_dict",
+            "INVALID_PAYLOAD_BLOCK",
+            "payload_not_dict"
+        )
 
     symbol = str(data.get("symbol", "")).upper().strip()
     decision = str(data.get("decision", "")).upper().strip()
@@ -1997,36 +2022,28 @@ def validate_final_decision_payload(data):
     if errors:
         if decision == "TRADE" and any(e.startswith("sl_invalid=") or e.startswith("tp_invalid=") for e in errors):
             bias_hint = action if action in ("BUY", "SELL") else "NEUTRAL"
-            fallback = no_trade(
-                "payload_validation_downgraded_to_wait | " + "; ".join(errors),
-                data.get("market_mode", "UNKNOWN"),
-                data.get("bb_state", "UNKNOWN")
+            return _build_wait_or_block_payload(
+                data,
+                "payload_validation_wait_valid | " + "; ".join(errors),
+                "WAIT_VALID",
+                "; ".join(errors),
+                bias_hint=bias_hint,
+                market_mode=data.get("market_mode", "UNKNOWN"),
+                bb_state=data.get("bb_state", "UNKNOWN")
             )
-            fallback["bias"] = bias_hint
-            fallback["trend_bias"] = bias_hint
-            fallback["entry_allowed"] = False
-            fallback["payload_validation_failed"] = True
-            fallback["payload_validation_reason"] = "; ".join(errors)
-            fallback["payload_validation_source_decision"] = decision or "UNKNOWN"
-            fallback["payload_validation_source_action"] = action or "UNKNOWN"
-            fallback["payload_validation_source_management"] = management or "UNKNOWN"
-            fallback["loop_duration_sec"] = safe_float(data.get("loop_duration_sec", 0), 0.0)
-            fallback["total_cycle_time"] = safe_float(data.get("total_cycle_time", 0), 0.0)
-            return fallback
-        reason = "payload_validation_failed | " + "; ".join(errors)
-        fallback = no_trade(reason)
-        fallback["entry_allowed"] = False
-        fallback["payload_validation_failed"] = True
-        fallback["payload_validation_reason"] = "; ".join(errors)
-        fallback["payload_validation_source_decision"] = decision or "UNKNOWN"
-        fallback["payload_validation_source_action"] = action or "UNKNOWN"
-        fallback["payload_validation_source_management"] = management or "UNKNOWN"
-        fallback["loop_duration_sec"] = safe_float(data.get("loop_duration_sec", 0), 0.0)
-        fallback["total_cycle_time"] = safe_float(data.get("total_cycle_time", 0), 0.0)
-        return fallback
+        return _build_wait_or_block_payload(
+            data,
+            "payload_validation_failed | " + "; ".join(errors),
+            "INVALID_PAYLOAD_BLOCK",
+            "; ".join(errors),
+            bias_hint=action if action in ("BUY", "SELL") else "NEUTRAL",
+            market_mode=data.get("market_mode", "UNKNOWN"),
+            bb_state=data.get("bb_state", "UNKNOWN")
+        )
 
     data["payload_validation_failed"] = False
     data["payload_validation_reason"] = ""
+    data.setdefault("decision_output_state", "TRADE" if decision == "TRADE" else "NO_TRADE")
     return data
 
 def write_decision(data):
@@ -2057,6 +2074,7 @@ def write_decision(data):
                 data = apply_final_decision_gate_trace_v25_2(data)
                 data = normalize_decision_schema_v20_2(data)
                 data = validate_final_decision_payload(data)
+                data = normalize_decision_schema_v20_2(data)
                 data["runtime_branch"] = RUNTIME_BRANCH
                 data["arch_version"] = ARCH_VERSION
                 data["build_tag"] = BUILD_TAG
