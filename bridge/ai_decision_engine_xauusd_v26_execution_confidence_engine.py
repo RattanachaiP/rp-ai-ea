@@ -1700,8 +1700,10 @@ def normalize_decision_schema_v20_2(decision):
         decision["time_sync_standard"] = "RP_TIME_SYNC_STANDARD_V1"
 
     decision.setdefault("slot", 0 if dec == "NO_TRADE" else 1)
-    decision.setdefault("sl", 0)
-    decision.setdefault("tp", 0)
+    if "sl" not in decision:
+        decision["sl"] = safe_float(decision.get("stop_loss", 0), 0.0)
+    if "tp" not in decision:
+        decision["tp"] = safe_float(decision.get("tp1", 0), 0.0)
     if dec == "NO_TRADE":
         decision["entry_allowed"] = False
     else:
@@ -1860,14 +1862,36 @@ def validate_final_decision_payload(data):
         errors.append(f"management_invalid={management}")
 
     if decision == "TRADE":
-        sl = safe_float(data.get("sl", 0), 0.0)
-        tp = safe_float(data.get("tp", 0), 0.0)
+        sl = safe_float(data.get("sl", data.get("stop_loss", 0)), 0.0)
+        tp = safe_float(data.get("tp", data.get("tp1", 0)), 0.0)
+        data["sl"] = sl
+        data["tp"] = tp
+        data["stop_loss"] = round(sl, 3) if sl > 0 else 0
+        data["tp1"] = round(tp, 3) if tp > 0 else 0
         if sl <= 0:
             errors.append(f"sl_invalid={sl}")
         if tp <= 0:
             errors.append(f"tp_invalid={tp}")
 
     if errors:
+        if decision == "TRADE" and any(e.startswith("sl_invalid=") or e.startswith("tp_invalid=") for e in errors):
+            bias_hint = action if action in ("BUY", "SELL") else "NEUTRAL"
+            fallback = no_trade(
+                "payload_validation_downgraded_to_wait | " + "; ".join(errors),
+                data.get("market_mode", "UNKNOWN"),
+                data.get("bb_state", "UNKNOWN")
+            )
+            fallback["bias"] = bias_hint
+            fallback["trend_bias"] = bias_hint
+            fallback["entry_allowed"] = False
+            fallback["payload_validation_failed"] = True
+            fallback["payload_validation_reason"] = "; ".join(errors)
+            fallback["payload_validation_source_decision"] = decision or "UNKNOWN"
+            fallback["payload_validation_source_action"] = action or "UNKNOWN"
+            fallback["payload_validation_source_management"] = management or "UNKNOWN"
+            fallback["loop_duration_sec"] = safe_float(data.get("loop_duration_sec", 0), 0.0)
+            fallback["total_cycle_time"] = safe_float(data.get("total_cycle_time", 0), 0.0)
+            return fallback
         reason = "payload_validation_failed | " + "; ".join(errors)
         fallback = no_trade(reason)
         fallback["entry_allowed"] = False
