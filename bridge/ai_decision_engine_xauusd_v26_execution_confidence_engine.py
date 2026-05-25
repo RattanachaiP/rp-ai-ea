@@ -1126,6 +1126,9 @@ def apply_v26_execution_confidence_engine(decision):
     entry_location_score = safe_int(decision.get("entry_location_score", 50), 50)
     rr = safe_float(decision.get("estimated_reward_risk", decision.get("rr_quality", 0)), 0)
     mkt_age = safe_int(decision.get("market_state_age_sec", 999), 999)
+    soft_state = _v26_safe_upper(decision.get("soft_lock_state", ""), "")
+    transition_decay_count = safe_int(decision.get("transition_decay_count", 0), 0)
+    transition_decay_required = max(1, safe_int(decision.get("transition_decay_required", TRANSITION_DECAY_REQUIRED_COUNT), TRANSITION_DECAY_REQUIRED_COUNT))
 
     score = 0
     reasons = []
@@ -1232,6 +1235,19 @@ def apply_v26_execution_confidence_engine(decision):
         m3_penalty = V26_M3_MAX_NEGATIVE_PENALTY
     score += m3_penalty
 
+    # Soft-lock governance should be a confidence modifier, not an execution killer.
+    if soft_state == "TRANSITION_WAIT":
+        score -= 18
+        reasons.append("transition wait governance penalty -18")
+    elif soft_state == "TREND_LOCK":
+        score += 3
+        reasons.append("trend lock continuity +3")
+
+    if transition_decay_count > 0:
+        decay_penalty = min(12, int((transition_decay_count / transition_decay_required) * 12))
+        score -= decay_penalty
+        reasons.append(f"persistent weakening decay {transition_decay_count}/{transition_decay_required} -{decay_penalty}")
+
     # Exhaustion as penalty, not full veto unless safety hard block says so.
     if exhaustion == "HIGH" or exhaustion_score >= 75:
         score -= 25
@@ -1293,6 +1309,10 @@ def apply_v26_execution_confidence_engine(decision):
         decision["mgmt"] = "NO_TRADE"
         decision["wait_reason"] = "timing not ideal yet; bias preserved"
         decision["next_trigger"] = "pullback reset / M3 timing improves / confidence >= execute threshold"
+        decision["intended_action"] = bias if bias in ("BUY", "SELL") else decision.get("intended_action", "WAIT")
+        decision["manual_action"] = f"{bias}_BIAS_WAIT_RECOVERY" if bias in ("BUY", "SELL") else "WAIT"
+        decision["wait_recovery_lifecycle"] = "ACTIVE"
+        decision["wait_directional_memory"] = bias if bias in ("BUY", "SELL") else "NONE"
         decision["reason"] = (str(decision.get("reason", "")) + " | V26_WAIT_NOT_NO_TRADE").strip()
     else:
         decision["decision"] = "NO_TRADE"
@@ -3301,6 +3321,7 @@ def apply_transition_decay(locked_direction, market_mode, bb_state, rsi, macd_hi
             "transition_decay_count": 0,
             "transition_decay_required": required,
             "transition_decay_active": False,
+            "transition_decay_ratio": 0.0,
             "transition_decay_reason": "recovery/reset: strong score or RSI/MACD recovered",
             **reset_info,
         }
@@ -3311,6 +3332,7 @@ def apply_transition_decay(locked_direction, market_mode, bb_state, rsi, macd_hi
             "transition_decay_count": 0,
             "transition_decay_required": required,
             "transition_decay_active": False,
+            "transition_decay_ratio": 0.0,
             "transition_decay_reason": "not weakening",
             **reset_info,
         }
@@ -3323,6 +3345,7 @@ def apply_transition_decay(locked_direction, market_mode, bb_state, rsi, macd_hi
             "transition_decay_count": count,
             "transition_decay_required": required,
             "transition_decay_active": True,
+            "transition_decay_ratio": 1.0,
             "transition_decay_reason": f"persistent weakening count={count}/{required}; allow TRANSITION_WAIT",
             **reset_info,
         }
@@ -3331,6 +3354,7 @@ def apply_transition_decay(locked_direction, market_mode, bb_state, rsi, macd_hi
         "transition_decay_count": count,
         "transition_decay_required": required,
         "transition_decay_active": True,
+        "transition_decay_ratio": round(max(0.0, min(1.0, float(count) / float(required))), 3),
         "transition_decay_reason": f"weakening detected count={count}/{required}; keep TREND_LOCK",
         **reset_info,
     }
@@ -5675,21 +5699,31 @@ def build_decision(data):
 
     soft_lock = soft_direction_lock_v2(action, market_mode, bb_state, bb_extreme, data, buy_score, sell_score)
     if action in ("BUY", "SELL") and not soft_lock.get("soft_lock_allowed", True):
-        print(f"SOFT LOCK BLOCK | state={soft_lock.get('soft_lock_state')} dir={soft_lock.get('soft_lock_direction')} reason={soft_lock.get('soft_lock_reason')}")
-        blocked = no_trade(f"SOFT LOCK BLOCK | {soft_lock.get('soft_lock_state')} | {soft_lock.get('soft_lock_reason')}", market_mode, bb_state)
-        # Participation recovery: preserve directional context during suppression waits.
-        # This prevents final bias collapsing to NEUTRAL when signal layer is still directional.
-        blocked["bias"] = action
-        blocked["action"] = action
-        blocked["buy_score"] = buy_score
-        blocked["sell_score"] = sell_score
-        blocked["buyScore"] = buy_score
-        blocked["sellScore"] = sell_score
-        blocked["score_gap"] = abs(buy_score - sell_score)
-        blocked["entry_timing"] = "WAIT_PULLBACK" if soft_lock.get("soft_lock_state") == "TRANSITION_WAIT" else blocked.get("entry_timing", "UNKNOWN")
-        blocked["wait_reason"] = "soft-lock suppression active; directional bias preserved"
-        blocked = attach_soft_lock_fields(blocked, soft_lock)
-        return key, bar_time, blocked
+        soft_state = str(soft_lock.get("soft_lock_state", "")).upper()
+        if soft_state == "TRANSITION_WAIT":
+            # V26.4.3: transition governance is now a cautious execution modifier, not a kill switch.
+            # Keep participation alive but conservative; execution confidence layer can still downgrade to WAIT/NO_TRADE.
+            print(f"SOFT LOCK CAUTIOUS PASS | state={soft_state} dir={soft_lock.get('soft_lock_direction')} reason={soft_lock.get('soft_lock_reason')}")
+            management = "SCALP_TP"
+            entry_slot = min(entry_slot if entry_slot > 0 else 1, 1)
+            entry_type = f"{entry_type}_TRANSITION_WAIT_CAUTIOUS"
+        else:
+            print(f"SOFT LOCK BLOCK | state={soft_lock.get('soft_lock_state')} dir={soft_lock.get('soft_lock_direction')} reason={soft_lock.get('soft_lock_reason')}")
+            blocked = no_trade(f"SOFT LOCK BLOCK | {soft_lock.get('soft_lock_state')} | {soft_lock.get('soft_lock_reason')}", market_mode, bb_state)
+            # Participation recovery: preserve directional context during suppression waits.
+            # This prevents final bias collapsing to NEUTRAL when signal layer is still directional.
+            blocked["bias"] = action
+            blocked["action"] = action
+            blocked["intended_action"] = action
+            blocked["buy_score"] = buy_score
+            blocked["sell_score"] = sell_score
+            blocked["buyScore"] = buy_score
+            blocked["sellScore"] = sell_score
+            blocked["score_gap"] = abs(buy_score - sell_score)
+            blocked["entry_timing"] = "WAIT_PULLBACK" if soft_lock.get("soft_lock_state") == "TRANSITION_WAIT" else blocked.get("entry_timing", "UNKNOWN")
+            blocked["wait_reason"] = "soft-lock suppression active; directional bias preserved"
+            blocked = attach_soft_lock_fields(blocked, soft_lock)
+            return key, bar_time, blocked
 
     print(f"MODE:{market_mode} BB:{bb_state} EXT:{bb_extreme} SCORE BUY:{buy_score} SELL:{sell_score} RSI:{rsi:.2f} MACDHist:{macd_hist:.2f} ACTION:{action} SLOT:{entry_slot} MGMT:{management} SOFT={soft_lock.get('soft_lock_state')}")
 
