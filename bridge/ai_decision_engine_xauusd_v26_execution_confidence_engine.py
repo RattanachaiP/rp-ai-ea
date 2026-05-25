@@ -58,8 +58,8 @@ V26_HARD_BLOCKS_ONLY_SAFETY = True
 
 V26_EXECUTE_AGGRESSIVE_SCORE = 82
 V26_EXECUTE_NORMAL_SCORE = 65
-V26_EXECUTE_CAUTIOUS_SCORE = 48
-V26_WAIT_SCORE = 30
+V26_EXECUTE_CAUTIOUS_SCORE = 45
+V26_WAIT_SCORE = 26
 
 V26_M3_MAX_NEGATIVE_PENALTY = -15
 V26_FORCE_SCALP_FOR_CAUTIOUS = True
@@ -275,9 +275,9 @@ TREND_PRIORITY_MAX_GAP_REQUIRED = 2
 # - TRANSITION_WAIT: trend is weakening; stop adding new trades
 # - REVERSAL_ALLOW: confirmed reversal may trade opposite direction
 SOFT_DIRECTION_LOCK_ENABLED = True
-SOFT_LOCK_BUY_RSI_WEAK = 52.0
-SOFT_LOCK_SELL_RSI_WEAK = 48.0
-SOFT_LOCK_MACD_WEAK_BUFFER = 0.05
+SOFT_LOCK_BUY_RSI_WEAK = 51.0
+SOFT_LOCK_SELL_RSI_WEAK = 49.0
+SOFT_LOCK_MACD_WEAK_BUFFER = 0.08
 SOFT_REVERSAL_BUY_RSI_MIN = 50.0
 SOFT_REVERSAL_SELL_RSI_MAX = 50.0
 SOFT_REVERSAL_MACD_MIN = 0.00
@@ -351,7 +351,7 @@ TREND_NORMAL_MOMENTUM_ALLOW_MIDDLE_IF_MACD_STRONG = True
 # V25 Transition Decay Logic V1
 # Soft Lock should not flip to TRANSITION_WAIT on one weak tick/candle.
 TRANSITION_DECAY_ENABLED = True
-TRANSITION_DECAY_REQUIRED_COUNT = 3
+TRANSITION_DECAY_REQUIRED_COUNT = 4
 TRANSITION_DECAY_RESET_ON_STRONG_SCORE = True
 TRANSITION_DECAY_STRONG_SCORE_GAP = 4
 TRANSITION_DECAY_BUY_RSI_RECOVER = 53.0
@@ -363,7 +363,7 @@ transition_decay_state = {}
 # V25.1 Soft Lock Counter Reset
 SOFT_LOCK_COUNTER_RESET_ENABLED = True
 SOFT_LOCK_COUNTER_MAX_KEEP = 12
-SOFT_LOCK_COUNTER_EXPIRE_SECONDS = 300
+SOFT_LOCK_COUNTER_EXPIRE_SECONDS = 180
 SOFT_LOCK_RESET_ON_NEW_BAR = True
 transition_decay_meta = {}
 
@@ -1091,8 +1091,8 @@ def apply_v26_execution_confidence_engine(decision):
         score += 5
         reasons.append("BB normal context +5")
     elif bb in ("REVERSAL_UP", "REVERSAL_DOWN"):
-        score -= 8
-        reasons.append(f"BB reversal penalty {bb} -8")
+        score -= 5
+        reasons.append(f"BB reversal penalty {bb} -5")
 
     # Entry location / RR.
     if entry_location_score >= 65:
@@ -1118,8 +1118,8 @@ def apply_v26_execution_confidence_engine(decision):
     # M3 timing refinement only, never full veto except severe risk handled above.
     m3_penalty = 0
     if timing == "LATE_CONTINUATION" or late_score >= 70:
-        m3_penalty -= 15
-        reasons.append(f"M3 late penalty late={late_score} -15")
+        m3_penalty -= 12
+        reasons.append(f"M3 late penalty late={late_score} -12")
     elif timing in ("HEALTHY_CONTINUATION", "EARLY_CONTINUATION"):
         score += 10
         reasons.append(f"M3 timing {timing} +10")
