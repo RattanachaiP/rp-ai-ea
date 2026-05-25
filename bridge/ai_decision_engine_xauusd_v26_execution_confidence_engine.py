@@ -53,8 +53,8 @@ OUTPUT_PATH = BASE_PATH / "decision.json"
 
 
 RUNTIME_BRANCH = "codex-dev"
-ARCH_VERSION = "V26.4.2"
-BUILD_TAG = "governance-cleanup"
+ARCH_VERSION = "V26.4.3"
+BUILD_TAG = "graded-participation-governance"
 RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
 
 # V26 Execution Confidence Engine
