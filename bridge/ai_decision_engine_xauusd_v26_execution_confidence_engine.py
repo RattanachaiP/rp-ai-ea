@@ -574,6 +574,48 @@ def can_fire_or_strong_override(key, bar_time, decision, data):
     decision["reason"] = f"{decision.get('reason', '')} | {reason}"
     return True, reason
 
+
+def build_cooldown_wait_decision(decision, data, fire_reason, cycle_start):
+    """
+    Build a cooldown/max-signal blocked decision that preserves directional context.
+    Cooldown suppression is represented as WAIT governance, not generic NEUTRAL collapse.
+    """
+    blocked_decision = no_trade(f"COOLDOWN_MAX_SIGNAL_BLOCK | {fire_reason}")
+    blocked_decision["market_mode"] = decision.get("market_mode", "UNKNOWN")
+    blocked_decision["bb_state"] = decision.get("bb_state", "UNKNOWN")
+    blocked_decision["heartbeat_unix"] = safe_int(data.get("heartbeat_unix", 0), 0)
+    blocked_decision["sequence_id"] = safe_int(data.get("sequence_id", 0), 0)
+    blocked_decision["market_state_sequence_id"] = safe_int(data.get("sequence_id", 0), 0)
+    blocked_decision["market_state_age_sec"] = safe_int(data.get("market_state_age_sec", -1), -1)
+    blocked_decision["decision_age_sec"] = 0
+    blocked_decision["time_sync_standard"] = TIME_SYNC_STANDARD
+    blocked_decision["cooldown_wait_active"] = True
+    blocked_decision["cooldown_wait_reason"] = str(fire_reason)
+
+    src_bias = str(decision.get("bias", "NEUTRAL")).upper()
+    src_action = str(decision.get("action", src_bias)).upper()
+    buy_score = safe_int(decision.get("buy_score", decision.get("buyScore", 0)), 0)
+    sell_score = safe_int(decision.get("sell_score", decision.get("sellScore", 0)), 0)
+    score_gap = abs(buy_score - sell_score)
+
+    if src_action in ("BUY", "SELL") and src_bias in ("BUY", "SELL"):
+        blocked_decision["bias"] = src_bias
+        blocked_decision["action"] = src_action
+        blocked_decision["manual_action"] = f"{src_bias}_BIAS_WAIT_COOLDOWN"
+    blocked_decision["buy_score"] = buy_score
+    blocked_decision["sell_score"] = sell_score
+    blocked_decision["buyScore"] = buy_score
+    blocked_decision["sellScore"] = sell_score
+    blocked_decision["score_gap"] = score_gap
+    blocked_decision["entry_timing"] = "WAIT_COOLDOWN_CONTINUATION"
+    blocked_decision["pullback_state"] = "REPORT_ONLY"
+    blocked_decision["execution_state"] = "WAIT"
+    blocked_decision["reason"] = (str(blocked_decision.get("reason", "")) + " | COOLDOWN_WAIT_BIAS_PRESERVED").strip()
+    blocked_decision["loop_duration_sec"] = round(time.time() - cycle_start, 6)
+    blocked_decision["stale_prevention_timing_sec"] = blocked_decision["loop_duration_sec"]
+    return blocked_decision
+
+
 def read_market():
     """
     V25 Fresh Market State Read Fix.
@@ -5706,17 +5748,7 @@ def run():
                 decision["total_cycle_time"] = round(time.time() - cycle_start, 6)
             else:
                 print("COOLDOWN / MAX SIGNAL BLOCK:", key, "|", fire_reason)
-                blocked_decision = no_trade(f"COOLDOWN_MAX_SIGNAL_BLOCK | {fire_reason}")
-                blocked_decision["market_mode"] = decision.get("market_mode", "UNKNOWN")
-                blocked_decision["bb_state"] = decision.get("bb_state", "UNKNOWN")
-                blocked_decision["heartbeat_unix"] = safe_int(data.get("heartbeat_unix", 0), 0)
-                blocked_decision["sequence_id"] = safe_int(data.get("sequence_id", 0), 0)
-                blocked_decision["market_state_sequence_id"] = safe_int(data.get("sequence_id", 0), 0)
-                blocked_decision["market_state_age_sec"] = safe_int(data.get("market_state_age_sec", -1), -1)
-                blocked_decision["decision_age_sec"] = 0
-                blocked_decision["time_sync_standard"] = TIME_SYNC_STANDARD
-                blocked_decision["loop_duration_sec"] = round(time.time() - cycle_start, 6)
-                blocked_decision["stale_prevention_timing_sec"] = blocked_decision["loop_duration_sec"]
+                blocked_decision = build_cooldown_wait_decision(decision, data, fire_reason, cycle_start)
                 write_start = time.time()
                 write_decision(blocked_decision)
                 blocked_decision["decision_write_duration"] = round(time.time() - write_start, 6)
