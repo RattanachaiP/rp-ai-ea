@@ -5552,6 +5552,17 @@ def build_decision(data):
     if action in ("BUY", "SELL") and not soft_lock.get("soft_lock_allowed", True):
         print(f"SOFT LOCK BLOCK | state={soft_lock.get('soft_lock_state')} dir={soft_lock.get('soft_lock_direction')} reason={soft_lock.get('soft_lock_reason')}")
         blocked = no_trade(f"SOFT LOCK BLOCK | {soft_lock.get('soft_lock_state')} | {soft_lock.get('soft_lock_reason')}", market_mode, bb_state)
+        # Participation recovery: preserve directional context during suppression waits.
+        # This prevents final bias collapsing to NEUTRAL when signal layer is still directional.
+        blocked["bias"] = action
+        blocked["action"] = action
+        blocked["buy_score"] = buy_score
+        blocked["sell_score"] = sell_score
+        blocked["buyScore"] = buy_score
+        blocked["sellScore"] = sell_score
+        blocked["score_gap"] = abs(buy_score - sell_score)
+        blocked["entry_timing"] = "WAIT_PULLBACK" if soft_lock.get("soft_lock_state") == "TRANSITION_WAIT" else blocked.get("entry_timing", "UNKNOWN")
+        blocked["wait_reason"] = "soft-lock suppression active; directional bias preserved"
         blocked = attach_soft_lock_fields(blocked, soft_lock)
         return key, bar_time, blocked
 
