@@ -53,8 +53,8 @@ OUTPUT_PATH = BASE_PATH / "decision.json"
 
 
 RUNTIME_BRANCH = "codex-dev"
-ARCH_VERSION = "V26.4.1"
-BUILD_TAG = "governance-stabilization"
+ARCH_VERSION = "V26.4.2"
+BUILD_TAG = "governance-cleanup"
 RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
 
 # V26 Execution Confidence Engine
@@ -69,6 +69,12 @@ V26_WAIT_SCORE = 26
 
 V26_M3_MAX_NEGATIVE_PENALTY = -15
 V26_FORCE_SCALP_FOR_CAUTIOUS = True
+
+
+V26_FAST_PARTICIPATION_OVERRIDE_ENABLED = True
+V26_FAST_PARTICIPATION_MIN_SCORE_GAP = 4
+V26_FAST_PARTICIPATION_MAX_MARKET_AGE_SEC = 20
+V26_FAST_PARTICIPATION_MIN_BB_CONFIDENCE = 70
 
 # V25.6 Spike Pullback Re-entry Logic
 SPIKE_PULLBACK_REENTRY_ENABLED = True
@@ -539,10 +545,48 @@ def is_strong_trend_continuation_signal(key, bar_time, decision, market_mode, bb
     return False, "not strong BB WALK continuation"
 
 
+def _fast_participation_override_allowed(decision, data):
+    if not V26_FAST_PARTICIPATION_OVERRIDE_ENABLED:
+        return False, "FAST_PARTICIPATION_DISABLED"
+    if str(decision.get("decision", "")).upper() != "TRADE":
+        return False, "FAST_PARTICIPATION_NOT_TRADE"
+    if str(decision.get("market_mode", "")).upper() != "TREND":
+        return False, "FAST_PARTICIPATION_NOT_TREND"
+
+    bb_state = str(decision.get("bb_state", "")).upper()
+    if bb_state not in ("WALK_UP", "WALK_DOWN"):
+        return False, f"FAST_PARTICIPATION_BB_INVALID:{bb_state}"
+
+    buy_score = safe_int(decision.get("buy_score", decision.get("buyScore", 0)), 0)
+    sell_score = safe_int(decision.get("sell_score", decision.get("sellScore", 0)), 0)
+    score_gap = abs(buy_score - sell_score)
+    if score_gap < V26_FAST_PARTICIPATION_MIN_SCORE_GAP:
+        return False, f"FAST_PARTICIPATION_WEAK_GAP:{score_gap}"
+
+    bb_confidence = safe_int(decision.get("bb_confidence", data.get("bb_confidence", 0)), 0)
+    if bb_confidence < V26_FAST_PARTICIPATION_MIN_BB_CONFIDENCE:
+        return False, f"FAST_PARTICIPATION_LOW_BB_CONF:{bb_confidence}"
+
+    if not bool(decision.get("market_state_fresh", True)):
+        return False, "FAST_PARTICIPATION_STALE_MARKET_STATE"
+
+    market_age = safe_int(data.get("market_state_age_sec", decision.get("market_state_age_sec", 9999)), 9999)
+    if market_age > V26_FAST_PARTICIPATION_MAX_MARKET_AGE_SEC:
+        return False, f"FAST_PARTICIPATION_MARKET_AGE:{market_age}"
+
+    if not bool(decision.get("payload_valid", True)):
+        return False, "FAST_PARTICIPATION_INVALID_PAYLOAD"
+
+    if str(decision.get("hard_block", "")).upper() in ("TRUE", "1", "YES"):
+        return False, "FAST_PARTICIPATION_HARD_BLOCK"
+
+    return True, f"FAST_PARTICIPATION_OK gap={score_gap} bb_conf={bb_confidence} age={market_age}s"
+
+
 def can_fire_or_strong_override(key, bar_time, decision, data):
     """
-    V25 cooldown/max-signal gate.
-    Normal can_fire() remains unchanged. If it blocks, a strong continuation may pass once per new bar.
+    V26.4.2 cooldown/max-signal gate.
+    If normal fire blocks, allow controlled continuation participation via strong/fast overrides.
     """
     if can_fire(key, bar_time):
         return True, "NORMAL_FIRE"
@@ -560,19 +604,24 @@ def can_fire_or_strong_override(key, bar_time, decision, data):
     ok, reason = is_strong_trend_continuation_signal(
         key, bar_time, decision, market_mode, bb_state, buy_score, sell_score, rsi, macd_hist
     )
-    if not ok:
-        return False, reason
+    fast_ok, fast_reason = _fast_participation_override_allowed(decision, data)
+    if not ok and not fast_ok:
+        return False, f"{reason} | {fast_reason}"
 
-    override_key = f"{bar_time}|{decision.get('bias','')}|{bb_state}|STRONG_CONTINUATION"
+    override_type = "STRONG_CONTINUATION" if ok else "FAST_PARTICIPATION"
+    override_reason = reason if ok else fast_reason
+    override_key = f"{bar_time}|{decision.get('bias','')}|{bb_state}|{override_type}"
     if strong_continuation_bar_used.get(override_key, False):
-        return False, f"STRONG CONTINUATION OVERRIDE already used this bar | {override_key}"
+        return False, f"{override_type} already used this bar | {override_key}"
 
     strong_continuation_bar_used.clear()
     strong_continuation_bar_used[override_key] = True
     decision["cooldown_override"] = True
-    decision["cooldown_override_reason"] = reason
-    decision["reason"] = f"{decision.get('reason', '')} | {reason}"
-    return True, reason
+    decision["cooldown_override_reason"] = override_reason
+    decision["fast_participation_override"] = bool(fast_ok)
+    decision["fast_participation_override_reason"] = fast_reason if fast_ok else ""
+    decision["reason"] = f"{decision.get('reason', '')} | {override_reason}".strip()
+    return True, override_reason
 
 
 def build_cooldown_wait_decision(decision, data, fire_reason, cycle_start):
@@ -581,6 +630,7 @@ def build_cooldown_wait_decision(decision, data, fire_reason, cycle_start):
     Cooldown suppression is represented as WAIT governance, not generic NEUTRAL collapse.
     """
     blocked_decision = no_trade(f"COOLDOWN_MAX_SIGNAL_BLOCK | {fire_reason}")
+    blocked_decision["decision"] = "TRADE"
     blocked_decision["market_mode"] = decision.get("market_mode", "UNKNOWN")
     blocked_decision["bb_state"] = decision.get("bb_state", "UNKNOWN")
     blocked_decision["heartbeat_unix"] = safe_int(data.get("heartbeat_unix", 0), 0)
@@ -590,6 +640,8 @@ def build_cooldown_wait_decision(decision, data, fire_reason, cycle_start):
     blocked_decision["decision_age_sec"] = 0
     blocked_decision["time_sync_standard"] = TIME_SYNC_STANDARD
     blocked_decision["cooldown_wait_active"] = True
+    blocked_decision["cooldown_active"] = True
+    blocked_decision["suppression_active"] = True
     blocked_decision["cooldown_wait_reason"] = str(fire_reason)
 
     src_bias = str(decision.get("bias", "NEUTRAL")).upper()
@@ -601,6 +653,7 @@ def build_cooldown_wait_decision(decision, data, fire_reason, cycle_start):
     if src_action in ("BUY", "SELL") and src_bias in ("BUY", "SELL"):
         blocked_decision["bias"] = src_bias
         blocked_decision["action"] = src_action
+        blocked_decision["intended_action"] = src_action
         blocked_decision["manual_action"] = f"{src_bias}_BIAS_WAIT_COOLDOWN"
     blocked_decision["buy_score"] = buy_score
     blocked_decision["sell_score"] = sell_score
