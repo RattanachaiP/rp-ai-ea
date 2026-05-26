@@ -53,8 +53,8 @@ OUTPUT_PATH = BASE_PATH / "decision.json"
 
 
 RUNTIME_BRANCH = "codex-dev"
-ARCH_VERSION = "V26.4.4"
-BUILD_TAG = "directional-dominance-classifier-dilution-fix"
+ARCH_VERSION = "V26.4.5"
+BUILD_TAG = "momentum-governance-softening"
 RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
 
 # V26 Execution Confidence Engine
@@ -2452,6 +2452,63 @@ def apply_nova_brain_or_block(decision, market_mode, bb_state, bb_extreme, rsi, 
 
     if not ok:
         print(nova_reason)
+        weak_trend_momentum = "weak trend momentum" in str(nova_reason).lower()
+        bias = str(decision.get("bias", decision.get("action", "NEUTRAL"))).upper()
+        score_gap = abs(safe_int(buy_score, 0) - safe_int(sell_score, 0))
+        htf_aligned = str(market_mode).upper() in ("TREND", "TRANSITION", "SPIKE")
+        dominance_valid = bias in ("BUY", "SELL") and score_gap >= 2
+        payload_valid = bool(decision.get("schema_validation_ok", True))
+        hard_block, _hard_reason = _v26_has_hard_block(decision)
+
+        # V26.4.5 governance softening:
+        # Weak trend momentum no longer hard-kills participation when direction/HTF/payload are valid.
+        # Convert veto into cautious execution or WAIT_VALID directional hold.
+        if weak_trend_momentum and dominance_valid and htf_aligned and payload_valid and not hard_block:
+            softened = dict(decision)
+            softened["nova_brain"] = "SOFTENED"
+            softened["nova_reason"] = nova_reason
+            softened["momentum_governance_state"] = "SOFTENED_WEAK_MOMENTUM"
+            softened["intended_action"] = bias
+            softened["action"] = bias
+            softened["bias"] = bias
+            softened["buy_score"] = buy_score
+            softened["sell_score"] = sell_score
+            softened["buyScore"] = buy_score
+            softened["sellScore"] = sell_score
+            softened["score_gap"] = score_gap
+            softened["runner_allowed"] = False
+            softened["runner_disabled"] = True
+            softened["runner_disable_reason"] = "weak momentum governance cautious mode"
+            softened["runner_disable_source"] = "V26.4.5_WEAK_MOMENTUM_SOFTENING"
+            softened["confidence_modifier"] = "WEAK_MOMENTUM_SOFTEN"
+
+            # Better relative context => cautious execute, else directional WAIT_VALID.
+            if score_gap >= 3:
+                softened["decision"] = "TRADE"
+                softened["entry_allowed"] = True
+                softened["management"] = "SCALP_TP"
+                softened["mgmt"] = "SCALP_TP"
+                softened["market_style"] = "SCALP"
+                softened["execution_state"] = "EXECUTE_CAUTIOUS"
+                softened["execution_confidence_floor"] = "V26.4.5_WEAK_MOMENTUM_CAUTIOUS"
+                softened["confidence"] = min(safe_int(softened.get("confidence", 70), 70), 62)
+                softened["reason"] = (str(softened.get("reason", "")) + f" | {nova_reason} -> EXECUTE_CAUTIOUS_SOFTENED").strip()
+            else:
+                softened["decision"] = "NO_TRADE"
+                softened["entry_allowed"] = False
+                softened["management"] = "NO_TRADE"
+                softened["mgmt"] = "NO_TRADE"
+                softened["execution_state"] = "WAIT"
+                softened["wait_state"] = "WAIT_VALID"
+                softened["wait_reason"] = "weak momentum; directional bias preserved for valid continuation"
+                softened["wait_recovery_lifecycle"] = "ACTIVE"
+                softened["wait_directional_memory"] = bias
+                softened["next_trigger"] = "momentum recovery / confidence uplift / timing improves"
+                softened["manual_action"] = f"{bias}_BIAS_WAIT_RECOVERY"
+                softened["confidence"] = min(safe_int(softened.get("confidence", 65), 65), 55)
+                softened["reason"] = (str(softened.get("reason", "")) + f" | {nova_reason} -> WAIT_VALID_DIRECTION_PRESERVED").strip()
+            return softened
+
         blocked = no_trade(nova_reason, market_mode, bb_state)
         for key in (
             "buy_score", "sell_score", "score_gap", "dir_m15", "dir_m3",
