@@ -53,8 +53,8 @@ OUTPUT_PATH = BASE_PATH / "decision.json"
 
 
 RUNTIME_BRANCH = "codex-dev"
-ARCH_VERSION = "V26.4.5"
-BUILD_TAG = "momentum-governance-softening"
+ARCH_VERSION = "V26.4.6"
+BUILD_TAG = "recursive-participation-suppression-fix"
 RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
 
 # V26 Execution Confidence Engine
@@ -1377,23 +1377,46 @@ def apply_v26_execution_confidence_engine(decision):
         decision["wait_directional_memory"] = bias if bias in ("BUY", "SELL") else "NONE"
         decision["reason"] = (str(decision.get("reason", "")) + " | V26_WAIT_NOT_NO_TRADE").strip()
     else:
-        decision["decision"] = "NO_TRADE"
-        decision["entry_allowed"] = False
-        decision["management"] = "NO_TRADE"
-        decision["mgmt"] = "NO_TRADE"
-        decision["wait_reason"] = ""
-        decision["next_trigger"] = ""
-        if dominance_active and bias in ("BUY", "SELL"):
+        soft_directional_context = (
+            bias in ("BUY", "SELL")
+            and mode in ("SPIKE", "TREND", "TRANSITION")
+            and mkt_age <= TEMP_MARKET_STATE_STALE_LIMIT_SEC
+            and not hard_block
+        )
+
+        if soft_directional_context:
             decision["execution_state"] = "WAIT"
-            decision["wait_reason"] = "dominance active but confidence not ready"
-            decision["next_trigger"] = "confidence recovery with directional dominance preserved"
+            decision["decision"] = "NO_TRADE"
+            decision["entry_allowed"] = False
+            decision["management"] = "NO_TRADE"
+            decision["mgmt"] = "NO_TRADE"
+            decision["wait_state"] = "WAIT_VALID"
+            decision["wait_reason"] = "low confidence/cooldown governance; directional authority preserved"
+            decision["next_trigger"] = "confidence recovery / cooldown release / continuation confirmation"
             decision["intended_action"] = bias
             decision["manual_action"] = f"{bias}_BIAS_WAIT_RECOVERY"
             decision["wait_recovery_lifecycle"] = "ACTIVE"
             decision["wait_directional_memory"] = bias
-            decision["reason"] = (str(decision.get("reason", "")) + " | V26_DOMINANCE_LOW_CONFIDENCE_PENALTY_WAIT").strip()
+            decision["suppression_active"] = True
+            decision["reason"] = (str(decision.get("reason", "")) + " | V26_LOW_CONFIDENCE_WAIT_VALID_DIRECTION_PRESERVED").strip()
         else:
-            decision["reason"] = (str(decision.get("reason", "")) + " | V26_LOW_CONFIDENCE_NO_TRADE").strip()
+            decision["decision"] = "NO_TRADE"
+            decision["entry_allowed"] = False
+            decision["management"] = "NO_TRADE"
+            decision["mgmt"] = "NO_TRADE"
+            decision["wait_reason"] = ""
+            decision["next_trigger"] = ""
+            if dominance_active and bias in ("BUY", "SELL"):
+                decision["execution_state"] = "WAIT"
+                decision["wait_reason"] = "dominance active but confidence not ready"
+                decision["next_trigger"] = "confidence recovery with directional dominance preserved"
+                decision["intended_action"] = bias
+                decision["manual_action"] = f"{bias}_BIAS_WAIT_RECOVERY"
+                decision["wait_recovery_lifecycle"] = "ACTIVE"
+                decision["wait_directional_memory"] = bias
+                decision["reason"] = (str(decision.get("reason", "")) + " | V26_DOMINANCE_LOW_CONFIDENCE_PENALTY_WAIT").strip()
+            else:
+                decision["reason"] = (str(decision.get("reason", "")) + " | V26_LOW_CONFIDENCE_NO_TRADE").strip()
 
     decision["directional_dominance_active"] = bool(dominance_active)
     decision["directional_dominance_bias"] = dominance_bias if dominance_active else "NONE"
@@ -5288,7 +5311,12 @@ def entry_quality_gate(decision, data, market_mode, bb_state, bb_extreme, buy_sc
             return True, spike_reason
 
         decision["spike_mode"] = "WAIT_CONFIRMATION"
-        return False, f"SPIKE BLOCK | continuation not confirmed | {spike_reason}"
+        decision["spike_wait_confirmation"] = True
+        decision["wait_state"] = "WAIT_VALID"
+        decision["suppression_active"] = True
+        decision["intended_action"] = bias if bias in ("BUY", "SELL") else decision.get("intended_action", "WAIT")
+        decision["wait_directional_memory"] = bias if bias in ("BUY", "SELL") else "NONE"
+        return False, f"SPIKE WAIT_VALID | continuation not confirmed | {spike_reason}"
 
     # V19.1: TRANSITION + BB NORMAL must explicitly pass the balanced transition gate.
     if market_mode == "TRANSITION" and bb_state == "NORMAL" and not transition_strong_ok:
