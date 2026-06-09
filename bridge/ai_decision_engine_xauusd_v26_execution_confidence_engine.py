@@ -53,8 +53,8 @@ OUTPUT_PATH = BASE_PATH / "decision.json"
 
 
 RUNTIME_BRANCH = "codex-dev"
-ARCH_VERSION = "V26.4.6"
-BUILD_TAG = "recursive-participation-suppression-fix"
+ARCH_VERSION = "V26.4.7"
+BUILD_TAG = "participation-restoration-program"
 RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
 
 # V26 Execution Confidence Engine
@@ -66,6 +66,14 @@ V26_EXECUTE_AGGRESSIVE_SCORE = 82
 V26_EXECUTE_NORMAL_SCORE = 65
 V26_EXECUTE_CAUTIOUS_SCORE = 45
 V26_WAIT_SCORE = 26
+
+# V26.4.7 Participation Restoration Program
+# Governance hesitation remains visible as penalties/lifecycle fields, but valid
+# directional authority may not be trapped in recursive WAIT/NO_TRADE forever.
+WAIT_TIMEOUT_CYCLES = 4
+TRANSITION_WAIT_MAX_CYCLES = 6
+WEAK_MOMENTUM_CONFIDENCE_PENALTY = 15
+WEAK_MOMENTUM_EXECUTE_MIN_GAP = 2
 
 V26_M3_MAX_NEGATIVE_PENALTY = -15
 V26_FORCE_SCALP_FOR_CAUTIOUS = True
@@ -374,6 +382,8 @@ TRANSITION_DECAY_SELL_RSI_RECOVER = 47.0
 TRANSITION_DECAY_BUY_MACD_RECOVER = 0.25
 TRANSITION_DECAY_SELL_MACD_RECOVER = -0.25
 transition_decay_state = {}
+transition_wait_release_state = {}
+wait_valid_state = {}
 
 # V25.1 Soft Lock Counter Reset
 SOFT_LOCK_COUNTER_RESET_ENABLED = True
@@ -1151,6 +1161,61 @@ def _v26_has_hard_block(decision):
     return False, ""
 
 
+
+def _participation_key(prefix, bias, mode, bb):
+    return f"{prefix}:{bias}:{mode}:{bb}"
+
+
+def reset_wait_valid_lifecycle(reason=""):
+    if wait_valid_state:
+        wait_valid_state.clear()
+    return reason
+
+
+def apply_wait_valid_timeout_recovery(decision, bias, mode, bb, hard_block=False):
+    """
+    V26.4.7 WAIT_VALID recovery.
+
+    WAIT_VALID is a temporary lifecycle state. Once a valid directional setup has
+    waited too many consecutive runtime cycles without a hard safety block, it is
+    released into EXECUTE_CAUTIOUS so participation datasets can be generated.
+    """
+    if not isinstance(decision, dict):
+        return decision
+
+    if hard_block or bias not in ("BUY", "SELL"):
+        reset_wait_valid_lifecycle("wait reset: no valid directional authority or hard block")
+        return decision
+
+    key = _participation_key("WAIT_VALID", bias, mode, bb)
+    stale_keys = [k for k in wait_valid_state if k != key]
+    for stale_key in stale_keys:
+        wait_valid_state.pop(stale_key, None)
+
+    count = safe_int(wait_valid_state.get(key, 0), 0) + 1
+    wait_valid_state[key] = count
+    decision["wait_timeout_cycles"] = WAIT_TIMEOUT_CYCLES
+    decision["wait_valid_cycles"] = count
+    decision["wait_recovery_lifecycle"] = "TIMEOUT_RELEASED" if count > WAIT_TIMEOUT_CYCLES else "ACTIVE"
+
+    if count > WAIT_TIMEOUT_CYCLES:
+        decision["decision"] = "TRADE"
+        decision["entry_allowed"] = True
+        decision["execution_state"] = "EXECUTE_CAUTIOUS"
+        decision["management"] = "SCALP_TP"
+        decision["mgmt"] = "SCALP_TP"
+        decision["market_style"] = "SCALP"
+        decision["bias"] = bias
+        decision["action"] = bias
+        decision["intended_action"] = bias
+        decision["wait_state"] = "WAIT_TIMEOUT_RELEASED"
+        decision["wait_reason"] = "WAIT_VALID timeout released to controlled participation"
+        decision["next_trigger"] = "executing cautiously after finite wait lifecycle"
+        decision["participation_release"] = True
+        decision["participation_release_reason"] = f"WAIT_VALID cycles {count}>{WAIT_TIMEOUT_CYCLES}; EXECUTE_CAUTIOUS"
+        decision["reason"] = (str(decision.get("reason", "")) + " | V26_4_7_WAIT_TIMEOUT_EXECUTE_CAUTIOUS").strip()
+    return decision
+
 def apply_v26_execution_confidence_engine(decision):
     """
     V26 Execution Confidence Engine.
@@ -1206,6 +1271,7 @@ def apply_v26_execution_confidence_engine(decision):
         decision["management"] = "NO_TRADE"
         decision["mgmt"] = "NO_TRADE"
         decision["execution_confidence_reason"] = f"HARD_BLOCK | {hard_reason}"
+        reset_wait_valid_lifecycle("wait reset: hard safety block")
         return decision
 
     decision["hard_block"] = False
@@ -1369,6 +1435,7 @@ def apply_v26_execution_confidence_engine(decision):
         decision["entry_allowed"] = False
         decision["management"] = "NO_TRADE"
         decision["mgmt"] = "NO_TRADE"
+        decision["wait_state"] = "WAIT_VALID"
         decision["wait_reason"] = "timing not ideal yet; bias preserved"
         decision["next_trigger"] = "pullback reset / M3 timing improves / confidence >= execute threshold"
         decision["intended_action"] = bias if bias in ("BUY", "SELL") else decision.get("intended_action", "WAIT")
@@ -1417,6 +1484,11 @@ def apply_v26_execution_confidence_engine(decision):
                 decision["reason"] = (str(decision.get("reason", "")) + " | V26_DOMINANCE_LOW_CONFIDENCE_PENALTY_WAIT").strip()
             else:
                 decision["reason"] = (str(decision.get("reason", "")) + " | V26_LOW_CONFIDENCE_NO_TRADE").strip()
+
+    if decision.get("execution_state") == "WAIT" and bias in ("BUY", "SELL"):
+        decision = apply_wait_valid_timeout_recovery(decision, bias, mode, bb, hard_block=False)
+    else:
+        reset_wait_valid_lifecycle("wait reset: executing or no wait state")
 
     decision["directional_dominance_active"] = bool(dominance_active)
     decision["directional_dominance_bias"] = dominance_bias if dominance_active else "NONE"
@@ -1999,6 +2071,10 @@ def ensure_ea_v17_compat_fields(data):
     data.setdefault("transition_decay_required", 0)
     data.setdefault("transition_decay_active", False)
     data.setdefault("transition_decay_reason", "")
+    data.setdefault("transition_wait_max_cycles", TRANSITION_WAIT_MAX_CYCLES)
+    data.setdefault("transition_wait_released", False)
+    data.setdefault("participation_release", False)
+    data.setdefault("participation_release_reason", "")
     data.setdefault("soft_lock_counter_reset", False)
     data.setdefault("soft_lock_counter_reset_reason", "")
     data.setdefault("fresh_state_reset", False)
@@ -2246,6 +2322,10 @@ def trade(bias, entry_type, sl, tp, reason, entry_slot=1, market_mode="UNKNOWN",
         "transition_decay_required": 0,
         "transition_decay_active": False,
         "transition_decay_reason": "",
+        "transition_wait_max_cycles": TRANSITION_WAIT_MAX_CYCLES,
+        "transition_wait_released": False,
+        "participation_release": False,
+        "participation_release_reason": "",
         "trend_exhaustion": "UNKNOWN",
         "trend_exhaustion_score": 0,
         "trend_exhaustion_reason": "",
@@ -2334,6 +2414,10 @@ def no_trade(reason, market_mode="UNKNOWN", bb_state="UNKNOWN"):
         "transition_decay_required": 0,
         "transition_decay_active": False,
         "transition_decay_reason": "",
+        "transition_wait_max_cycles": TRANSITION_WAIT_MAX_CYCLES,
+        "transition_wait_released": False,
+        "participation_release": False,
+        "participation_release_reason": "",
         "trend_exhaustion": "UNKNOWN",
         "trend_exhaustion_score": 0,
         "trend_exhaustion_reason": "",
@@ -2483,9 +2567,9 @@ def apply_nova_brain_or_block(decision, market_mode, bb_state, bb_extreme, rsi, 
         payload_valid = bool(decision.get("schema_validation_ok", True))
         hard_block, _hard_reason = _v26_has_hard_block(decision)
 
-        # V26.4.5 governance softening:
+        # V26.4.7 governance softening:
         # Weak trend momentum no longer hard-kills participation when direction/HTF/payload are valid.
-        # Convert veto into cautious execution or WAIT_VALID directional hold.
+        # Convert veto into a confidence penalty while preserving ACTION/MODE/BIAS.
         if weak_trend_momentum and dominance_valid and htf_aligned and payload_valid and not hard_block:
             softened = dict(decision)
             softened["nova_brain"] = "SOFTENED"
@@ -2502,20 +2586,23 @@ def apply_nova_brain_or_block(decision, market_mode, bb_state, bb_extreme, rsi, 
             softened["runner_allowed"] = False
             softened["runner_disabled"] = True
             softened["runner_disable_reason"] = "weak momentum governance cautious mode"
-            softened["runner_disable_source"] = "V26.4.5_WEAK_MOMENTUM_SOFTENING"
-            softened["confidence_modifier"] = "WEAK_MOMENTUM_SOFTEN"
+            softened["runner_disable_source"] = "V26.4.7_WEAK_MOMENTUM_SOFTENING"
+            softened["confidence_modifier"] = "WEAK_MOMENTUM_CONFIDENCE_PENALTY"
+            base_confidence = safe_int(softened.get("confidence", 65), 65)
+            softened["confidence_penalty"] = WEAK_MOMENTUM_CONFIDENCE_PENALTY
+            softened["confidence"] = max(0, base_confidence - WEAK_MOMENTUM_CONFIDENCE_PENALTY)
+            softened["participation_restoration_rule"] = "weak momentum is a confidence penalty, not a hard veto"
 
-            # Better relative context => cautious execute, else directional WAIT_VALID.
-            if score_gap >= 3:
+            # Any valid directional gap now participates cautiously; weak momentum no longer erases authority.
+            if score_gap >= WEAK_MOMENTUM_EXECUTE_MIN_GAP:
                 softened["decision"] = "TRADE"
                 softened["entry_allowed"] = True
                 softened["management"] = "SCALP_TP"
                 softened["mgmt"] = "SCALP_TP"
                 softened["market_style"] = "SCALP"
                 softened["execution_state"] = "EXECUTE_CAUTIOUS"
-                softened["execution_confidence_floor"] = "V26.4.5_WEAK_MOMENTUM_CAUTIOUS"
-                softened["confidence"] = min(safe_int(softened.get("confidence", 70), 70), 62)
-                softened["reason"] = (str(softened.get("reason", "")) + f" | {nova_reason} -> EXECUTE_CAUTIOUS_SOFTENED").strip()
+                softened["execution_confidence_floor"] = "V26.4.7_WEAK_MOMENTUM_CAUTIOUS"
+                softened["reason"] = (str(softened.get("reason", "")) + f" | {nova_reason} -> confidence -{WEAK_MOMENTUM_CONFIDENCE_PENALTY}; EXECUTE_CAUTIOUS_SOFTENED").strip()
             else:
                 softened["decision"] = "NO_TRADE"
                 softened["entry_allowed"] = False
@@ -2528,8 +2615,7 @@ def apply_nova_brain_or_block(decision, market_mode, bb_state, bb_extreme, rsi, 
                 softened["wait_directional_memory"] = bias
                 softened["next_trigger"] = "momentum recovery / confidence uplift / timing improves"
                 softened["manual_action"] = f"{bias}_BIAS_WAIT_RECOVERY"
-                softened["confidence"] = min(safe_int(softened.get("confidence", 65), 65), 55)
-                softened["reason"] = (str(softened.get("reason", "")) + f" | {nova_reason} -> WAIT_VALID_DIRECTION_PRESERVED").strip()
+                softened["reason"] = (str(softened.get("reason", "")) + f" | {nova_reason} -> confidence -{WEAK_MOMENTUM_CONFIDENCE_PENALTY}; WAIT_VALID_DIRECTION_PRESERVED").strip()
             return softened
 
         blocked = no_trade(nova_reason, market_mode, bb_state)
@@ -2541,6 +2627,7 @@ def apply_nova_brain_or_block(decision, market_mode, bb_state, bb_extreme, rsi, 
             "entry_quality", "entry_quality_reason",
             "soft_lock_state", "soft_lock_direction", "soft_lock_allowed", "soft_lock_reason",
             "transition_decay_count", "transition_decay_required", "transition_decay_active", "transition_decay_reason",
+            "transition_wait_max_cycles", "transition_wait_released", "participation_release", "participation_release_reason",
             "soft_lock_counter_reset", "soft_lock_counter_reset_reason",
             "fresh_state_reset", "fresh_state_reset_reason", "market_state_fresh", "market_state_signature",
             "trend_walk_mode", "trend_walk_reason", "trend_walk_override",
@@ -3514,13 +3601,30 @@ def apply_transition_decay(locked_direction, market_mode, bb_state, rsi, macd_hi
     count = transition_decay_state.get(key, 0) + 1
     transition_decay_state[key] = count
 
+    if count > TRANSITION_WAIT_MAX_CYCLES:
+        transition_wait_release_state[key] = count
+        return False, {
+            "transition_decay_count": count,
+            "transition_decay_required": required,
+            "transition_decay_active": False,
+            "transition_decay_ratio": 1.0,
+            "transition_wait_max_cycles": TRANSITION_WAIT_MAX_CYCLES,
+            "transition_wait_released": True,
+            "participation_release": True,
+            "participation_release_reason": f"TRANSITION_WAIT cycles {count}>{TRANSITION_WAIT_MAX_CYCLES}; auto-release to cautious participation path",
+            "transition_decay_reason": f"persistent weakening exceeded maximum {count}/{TRANSITION_WAIT_MAX_CYCLES}; release soft lock instead of perpetual suppression",
+            **reset_info,
+        }
+
     if count >= required:
         return True, {
             "transition_decay_count": count,
             "transition_decay_required": required,
             "transition_decay_active": True,
             "transition_decay_ratio": 1.0,
-            "transition_decay_reason": f"persistent weakening count={count}/{required}; allow TRANSITION_WAIT",
+            "transition_wait_max_cycles": TRANSITION_WAIT_MAX_CYCLES,
+            "transition_wait_released": False,
+            "transition_decay_reason": f"persistent weakening count={count}/{required}; allow temporary TRANSITION_WAIT",
             **reset_info,
         }
 
@@ -3529,6 +3633,8 @@ def apply_transition_decay(locked_direction, market_mode, bb_state, rsi, macd_hi
         "transition_decay_required": required,
         "transition_decay_active": True,
         "transition_decay_ratio": round(max(0.0, min(1.0, float(count) / float(required))), 3),
+        "transition_wait_max_cycles": TRANSITION_WAIT_MAX_CYCLES,
+        "transition_wait_released": False,
         "transition_decay_reason": f"weakening detected count={count}/{required}; keep TREND_LOCK",
         **reset_info,
     }
@@ -4100,6 +4206,7 @@ def apply_candle_intelligence_or_block(decision, data, market_mode, bb_state, bb
         "dual_mode", "aggressive_mode", "dual_mode_reason", "trend_priority", "trend_priority_reason",
         "soft_lock_state", "soft_lock_direction", "soft_lock_allowed", "soft_lock_reason",
             "transition_decay_count", "transition_decay_required", "transition_decay_active", "transition_decay_reason",
+            "transition_wait_max_cycles", "transition_wait_released", "participation_release", "participation_release_reason",
             "soft_lock_counter_reset", "soft_lock_counter_reset_reason",
             "fresh_state_reset", "fresh_state_reset_reason", "market_state_fresh", "market_state_signature",
         "trend_walk_mode", "trend_walk_reason", "trend_walk_override",
@@ -4299,6 +4406,7 @@ def apply_trend_exhaustion_or_block(decision, data, market_mode, bb_state, bb_ex
             "rsi", "macd_hist", "bb_mid", "bb_upper2", "bb_lower2",
             "soft_lock_state", "soft_lock_direction", "soft_lock_allowed", "soft_lock_reason",
             "transition_decay_count", "transition_decay_required", "transition_decay_active", "transition_decay_reason",
+            "transition_wait_max_cycles", "transition_wait_released", "participation_release", "participation_release_reason",
             "soft_lock_counter_reset", "soft_lock_counter_reset_reason",
             "fresh_state_reset", "fresh_state_reset_reason", "market_state_fresh", "market_state_signature",
             "candle_trend", "structure_trend", "momentum_shape", "wick_rejection",
@@ -4534,6 +4642,7 @@ def apply_market_structure_exhaustion_master_gate(decision, data, market_mode, b
             "rsi", "macd_hist", "bb_mid", "bb_upper2", "bb_lower2",
             "soft_lock_state", "soft_lock_direction", "soft_lock_allowed", "soft_lock_reason",
             "transition_decay_count", "transition_decay_required", "transition_decay_active", "transition_decay_reason",
+            "transition_wait_max_cycles", "transition_wait_released", "participation_release", "participation_release_reason",
             "soft_lock_counter_reset", "soft_lock_counter_reset_reason",
             "fresh_state_reset", "fresh_state_reset_reason", "market_state_fresh", "market_state_signature",
             "candle_trend", "structure_trend", "momentum_shape", "wick_rejection",
@@ -4852,6 +4961,7 @@ def apply_pullback_continuation_or_block(decision, data, market_mode, bb_state, 
             "rsi", "macd_hist", "bb_mid", "bb_upper2", "bb_lower2",
             "soft_lock_state", "soft_lock_direction", "soft_lock_allowed", "soft_lock_reason",
             "transition_decay_count", "transition_decay_required", "transition_decay_active", "transition_decay_reason",
+            "transition_wait_max_cycles", "transition_wait_released", "participation_release", "participation_release_reason",
             "fresh_state_reset", "fresh_state_reset_reason", "market_state_fresh", "market_state_signature",
             "candle_trend", "structure_trend", "momentum_shape", "wick_rejection",
             "exhaustion_risk", "trend_quality", "candle_filter", "candle_reason",
@@ -5402,6 +5512,7 @@ def apply_entry_quality_or_block(decision, data, market_mode, bb_state, bb_extre
             "transition_aggressive_override", "transition_aggressive_reason",
             "soft_lock_state", "soft_lock_direction", "soft_lock_allowed", "soft_lock_reason",
             "transition_decay_count", "transition_decay_required", "transition_decay_active", "transition_decay_reason",
+            "transition_wait_max_cycles", "transition_wait_released", "participation_release", "participation_release_reason",
             "soft_lock_counter_reset", "soft_lock_counter_reset_reason",
             "fresh_state_reset", "fresh_state_reset_reason", "market_state_fresh", "market_state_signature",
             "trend_walk_mode", "trend_walk_reason", "trend_walk_override",

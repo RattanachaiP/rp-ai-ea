@@ -223,3 +223,26 @@ Decision gate:
 
 Guiding principle:
 **SIMPLIFY -> STABILIZE -> VALIDATE -> DISTRIBUTE LATER**
+
+---
+
+## V26.4.7 Participation Restoration Validation Addendum
+
+During local single-machine validation, also track whether decision logic now behaves as an opportunity-capture engine with controlled safety:
+
+- Count `WAIT_VALID` cycles and confirm they do not grow without bound.
+- Confirm `wait_valid_cycles > WAIT_TIMEOUT_CYCLES` produces `EXECUTE_CAUTIOUS` when directional authority is still valid and no hard safety block exists.
+- Confirm `TRANSITION_WAIT` weakening counters do not persist beyond `TRANSITION_WAIT_MAX_CYCLES` without an auto-release or confidence degradation path.
+- Confirm weak NOVA trend-momentum events preserve `bias`, `action`, `market_mode`, and `bb_state` while applying a confidence penalty.
+- Continue treating stale state, malformed payloads, invalid SL/TP, catastrophic spread, duplicate order protection, and hard risk controls as authoritative hard stops.
+
+Additional metrics to capture in `decision.json` snapshots:
+- `wait_valid_cycles`
+- `wait_timeout_cycles`
+- `wait_recovery_lifecycle`
+- `transition_wait_max_cycles`
+- `transition_wait_released`
+- `participation_release`
+- `participation_release_reason`
+- `confidence_penalty`
+- `momentum_governance_state`
