@@ -53,8 +53,8 @@ OUTPUT_PATH = BASE_PATH / "decision.json"
 
 
 RUNTIME_BRANCH = "codex-dev"
-ARCH_VERSION = "V26.4.7"
-BUILD_TAG = "participation-restoration-program"
+ARCH_VERSION = "V26.4.8"
+BUILD_TAG = "intent-to-payload-execution-fix"
 RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
 
 # V26 Execution Confidence Engine
@@ -74,6 +74,8 @@ WAIT_TIMEOUT_CYCLES = 4
 TRANSITION_WAIT_MAX_CYCLES = 6
 WEAK_MOMENTUM_CONFIDENCE_PENALTY = 15
 WEAK_MOMENTUM_EXECUTE_MIN_GAP = 2
+INTENT_PAYLOAD_MIN_SCORE_GAP = 2
+STRONG_TRANSITION_NORMAL_SCORE_GAP = 4
 
 V26_M3_MAX_NEGATIVE_PENALTY = -15
 V26_FORCE_SCALP_FOR_CAUTIOUS = True
@@ -561,13 +563,15 @@ def is_strong_trend_continuation_signal(key, bar_time, decision, market_mode, bb
 def _fast_participation_override_allowed(decision, data):
     if not V26_FAST_PARTICIPATION_OVERRIDE_ENABLED:
         return False, "FAST_PARTICIPATION_DISABLED"
-    if str(decision.get("decision", "")).upper() != "TRADE":
-        return False, "FAST_PARTICIPATION_NOT_TRADE"
-    if str(decision.get("market_mode", "")).upper() != "TREND":
-        return False, "FAST_PARTICIPATION_NOT_TREND"
+    decision_state = str(decision.get("decision", "")).upper()
+    intended = str(decision.get("action", decision.get("bias", decision.get("intended_action", "")))).upper()
+    if decision_state != "TRADE" and intended not in ("BUY", "SELL"):
+        return False, "FAST_PARTICIPATION_NO_DIRECTIONAL_INTENT"
+    if str(decision.get("market_mode", "")).upper() not in ("TREND", "TRANSITION"):
+        return False, "FAST_PARTICIPATION_NOT_TREND_OR_TRANSITION"
 
     bb_state = str(decision.get("bb_state", "")).upper()
-    if bb_state not in ("WALK_UP", "WALK_DOWN"):
+    if bb_state not in ("WALK_UP", "WALK_DOWN", "NORMAL"):
         return False, f"FAST_PARTICIPATION_BB_INVALID:{bb_state}"
 
     buy_score = safe_int(decision.get("buy_score", decision.get("buyScore", 0)), 0)
@@ -724,6 +728,11 @@ def build_cooldown_wait_decision(decision, data, fire_reason, cycle_start):
     blocked_decision["buyScore"] = buy_score
     blocked_decision["sellScore"] = sell_score
     blocked_decision["score_gap"] = score_gap
+    entry_price = safe_float(decision.get("entry_price", decision.get("price", decision.get("bid", data.get("bid", 0)))), 0.0)
+    if entry_price > 0:
+        blocked_decision["entry_price"] = round(entry_price, 3)
+        blocked_decision["price"] = round(entry_price, 3)
+        blocked_decision["bid"] = round(entry_price, 3)
     blocked_decision["entry_timing"] = "WAIT_COOLDOWN_CONTINUATION"
     blocked_decision["pullback_state"] = "REPORT_ONLY"
     blocked_decision["execution_state"] = "WAIT"
@@ -2131,6 +2140,99 @@ def ensure_ea_v17_compat_fields(data):
 
 
 
+def _trade_entry_price(decision):
+    """Best available executable entry reference for late payload construction."""
+    for key in ("entry_price", "price", "bid", "current_bid", "last_bid"):
+        value = safe_float(decision.get(key, 0), 0.0)
+        if value > 0:
+            return value
+    sl = safe_float(decision.get("sl", decision.get("stop_loss", 0)), 0.0)
+    tp = safe_float(decision.get("tp", decision.get("tp1", 0)), 0.0)
+    bias = str(decision.get("action", decision.get("bias", ""))).upper()
+    if sl > 0 and tp > 0:
+        return (sl + tp) / 2.0
+    if sl > 0:
+        mode = str(decision.get("market_mode", "TRANSITION")).upper()
+        sl_points, _ = risk_points_for_mode(mode)
+        if bias == "BUY":
+            return sl + sl_points
+        if bias == "SELL":
+            return sl - sl_points
+    return 0.0
+
+
+def construct_risk_payload_before_validation(decision):
+    """
+    V26.4.8 intent-to-payload bridge.
+
+    Any final TRADE decision with BUY/SELL intent must reach payload validation with
+    concrete SL/TP. Validation remains the last hard stop if construction cannot
+    produce a valid risk packet from available market context.
+    """
+    if not isinstance(decision, dict):
+        return decision
+
+    if str(decision.get("decision", "")).upper() != "TRADE":
+        return decision
+
+    bias = str(decision.get("action", decision.get("bias", ""))).upper()
+    if bias not in ("BUY", "SELL"):
+        return decision
+
+    hard_block, hard_reason = _v26_has_hard_block(decision)
+    if hard_block:
+        decision["risk_payload_construction"] = "SKIPPED_HARD_BLOCK"
+        decision["risk_payload_construction_reason"] = hard_reason
+        return decision
+
+    mode = str(decision.get("market_mode", decision.get("mode", "TRANSITION"))).upper()
+    sl_points, tp_points = risk_points_for_mode(mode)
+    entry_price = _trade_entry_price(decision)
+    sl = safe_float(decision.get("sl", decision.get("stop_loss", 0)), 0.0)
+    tp = safe_float(decision.get("tp", decision.get("tp1", 0)), 0.0)
+    built = []
+
+    if entry_price > 0:
+        if sl <= 0:
+            sl = entry_price - sl_points if bias == "BUY" else entry_price + sl_points
+            built.append("SL")
+        if tp <= 0:
+            tp = entry_price + tp_points if bias == "BUY" else entry_price - tp_points
+            built.append("TP")
+
+    if sl > 0:
+        decision["sl"] = round(sl, 3)
+        decision["stop_loss"] = round(sl, 3)
+    if tp > 0:
+        decision["tp"] = round(tp, 3)
+        decision["tp1"] = round(tp, 3)
+
+    if entry_price > 0:
+        decision.setdefault("entry_price", round(entry_price, 3))
+        decision.setdefault("price", round(entry_price, 3))
+
+    if built:
+        decision["risk_payload_construction"] = "BUILT_BEFORE_VALIDATION"
+        decision["risk_payload_construction_reason"] = f"intent={bias}; mode={mode}; built={','.join(built)}; entry={entry_price:.3f}"
+    else:
+        decision.setdefault("risk_payload_construction", "UNCHANGED_ALREADY_VALID" if sl > 0 and tp > 0 else "FAILED_NO_ENTRY_PRICE")
+        if sl <= 0 or tp <= 0:
+            decision["risk_payload_construction_reason"] = "missing positive entry_price/bid for SL/TP construction"
+
+    if sl > 0 and tp > 0:
+        decision["risk_payload_valid_after_construction"] = True
+        decision["payload_valid"] = True
+        if str(decision.get("management", "")).upper() in ("", "NO_TRADE"):
+            decision["management"] = "SCALP_TP"
+            decision["mgmt"] = "SCALP_TP"
+        decision.setdefault("entry_slot", safe_int(decision.get("slot", 1), 1) or 1)
+        decision.setdefault("slot", safe_int(decision.get("entry_slot", 1), 1) or 1)
+    else:
+        decision["risk_payload_valid_after_construction"] = False
+
+    return decision
+
+
 def _build_wait_or_block_payload(source_data, reason, state_label, payload_reason, bias_hint="NEUTRAL", market_mode="UNKNOWN", bb_state="UNKNOWN"):
     """
     Create explicit non-trade output states while preserving lifecycle freshness.
@@ -2248,6 +2350,7 @@ def write_decision(data):
                 data = apply_v25_3_rsi_soft_penalty_recovery(data)
                 data = apply_final_decision_gate_trace_v25_2(data)
                 data = normalize_decision_schema_v20_2(data)
+                data = construct_risk_payload_before_validation(data)
                 data = validate_final_decision_payload(data)
                 data = normalize_decision_schema_v20_2(data)
                 data["runtime_branch"] = RUNTIME_BRANCH
@@ -2368,6 +2471,8 @@ def trade(bias, entry_type, sl, tp, reason, entry_slot=1, market_mode="UNKNOWN",
         "market_mode": market_mode,
         "bb_state": bb_state,
         "management": management,
+        "entry_price": round((sl + tp) / 2, 3) if sl > 0 and tp > 0 else 0,
+        "price": round((sl + tp) / 2, 3) if sl > 0 and tp > 0 else 0,
         "stop_loss": round(sl, 3),
         "tp1": round(tp, 3),
         "reason": reason,
@@ -2621,7 +2726,7 @@ def apply_nova_brain_or_block(decision, market_mode, bb_state, bb_extreme, rsi, 
         blocked = no_trade(nova_reason, market_mode, bb_state)
         for key in (
             "buy_score", "sell_score", "score_gap", "dir_m15", "dir_m3",
-            "rsi", "macd_hist", "bb_mid", "bb_upper2", "bb_lower2",
+            "rsi", "macd_hist", "bb_mid", "bb_upper2", "bb_lower2", "bid", "price", "entry_price", "bb_middle", "bb_upper", "bb_lower",
             "analysis_quality", "entry_allowed", "adaptive_gap", "learning_enabled", "learning_key",
             "learning_gap_adjust", "learning_note", "learning_stats", "bb_extreme",
             "entry_quality", "entry_quality_reason",
@@ -3157,25 +3262,31 @@ def is_strong_transition_normal_setup(bias, score_gap, rsi, macd_hist, bid, bb_u
         reasons.append(f"gap<{TRANSITION_NORMAL_ALLOW_GAP}")
 
     direction_ok = transition_rsi_macd_confirm(bias, rsi, macd_hist)
+    strong_gap_soft_confirm = score_gap >= STRONG_TRANSITION_NORMAL_SCORE_GAP
 
     if bias == "BUY":
-        if rsi < TRANSITION_RSI_BUY_MIN:
+        if rsi < TRANSITION_RSI_BUY_MIN and not strong_gap_soft_confirm:
             reasons.append(f"rsi_not_bullish:{rsi:.2f}<{TRANSITION_RSI_BUY_MIN}")
+        elif rsi < TRANSITION_RSI_BUY_MIN and strong_gap_soft_confirm:
+            reasons.append(f"rsi_soft_penalty_only:{rsi:.2f}<{TRANSITION_RSI_BUY_MIN};gap={score_gap}")
         if macd_hist < TRANSITION_MACD_BUY_MIN:
             reasons.append(f"macd_strongly_opposite:{macd_hist:.2f}<{TRANSITION_MACD_BUY_MIN}")
     elif bias == "SELL":
-        if rsi > TRANSITION_RSI_SELL_MAX:
+        if rsi > TRANSITION_RSI_SELL_MAX and not strong_gap_soft_confirm:
             reasons.append(f"rsi_not_bearish:{rsi:.2f}>{TRANSITION_RSI_SELL_MAX}")
+        elif rsi > TRANSITION_RSI_SELL_MAX and strong_gap_soft_confirm:
+            reasons.append(f"rsi_soft_penalty_only:{rsi:.2f}>{TRANSITION_RSI_SELL_MAX};gap={score_gap}")
         if macd_hist > TRANSITION_MACD_SELL_MAX:
             reasons.append(f"macd_strongly_opposite:{macd_hist:.2f}>{TRANSITION_MACD_SELL_MAX}")
     else:
         reasons.append("neutral_bias")
 
     # Near BB middle is allowed only if both RSI and MACD confirm the direction.
-    if near_middle and not direction_ok:
+    if near_middle and not direction_ok and not strong_gap_soft_confirm:
         reasons.append("near_bb_middle_without_rsi_macd_confirm")
 
-    return len(reasons) == 0, reasons
+    hard_reasons = [r for r in reasons if not str(r).startswith("rsi_soft_penalty_only:")]
+    return len(hard_reasons) == 0, reasons
 
 def get_selective_range_reversal_bias(bb_state, rsi, macd_hist, buy_score, sell_score):
     """
@@ -4200,7 +4311,7 @@ def apply_candle_intelligence_or_block(decision, data, market_mode, bb_state, bb
     blocked = no_trade(reason, market_mode, bb_state)
     for key in (
         "buy_score", "sell_score", "buyScore", "sellScore", "score_gap", "dir_m15", "dir_m3",
-        "rsi", "macd_hist", "bb_mid", "bb_upper2", "bb_lower2",
+        "rsi", "macd_hist", "bb_mid", "bb_upper2", "bb_lower2", "bid", "price", "entry_price", "bb_middle", "bb_upper", "bb_lower",
         "analysis_quality", "adaptive_gap", "learning_enabled", "learning_key",
         "learning_gap_adjust", "learning_note", "learning_stats", "bb_extreme",
         "dual_mode", "aggressive_mode", "dual_mode_reason", "trend_priority", "trend_priority_reason",
@@ -4403,7 +4514,7 @@ def apply_trend_exhaustion_or_block(decision, data, market_mode, bb_state, bb_ex
         blocked = no_trade(reason, market_mode, bb_state)
         for key in (
             "buy_score", "sell_score", "buyScore", "sellScore", "score_gap",
-            "rsi", "macd_hist", "bb_mid", "bb_upper2", "bb_lower2",
+            "rsi", "macd_hist", "bb_mid", "bb_upper2", "bb_lower2", "bid", "price", "entry_price", "bb_middle", "bb_upper", "bb_lower",
             "soft_lock_state", "soft_lock_direction", "soft_lock_allowed", "soft_lock_reason",
             "transition_decay_count", "transition_decay_required", "transition_decay_active", "transition_decay_reason",
             "transition_wait_max_cycles", "transition_wait_released", "participation_release", "participation_release_reason",
@@ -4639,7 +4750,7 @@ def apply_market_structure_exhaustion_master_gate(decision, data, market_mode, b
         blocked = no_trade(reason, market_mode, bb_state)
         for key in (
             "buy_score", "sell_score", "buyScore", "sellScore", "score_gap",
-            "rsi", "macd_hist", "bb_mid", "bb_upper2", "bb_lower2",
+            "rsi", "macd_hist", "bb_mid", "bb_upper2", "bb_lower2", "bid", "price", "entry_price", "bb_middle", "bb_upper", "bb_lower",
             "soft_lock_state", "soft_lock_direction", "soft_lock_allowed", "soft_lock_reason",
             "transition_decay_count", "transition_decay_required", "transition_decay_active", "transition_decay_reason",
             "transition_wait_max_cycles", "transition_wait_released", "participation_release", "participation_release_reason",
@@ -4958,7 +5069,7 @@ def apply_pullback_continuation_or_block(decision, data, market_mode, bb_state, 
         blocked = no_trade(reason, market_mode, bb_state)
         for key in (
             "buy_score", "sell_score", "buyScore", "sellScore", "score_gap",
-            "rsi", "macd_hist", "bb_mid", "bb_upper2", "bb_lower2",
+            "rsi", "macd_hist", "bb_mid", "bb_upper2", "bb_lower2", "bid", "price", "entry_price", "bb_middle", "bb_upper", "bb_lower",
             "soft_lock_state", "soft_lock_direction", "soft_lock_allowed", "soft_lock_reason",
             "transition_decay_count", "transition_decay_required", "transition_decay_active", "transition_decay_reason",
             "transition_wait_max_cycles", "transition_wait_released", "participation_release", "participation_release_reason",
@@ -5430,16 +5541,25 @@ def entry_quality_gate(decision, data, market_mode, bb_state, bb_extreme, buy_sc
 
     # V19.1: TRANSITION + BB NORMAL must explicitly pass the balanced transition gate.
     if market_mode == "TRANSITION" and bb_state == "NORMAL" and not transition_strong_ok:
-        # V19.8: Aggressive mode can pass transition-normal with a selective setup.
-        # It still requires score_gap >= 2 and RSI/MACD not strongly opposite.
-        if not (dual_mode == "AGGRESSIVE" and score_gap >= DUAL_AGGRESSIVE_MIN_GAP and dual_direction_confirm(bias, rsi, macd_hist)):
+        # V26.4.8: strong score dominance in TRANSITION+NORMAL executes cautiously.
+        # Slight RSI misses are confidence penalties, not hard vetoes, when MACD is not strongly opposite.
+        transition_gap_override = score_gap >= STRONG_TRANSITION_NORMAL_SCORE_GAP and dual_direction_confirm(bias, rsi, macd_hist)
+        if not (
+            (dual_mode == "AGGRESSIVE" and score_gap >= DUAL_AGGRESSIVE_MIN_GAP and dual_direction_confirm(bias, rsi, macd_hist))
+            or transition_gap_override
+        ):
             return False, (
                 f"ENTRY BLOCK | TRANSITION+NORMAL not strong enough "
                 f"gap={score_gap} need={TRANSITION_NORMAL_ALLOW_GAP} "
                 f"reasons={transition_reasons} | dual={dual_mode} | {learn_note}"
             )
         decision["transition_aggressive_override"] = True
-        decision["transition_aggressive_reason"] = dual_mode_reason
+        decision["transition_aggressive_reason"] = (
+            "V26.4.8 strong transition-normal score gap cautious allow" if transition_gap_override else dual_mode_reason
+        )
+        decision["execution_state"] = "EXECUTE_CAUTIOUS"
+        decision["management"] = "SCALP_TP"
+        decision["mgmt"] = "SCALP_TP"
 
     # V25 TREND NORMAL MOMENTUM OVERRIDE
     # Runs before adaptive score-gap block. Fixes TREND+NORMAL undertrade when
@@ -5505,7 +5625,7 @@ def apply_entry_quality_or_block(decision, data, market_mode, bb_state, bb_extre
         blocked = no_trade(gate_reason, market_mode, bb_state)
         for key in (
             "buy_score", "sell_score", "score_gap", "dir_m15", "dir_m3",
-            "rsi", "macd_hist", "bb_mid", "bb_upper2", "bb_lower2",
+            "rsi", "macd_hist", "bb_mid", "bb_upper2", "bb_lower2", "bid", "price", "entry_price", "bb_middle", "bb_upper", "bb_lower",
             "analysis_quality", "adaptive_gap", "learning_enabled", "learning_key",
             "learning_gap_adjust", "learning_note", "learning_stats", "bb_extreme",
             "dual_mode", "aggressive_mode", "dual_mode_reason", "trend_priority", "trend_priority_reason",
@@ -6040,6 +6160,12 @@ def build_decision(data):
         sl = bid - sl_points
         tp = 0 if management == "HOLD_TRAIL" else choose_range_tp("BUY", bid, bb_middle, bb_upper, bb_lower, tp_points)
         decision_data = trade("BUY", entry_type, sl, tp, reason, entry_slot, market_mode, bb_state, management)
+        decision_data["entry_price"] = round(bid, 3)
+        decision_data["price"] = round(bid, 3)
+        decision_data["bid"] = round(bid, 3)
+        decision_data["bb_middle"] = round(bb_middle, 3) if bb_middle > 0 else 0
+        decision_data["bb_upper"] = round(bb_upper, 3) if bb_upper > 0 else 0
+        decision_data["bb_lower"] = round(bb_lower, 3) if bb_lower > 0 else 0
         decision_data = attach_soft_lock_fields(decision_data, soft_lock)
         decision_data = apply_entry_quality_or_block(
             decision_data, data, market_mode, bb_state, bb_extreme, buy_score, sell_score
@@ -6071,6 +6197,12 @@ def build_decision(data):
         sl = bid + sl_points
         tp = 0 if management == "HOLD_TRAIL" else choose_range_tp("SELL", bid, bb_middle, bb_upper, bb_lower, tp_points)
         decision_data = trade("SELL", entry_type, sl, tp, reason, entry_slot, market_mode, bb_state, management)
+        decision_data["entry_price"] = round(bid, 3)
+        decision_data["price"] = round(bid, 3)
+        decision_data["bid"] = round(bid, 3)
+        decision_data["bb_middle"] = round(bb_middle, 3) if bb_middle > 0 else 0
+        decision_data["bb_upper"] = round(bb_upper, 3) if bb_upper > 0 else 0
+        decision_data["bb_lower"] = round(bb_lower, 3) if bb_lower > 0 else 0
         decision_data = attach_soft_lock_fields(decision_data, soft_lock)
         decision_data = apply_entry_quality_or_block(
             decision_data, data, market_mode, bb_state, bb_extreme, buy_score, sell_score

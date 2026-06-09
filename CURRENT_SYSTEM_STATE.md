@@ -1,4 +1,4 @@
-# CURRENT_SYSTEM_STATE — V26.4.7 Participation Restoration Program
+# CURRENT_SYSTEM_STATE — V26.4.8 Intent-to-Payload Execution Fix
 
 Date: 2026-06-09 (UTC)
 Authoritative branch policy: `codex-dev`
@@ -7,7 +7,7 @@ Authoritative branch policy: `codex-dev`
 - Single authoritative runtime lineage must be maintained on `codex-dev`.
 - AI-room patch chains are reference inputs only and are not runtime authorities.
 - Required promotion sequence: `AI ROOM -> CODEX MERGE -> codex-dev verification -> TEST -> LIVE promotion`.
-- Architecture authority: V26.4.6 Recursive Participation Suppression Fix remains the baseline; V26.4.7 restores controlled participation on top of that authority.
+- Architecture authority: V26.4.6 Recursive Participation Suppression Fix remains the baseline; V26.4.8 restores controlled participation by forcing valid risk-payload construction before final validation.
 
 ## Current repository audit snapshot
 - Active runtime engine file in repository: `bridge/ai_decision_engine_xauusd_v26_execution_confidence_engine.py`.
@@ -46,3 +46,11 @@ Participation restoration intentionally comes before scaling. Before increasing 
 - runner enablement
 - profit protection
 - average win vs. average loss
+
+## V26.4.8 intent-to-payload execution fix
+- Directional `TRADE` intent is now normalized through `construct_risk_payload_before_validation()` immediately before final payload validation.
+- A BUY/SELL `TRADE` can no longer reach `validate_final_decision_payload()` with `SL=0` / `TP=0` when a positive `entry_price` / `bid` exists and no hard safety block is active.
+- If SL/TP construction cannot be completed because entry context is missing, validation emits controlled `WAIT_VALID` with explicit `risk_payload_construction_reason` instead of silently publishing malformed execution payload.
+- Weak NOVA trend momentum remains a confidence penalty path; directional bias, action, scores, and cautious scalp management are preserved when hard safety remains clear.
+- Strong `TRANSITION+NORMAL` score dominance (`score_gap >= 4`) treats small RSI misses as `rsi_soft_penalty_only` and allows cautious scalp execution when MACD is not strongly opposite.
+- Fast participation override now recognizes preserved BUY/SELL intent in TREND/TRANSITION NORMAL contexts instead of returning `FAST_PARTICIPATION_NOT_TRADE` as a contradiction to participation recovery.

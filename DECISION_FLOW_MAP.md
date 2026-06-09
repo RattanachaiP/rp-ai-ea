@@ -37,3 +37,14 @@ Recommended safe migration sequence:
 2. Verify parity in decision outputs and startup identity logs.
 3. Update operational launch scripts to point to `_live.py`.
 4. Keep previous file as rollback reference until burn-in window passes.
+
+## V26.4.8 intent-to-payload flow update
+Final write normalization now includes an explicit intent-to-payload bridge:
+
+`directional ACTION/BIAS`
+-> hard-safety check
+-> `construct_risk_payload_before_validation()`
+-> final payload validation
+-> executable `TRADE` or explicit `WAIT_VALID` / hard-safety block
+
+This guarantees controlled participation packets are built before validation, not after validation has already downgraded them.
