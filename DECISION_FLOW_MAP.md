@@ -48,3 +48,23 @@ Final write normalization now includes an explicit intent-to-payload bridge:
 -> executable `TRADE` or explicit `WAIT_VALID` / hard-safety block
 
 This guarantees controlled participation packets are built before validation, not after validation has already downgraded them.
+
+## V26.5 execution-quality flow update
+Directional ideas now pass through an execution-quality core before final confidence and payload validation:
+
+`directional ACTION/BIAS`
+-> `ENTRY_LOCATION_SCORE`
+-> `directional idea + execution legs`
+-> `profit lock ladder metadata`
+-> execution confidence
+-> risk payload construction
+-> final validation
+-> executable `TRADE` or explicit quality wait.
+
+The quality core is not a new indicator layer. It reuses existing PA/structure/SR/BB/RSI/MACD/timing fields to answer the execution question: `Is this location still worth entering?`
+
+Leg governance remains one-directional only:
+- Leg A scouts the idea.
+- Leg B may participate only after pullback/continuation quality improves.
+- Leg C is reserved for runner-quality trend expansion.
+- All scaling is winner-only; martingale, averaging losers, and hedge architecture remain prohibited.

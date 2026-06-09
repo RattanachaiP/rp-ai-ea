@@ -54,3 +54,16 @@ Participation restoration intentionally comes before scaling. Before increasing 
 - Weak NOVA trend momentum remains a confidence penalty path; directional bias, action, scores, and cautious scalp management are preserved when hard safety remains clear.
 - Strong `TRANSITION+NORMAL` score dominance (`score_gap >= 4`) treats small RSI misses as `rsi_soft_penalty_only` and allows cautious scalp execution when MACD is not strongly opposite.
 - Fast participation override now recognizes preserved BUY/SELL intent in TREND/TRANSITION NORMAL contexts instead of returning `FAST_PARTICIPATION_NOT_TRADE` as a contradiction to participation recovery.
+
+## V26.5 execution quality core upgrade
+- Runtime authority advances to `V26.5 | execution-quality-core-upgrade` while keeping `codex-dev` as the single authoritative lineage.
+- Execution evaluation now requires `Direction + Entry Quality + Position Construction + Profit Extraction` instead of direction-only participation.
+- `ENTRY_LOCATION_SCORE` is a first-class decision field. It rewards fresh breakout/walk context, healthy pullbacks, continuation return, and directional dominance; it penalizes exhaustion, extreme RSI, MA50 distance, BB overextension, late expansion entry, and reversal proximity.
+- Poor entry location is treated as a finite quality wait (`WAIT_ENTRY_LOCATION` / `WAIT_VALID`) rather than a malformed or direction-erasing payload.
+- Decision payloads now publish a directional idea with multi-leg construction metadata:
+  - Leg A: Scout Entry / scalp profit bank.
+  - Leg B: Confirmation Entry / pullback continuation participation.
+  - Leg C: Continuation Entry / runner capture.
+- Scaling policy is explicit: scale into winners only, no martingale, no averaging losers, and no buy+sell hedge architecture.
+- Profit extraction metadata now includes a profit-lock ladder concept: +100 points lock +50, +200 lock +100, +300 lock +200.
+- Trade-memory analysis now reports daily expectancy metrics: Win Rate, Average Win, Average Loss, Profit Factor, Expectancy, and Runner Capture Rate.
