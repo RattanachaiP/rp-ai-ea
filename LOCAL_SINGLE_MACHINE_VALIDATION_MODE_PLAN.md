@@ -246,3 +246,13 @@ Additional metrics to capture in `decision.json` snapshots:
 - `participation_release_reason`
 - `confidence_penalty`
 - `momentum_governance_state`
+
+## V26.4.8 Intent-to-Payload Verification Checklist Addendum
+During Local Single-Machine mode, verify these additional pass criteria:
+
+1. For every `decision=TRADE` with `action=BUY` or `action=SELL`, confirm `sl > 0`, `tp > 0`, `management != NO_TRADE`, and `entry_slot > 0`.
+2. Confirm `risk_payload_construction` is either `UNCHANGED_ALREADY_VALID` or `BUILT_BEFORE_VALIDATION` for executable trades.
+3. If `risk_payload_construction=FAILED_NO_ENTRY_PRICE`, confirm the final decision is controlled `WAIT_VALID` and not an executable malformed trade.
+4. Confirm weak NOVA momentum appears as `momentum_governance_state=SOFTENED_WEAK_MOMENTUM` with confidence penalty instead of an unconditional `NO_TRADE`.
+5. Confirm strong `TRANSITION+NORMAL` setups with `score_gap >= 4` and only slight RSI miss produce cautious execution or explicit risk-construction wait, not generic `NO_TRADE`.
+6. Confirm cooldown / fast participation logs no longer end in `FAST_PARTICIPATION_NOT_TRADE` when BUY/SELL intent is preserved and infrastructure is fresh.
