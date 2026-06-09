@@ -53,8 +53,8 @@ OUTPUT_PATH = BASE_PATH / "decision.json"
 
 
 RUNTIME_BRANCH = "codex-dev"
-ARCH_VERSION = "V26.4.8"
-BUILD_TAG = "intent-to-payload-execution-fix"
+ARCH_VERSION = "V26.5"
+BUILD_TAG = "execution-quality-core-upgrade"
 RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
 
 # V26 Execution Confidence Engine
@@ -76,6 +76,23 @@ WEAK_MOMENTUM_CONFIDENCE_PENALTY = 15
 WEAK_MOMENTUM_EXECUTE_MIN_GAP = 2
 INTENT_PAYLOAD_MIN_SCORE_GAP = 2
 STRONG_TRANSITION_NORMAL_SCORE_GAP = 4
+
+# V26.5 Execution Quality Core Upgrade
+# Direction is no longer enough; every directional idea must pass location,
+# leg construction, and profit-extraction quality checks before execution.
+V26_5_ENTRY_LOCATION_MIN_EXECUTE = 50
+V26_5_ENTRY_LOCATION_MIN_CONFIRMATION = 62
+V26_5_ENTRY_LOCATION_MIN_CONTINUATION = 70
+V26_5_ENTRY_LOCATION_POOR_CAP = V26_WAIT_SCORE
+V26_5_ENTRY_LOCATION_WEAK_PENALTY = 18
+V26_5_ENTRY_LOCATION_GOOD_BONUS = 10
+V26_5_ENTRY_LOCATION_EXCELLENT_BONUS = 16
+V26_5_PROFIT_LOCK_LADDER_POINTS = [
+    {"profit_points": 100, "lock_points": 50},
+    {"profit_points": 200, "lock_points": 100},
+    {"profit_points": 300, "lock_points": 200},
+]
+V26_5_DAILY_METRICS_ENABLED = True
 
 V26_M3_MAX_NEGATIVE_PENALTY = -15
 V26_FORCE_SCALP_FOR_CAUTIOUS = True
@@ -1225,6 +1242,254 @@ def apply_wait_valid_timeout_recovery(decision, bias, mode, bb, hard_block=False
         decision["reason"] = (str(decision.get("reason", "")) + " | V26_4_7_WAIT_TIMEOUT_EXECUTE_CAUTIOUS").strip()
     return decision
 
+def _v26_5_points_distance(a, b):
+    a = safe_float(a, 0.0)
+    b = safe_float(b, 0.0)
+    if a <= 0 or b <= 0:
+        return 0.0
+    return abs(a - b)
+
+
+def _v26_5_bb_position(entry_price, bb_upper, bb_middle, bb_lower):
+    width = safe_float(bb_upper, 0.0) - safe_float(bb_lower, 0.0)
+    if entry_price <= 0 or width <= 0:
+        return 0.5
+    return clamp_float((entry_price - safe_float(bb_lower, 0.0)) / width, 0.0, 1.0)
+
+
+def compute_entry_location_score_v26_5(decision):
+    """
+    V26.5 ENTRY_LOCATION_SCORE.
+
+    Scores whether a correct directional idea is still worth entering at the
+    current location. This intentionally reuses existing market-state outputs
+    and does not introduce new indicators or classifier trees.
+    """
+    if not isinstance(decision, dict):
+        return 50, [], []
+
+    bias = str(decision.get("action", decision.get("bias", "NEUTRAL"))).upper()
+    mode = str(decision.get("market_mode", decision.get("mode", "TRANSITION"))).upper()
+    bb_state = str(decision.get("confirmed_bb_state", decision.get("bb_state", decision.get("bb", "NORMAL")))).upper()
+    entry_price = safe_float(decision.get("entry_price", decision.get("price", decision.get("bid", 0))), 0.0)
+    ma50 = safe_float(decision.get("ma50", 0), 0.0)
+    bb_upper = safe_float(decision.get("bb_upper", 0), 0.0)
+    bb_middle = safe_float(decision.get("bb_middle", 0), 0.0)
+    bb_lower = safe_float(decision.get("bb_lower", 0), 0.0)
+    rsi = safe_float(decision.get("rsi", 50), 50.0)
+    score_gap = safe_int(decision.get("score_gap", 0), 0)
+    late_score = safe_int(decision.get("late_entry_score", 0), 0)
+    exhaustion_score = max(
+        safe_int(decision.get("exhaustion_score", 0), 0),
+        safe_int(decision.get("trend_exhaustion_score", 0), 0),
+        safe_int(decision.get("master_gate_score", 0), 0),
+        safe_int(decision.get("exhaustion_risk", 0), 0),
+    )
+    pullback_quality = safe_int(decision.get("pullback_quality", 0), 0)
+    continuation_quality = safe_int(decision.get("continuation_quality", 0), 0)
+    trend_quality = safe_int(decision.get("trend_quality", 0), 0)
+    location_base = safe_int(decision.get("entry_location_score", 50), 50)
+    bb_pos = _v26_5_bb_position(entry_price, bb_upper, bb_middle, bb_lower)
+    dist_ma50 = _v26_5_points_distance(entry_price, ma50)
+    bb_width = _v26_5_points_distance(bb_upper, bb_lower)
+    dist_ma50_pct = (dist_ma50 / entry_price) if entry_price > 0 else 0.0
+    bb_extension_ratio = 0.0
+    if bb_width > 0 and bb_middle > 0:
+        bb_extension_ratio = _v26_5_points_distance(entry_price, bb_middle) / bb_width
+
+    score = 50
+    positives = []
+    negatives = []
+
+    if location_base >= 65:
+        score += 10
+        positives.append(f"prior_location={location_base}")
+    elif location_base <= ENTRY_LOCATION_BLOCK_SCORE:
+        score -= 12
+        negatives.append(f"prior_location={location_base}")
+
+    if score_gap >= 5:
+        score += 10
+        positives.append(f"directional_dominance_gap={score_gap}")
+    elif score_gap >= 3:
+        score += 6
+        positives.append(f"directional_edge_gap={score_gap}")
+
+    if mode == "TREND" and pullback_quality >= PULLBACK_CONTINUATION_MIN_QUALITY:
+        score += 16
+        positives.append(f"healthy_pullback={pullback_quality}")
+    elif mode == "TREND" and pullback_quality >= PULLBACK_MIN_QUALITY:
+        score += 10
+        positives.append(f"acceptable_pullback={pullback_quality}")
+
+    if continuation_quality >= PULLBACK_ALLOW_RUNNER_QUALITY:
+        score += 14
+        positives.append(f"trend_continuation_pullback={continuation_quality}")
+    elif continuation_quality >= PULLBACK_CONTINUATION_MIN_QUALITY:
+        score += 8
+        positives.append(f"continuation_return={continuation_quality}")
+
+    if str(decision.get("continuation_return", False)).upper() in ("TRUE", "1", "YES"):
+        score += 6
+        positives.append("continuation_return_confirmed")
+
+    if bb_state in ("WALK_UP", "WALK_DOWN") and mode == "TREND" and trend_quality >= CANDLE_MIN_TREND_QUALITY:
+        score += 8
+        positives.append(f"fresh_breakout_or_walk={bb_state}")
+
+    if bias == "BUY" and bb_state == "WALK_UP" and 0.45 <= bb_pos <= 0.82:
+        score += 8
+        positives.append(f"buy_walk_not_extreme_pos={bb_pos:.2f}")
+    if bias == "SELL" and bb_state == "WALK_DOWN" and 0.18 <= bb_pos <= 0.55:
+        score += 8
+        positives.append(f"sell_walk_not_extreme_pos={bb_pos:.2f}")
+
+    exhaustion_state = str(decision.get("exhaustion_state", "")).upper()
+    if exhaustion_state == "HIGH" or exhaustion_score >= EXHAUSTION_BLOCK_SCORE:
+        score -= 28
+        negatives.append(f"exhaustion_candle_or_stack={exhaustion_score}")
+    elif exhaustion_score >= TREND_EXHAUSTION_WARN_LEVEL:
+        score -= 16
+        negatives.append(f"exhaustion_warning={exhaustion_score}")
+
+    if (bias == "BUY" and rsi >= RSI_BUY_BLOWOFF) or (bias == "SELL" and rsi <= RSI_SELL_BLOWOFF):
+        score -= 18
+        negatives.append(f"extreme_rsi={rsi:.2f}")
+
+    if dist_ma50_pct >= DIST_MA50_EXTREME_PCT and mode == "TREND":
+        score -= 12
+        negatives.append(f"distance_from_ma50={dist_ma50:.2f}")
+
+    if bb_extension_ratio >= DIST_BB_MID_EXTREME_RATIO:
+        score -= 12
+        negatives.append(f"bb_overextension={bb_extension_ratio:.2f}")
+
+    if late_score >= LATE_ENTRY_BLOCK_SCORE or str(decision.get("execution_timing_state", "")).upper() == "LATE_CONTINUATION":
+        score -= 24
+        negatives.append(f"late_expansion_entry={late_score}")
+    elif late_score >= 50:
+        score -= 10
+        negatives.append(f"late_entry_warning={late_score}")
+
+    if bb_state in ("REVERSAL_UP", "REVERSAL_DOWN", "DEV4_UPPER", "DEV4_LOWER"):
+        reversal_against_location = (
+            (bias == "BUY" and bb_state in ("REVERSAL_UP", "DEV4_UPPER"))
+            or (bias == "SELL" and bb_state in ("REVERSAL_DOWN", "DEV4_LOWER"))
+        )
+        if reversal_against_location:
+            score -= 20
+            negatives.append(f"reversal_proximity={bb_state}")
+
+    return _v26_clamp_score(score), positives, negatives
+
+
+def build_execution_legs_v26_5(decision):
+    bias = str(decision.get("action", decision.get("bias", "NEUTRAL"))).upper()
+    location_score = safe_int(decision.get("entry_location_score", 0), 0)
+    continuation_quality = safe_int(decision.get("continuation_quality", 0), 0)
+    score_gap = safe_int(decision.get("score_gap", 0), 0)
+    execution_state = str(decision.get("execution_state", "")).upper()
+    in_profit_only = True
+
+    legs = [
+        {
+            "leg": "A",
+            "name": "Scout Entry",
+            "purpose": "directional confirmation and scalp profit bank",
+            "enabled": bias in ("BUY", "SELL") and location_score >= V26_5_ENTRY_LOCATION_MIN_EXECUTE,
+            "scale_rule": "initial entry only; never average a loser",
+            "profit_role": "SCALP_PROFIT",
+        },
+        {
+            "leg": "B",
+            "name": "Confirmation Entry",
+            "purpose": "pullback continuation participation after Leg A is positive",
+            "enabled": bias in ("BUY", "SELL") and location_score >= V26_5_ENTRY_LOCATION_MIN_CONFIRMATION and continuation_quality >= PULLBACK_CONTINUATION_MIN_QUALITY,
+            "scale_rule": "only add if existing idea P/L is positive; never average a loser",
+            "profit_role": "TREND_CONTINUATION",
+        },
+        {
+            "leg": "C",
+            "name": "Continuation Entry",
+            "purpose": "trend expansion runner after confirmed winner state",
+            "enabled": bias in ("BUY", "SELL") and location_score >= V26_5_ENTRY_LOCATION_MIN_CONTINUATION and continuation_quality >= PULLBACK_ALLOW_RUNNER_QUALITY and score_gap >= 4,
+            "scale_rule": "only scale into winners; no martingale; no hedge",
+            "profit_role": "RUNNER",
+        },
+    ]
+
+    active_leg = "NONE"
+    if execution_state in ("EXECUTE_AGGRESSIVE", "EXECUTE_NORMAL", "EXECUTE_CAUTIOUS"):
+        if legs[2]["enabled"]:
+            active_leg = "C"
+        elif legs[1]["enabled"]:
+            active_leg = "B"
+        elif legs[0]["enabled"]:
+            active_leg = "A"
+
+    return legs, active_leg, in_profit_only
+
+
+def apply_execution_quality_core_v26_5(decision):
+    if not isinstance(decision, dict):
+        return decision
+
+    location_score, positives, negatives = compute_entry_location_score_v26_5(decision)
+    decision["entry_location_score"] = location_score
+    decision["entry_location_score_v26_5"] = location_score
+    decision["entry_location_grade"] = (
+        "EXCELLENT" if location_score >= 80 else
+        "GOOD" if location_score >= V26_5_ENTRY_LOCATION_MIN_CONTINUATION else
+        "ACCEPTABLE" if location_score >= V26_5_ENTRY_LOCATION_MIN_EXECUTE else
+        "POOR"
+    )
+    decision["entry_location_positive_factors"] = positives
+    decision["entry_location_negative_factors"] = negatives
+    decision["entry_location_score_reason"] = f"positive={positives}; negative={negatives}"
+
+    legs, active_leg, in_profit_only = build_execution_legs_v26_5(decision)
+    decision["directional_idea_id"] = f"{SYMBOL}:{decision.get('market_mode', 'UNKNOWN')}:{decision.get('bb_state', 'UNKNOWN')}:{decision.get('bias', 'NEUTRAL')}"
+    decision["execution_legs"] = legs
+    decision["active_execution_leg"] = active_leg
+    decision["position_construction"] = "ONE_DIRECTIONAL_IDEA_MULTI_LEG"
+    decision["scale_policy"] = "SCALE_INTO_WINNERS_ONLY"
+    decision["scale_into_winners_only"] = in_profit_only
+    decision["martingale_allowed"] = False
+    decision["averaging_losers_allowed"] = False
+    decision["hedge_architecture_allowed"] = False
+    decision["profit_lock_ladder"] = V26_5_PROFIT_LOCK_LADDER_POINTS
+    decision["profit_extraction_structure"] = {
+        "leg_a": "SCALP_PROFIT",
+        "leg_b": "TREND_CONTINUATION",
+        "leg_c": "RUNNER",
+        "break_even_policy": "defer early BE; use profit lock ladder after expansion",
+    }
+
+    bias = str(decision.get("action", decision.get("bias", decision.get("intended_action", "NEUTRAL")))).upper()
+    poor_directional_location = location_score < V26_5_ENTRY_LOCATION_MIN_EXECUTE and bias in ("BUY", "SELL")
+    hard_block_active = str(decision.get("hard_block", "")).upper() in ("TRUE", "1", "YES")
+    if poor_directional_location and not hard_block_active:
+        decision["decision"] = "NO_TRADE"
+        decision["entry_allowed"] = False
+        decision["execution_state"] = "WAIT"
+        decision["wait_state"] = "WAIT_ENTRY_LOCATION"
+        decision["wait_reason"] = "entry location not worth entering yet"
+        decision["next_trigger"] = "fresh breakout reset / healthy pullback / continuation quality improves"
+        decision["intended_action"] = bias
+        decision["manual_action"] = f"{bias}_BIAS_WAIT_LOCATION"
+        decision["management"] = "NO_TRADE"
+        decision["mgmt"] = "NO_TRADE"
+        decision["entry_quality_block"] = True
+        decision["entry_quality_block_reason"] = f"ENTRY_LOCATION_SCORE {location_score} < {V26_5_ENTRY_LOCATION_MIN_EXECUTE}"
+        if "V26_5_ENTRY_LOCATION_WAIT" not in str(decision.get("reason", "")):
+            decision["reason"] = (str(decision.get("reason", "")) + " | V26_5_ENTRY_LOCATION_WAIT").strip()
+    else:
+        decision["entry_quality_block"] = False
+        decision["entry_quality_block_reason"] = ""
+
+    return decision
+
+
 def apply_v26_execution_confidence_engine(decision):
     """
     V26 Execution Confidence Engine.
@@ -1351,6 +1616,16 @@ def apply_v26_execution_confidence_engine(decision):
         score -= 12
         reasons.append(f"weak RR {rr:.2f} -12")
 
+    if entry_location_score >= 80:
+        score += V26_5_ENTRY_LOCATION_EXCELLENT_BONUS
+        reasons.append(f"V26.5 excellent entry location {entry_location_score} +{V26_5_ENTRY_LOCATION_EXCELLENT_BONUS}")
+    elif entry_location_score >= V26_5_ENTRY_LOCATION_MIN_CONTINUATION:
+        score += V26_5_ENTRY_LOCATION_GOOD_BONUS
+        reasons.append(f"V26.5 high-quality entry location {entry_location_score} +{V26_5_ENTRY_LOCATION_GOOD_BONUS}")
+    elif entry_location_score < V26_5_ENTRY_LOCATION_MIN_EXECUTE:
+        score -= V26_5_ENTRY_LOCATION_WEAK_PENALTY
+        reasons.append(f"V26.5 poor entry location {entry_location_score} -{V26_5_ENTRY_LOCATION_WEAK_PENALTY}")
+
     # M3 timing refinement only, never full veto except severe risk handled above.
     m3_penalty = 0
     if timing == "LATE_CONTINUATION" or late_score >= 70:
@@ -1404,6 +1679,10 @@ def apply_v26_execution_confidence_engine(decision):
             bias = dominance_bias
         score = max(score, V26_EXECUTE_CAUTIOUS_SCORE)
         reasons.append(f"{dominance_reason} -> dominance floor EXECUTE_CAUTIOUS")
+
+    if entry_location_score < V26_5_ENTRY_LOCATION_MIN_EXECUTE:
+        score = min(score, V26_5_ENTRY_LOCATION_POOR_CAP)
+        reasons.append(f"V26.5 location cap: score capped at WAIT because ENTRY_LOCATION_SCORE={entry_location_score}")
 
     # State selection.
     if score >= V26_EXECUTE_AGGRESSIVE_SCORE:
@@ -2344,7 +2623,9 @@ def write_decision(data):
                 data = ensure_ea_v17_compat_fields(data)
                 data = attach_v25_adaptive_style_fields(data)
                 data = apply_spike_pullback_reentry_v25_6(data, data)
+                data = apply_execution_quality_core_v26_5(data)
                 data = apply_v26_execution_confidence_engine(data)
+                data = apply_execution_quality_core_v26_5(data)
                 data = apply_structure_aware_hold_intelligence_v25_5(data)
                 data = apply_bb_smoothing_fields_to_decision_v25_4(data, data)
                 data = apply_v25_3_rsi_soft_penalty_recovery(data)
@@ -2466,6 +2747,22 @@ def trade(bias, entry_type, sl, tp, reason, entry_slot=1, market_mode="UNKNOWN",
         "market_state_age_sec": -1,
         "decision_age_sec": 0,
         "time_sync_standard": TIME_SYNC_STANDARD,
+        "entry_location_score_v26_5": 50,
+        "entry_location_grade": "UNKNOWN",
+        "entry_location_positive_factors": [],
+        "entry_location_negative_factors": [],
+        "entry_location_score_reason": "",
+        "directional_idea_id": "",
+        "execution_legs": [],
+        "active_execution_leg": "NONE",
+        "position_construction": "ONE_DIRECTIONAL_IDEA_SINGLE_LEG_COMPAT",
+        "scale_policy": "SCALE_INTO_WINNERS_ONLY",
+        "scale_into_winners_only": True,
+        "martingale_allowed": False,
+        "averaging_losers_allowed": False,
+        "hedge_architecture_allowed": False,
+        "profit_lock_ladder": V26_5_PROFIT_LOCK_LADDER_POINTS,
+        "profit_extraction_structure": {},
         "entry_type": entry_type,
         "entry_slot": entry_slot,
         "market_mode": market_mode,
@@ -2560,6 +2857,22 @@ def no_trade(reason, market_mode="UNKNOWN", bb_state="UNKNOWN"):
         "market_state_age_sec": -1,
         "decision_age_sec": 0,
         "time_sync_standard": TIME_SYNC_STANDARD,
+        "entry_location_score_v26_5": 50,
+        "entry_location_grade": "UNKNOWN",
+        "entry_location_positive_factors": [],
+        "entry_location_negative_factors": [],
+        "entry_location_score_reason": "",
+        "directional_idea_id": "",
+        "execution_legs": [],
+        "active_execution_leg": "NONE",
+        "position_construction": "ONE_DIRECTIONAL_IDEA_SINGLE_LEG_COMPAT",
+        "scale_policy": "SCALE_INTO_WINNERS_ONLY",
+        "scale_into_winners_only": True,
+        "martingale_allowed": False,
+        "averaging_losers_allowed": False,
+        "hedge_architecture_allowed": False,
+        "profit_lock_ladder": V26_5_PROFIT_LOCK_LADDER_POINTS,
+        "profit_extraction_structure": {},
         "entry_type": "",
         "entry_slot": 0,
         "market_mode": market_mode,
@@ -6166,6 +6479,11 @@ def build_decision(data):
         decision_data["bb_middle"] = round(bb_middle, 3) if bb_middle > 0 else 0
         decision_data["bb_upper"] = round(bb_upper, 3) if bb_upper > 0 else 0
         decision_data["bb_lower"] = round(bb_lower, 3) if bb_lower > 0 else 0
+        decision_data["ma50"] = round(ma50, 3) if ma50 > 0 else 0
+        decision_data["ma90"] = round(ma90, 3) if ma90 > 0 else 0
+        decision_data["ma200"] = round(ma200, 3) if ma200 > 0 else 0
+        decision_data["rsi"] = round(rsi, 3)
+        decision_data["macd_hist"] = round(macd_hist, 3)
         decision_data = attach_soft_lock_fields(decision_data, soft_lock)
         decision_data = apply_entry_quality_or_block(
             decision_data, data, market_mode, bb_state, bb_extreme, buy_score, sell_score
@@ -6203,6 +6521,11 @@ def build_decision(data):
         decision_data["bb_middle"] = round(bb_middle, 3) if bb_middle > 0 else 0
         decision_data["bb_upper"] = round(bb_upper, 3) if bb_upper > 0 else 0
         decision_data["bb_lower"] = round(bb_lower, 3) if bb_lower > 0 else 0
+        decision_data["ma50"] = round(ma50, 3) if ma50 > 0 else 0
+        decision_data["ma90"] = round(ma90, 3) if ma90 > 0 else 0
+        decision_data["ma200"] = round(ma200, 3) if ma200 > 0 else 0
+        decision_data["rsi"] = round(rsi, 3)
+        decision_data["macd_hist"] = round(macd_hist, 3)
         decision_data = attach_soft_lock_fields(decision_data, soft_lock)
         decision_data = apply_entry_quality_or_block(
             decision_data, data, market_mode, bb_state, bb_extreme, buy_score, sell_score

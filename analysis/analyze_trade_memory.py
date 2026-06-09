@@ -5,70 +5,140 @@ from pathlib import Path
 MEMORY_FILE = Path(
     r"C:\Users\trader\AppData\Roaming\MetaQuotes\Terminal\Common\Files\RP_AI_EA\trade_memory.csv"
 )
+LOCAL_MEMORY_FILE = Path(__file__).with_name("trade_memory.csv")
 
-def main():
-    if not MEMORY_FILE.exists():
-        print("trade_memory.csv not found:", MEMORY_FILE)
-        return
 
-    stats = defaultdict(lambda: {
+def safe_float(value, default=0.0):
+    try:
+        return float(value or default)
+    except Exception:
+        return default
+
+
+def trade_day(row):
+    for key in ("close_time", "exit_time", "closed_at", "timestamp", "time", "date"):
+        value = (row.get(key) or "").strip()
+        if not value:
+            continue
+        # Accept ISO/date-like strings without forcing a broker-specific format.
+        normalized = value.replace("T", " ").split(" ")[0]
+        if len(normalized) >= 10:
+            return normalized[:10]
+    return "UNKNOWN_DAY"
+
+
+def is_runner(row):
+    haystack = " ".join(
+        str(row.get(k, ""))
+        for k in ("entry_type", "management", "mgmt", "profit_role", "active_execution_leg", "leg")
+    ).upper()
+    return "RUNNER" in haystack or "SLOT3" in haystack or "LEG C" in haystack
+
+
+def blank_stats():
+    return {
         "trades": 0,
         "wins": 0,
         "losses": 0,
-        "profit": 0.0,
-    })
+        "gross_win": 0.0,
+        "gross_loss": 0.0,
+        "runner_trades": 0,
+        "runner_wins": 0,
+    }
 
-    with open(MEMORY_FILE, "r", encoding="utf-8", errors="ignore") as f:
+
+def add_trade(stats, row):
+    profit = safe_float(row.get("profit", row.get("pnl", row.get("net_profit", 0))), 0.0)
+    result = str(row.get("result", "")).upper()
+    win = profit > 0 or result == "WIN"
+    loss = profit < 0 or result == "LOSS"
+
+    stats["trades"] += 1
+    if win:
+        stats["wins"] += 1
+        stats["gross_win"] += max(profit, 0.0)
+    elif loss:
+        stats["losses"] += 1
+        stats["gross_loss"] += abs(min(profit, 0.0))
+
+    if is_runner(row):
+        stats["runner_trades"] += 1
+        if win:
+            stats["runner_wins"] += 1
+
+
+def derived(stats):
+    trades = stats["trades"]
+    wins = stats["wins"]
+    losses = stats["losses"]
+    avg_win = stats["gross_win"] / wins if wins else 0.0
+    avg_loss = stats["gross_loss"] / losses if losses else 0.0
+    win_rate = wins / trades if trades else 0.0
+    loss_rate = losses / trades if trades else 0.0
+    profit_factor = (stats["gross_win"] / stats["gross_loss"]) if stats["gross_loss"] else (float("inf") if stats["gross_win"] > 0 else 0.0)
+    expectancy = (win_rate * avg_win) - (loss_rate * avg_loss)
+    runner_capture_rate = stats["runner_wins"] / stats["runner_trades"] if stats["runner_trades"] else 0.0
+    return win_rate, avg_win, avg_loss, profit_factor, expectancy, runner_capture_rate
+
+
+def print_stats(label, stats):
+    win_rate, avg_win, avg_loss, profit_factor, expectancy, runner_capture_rate = derived(stats)
+    pf = "INF" if profit_factor == float("inf") else f"{profit_factor:.2f}"
+    print(label)
+    print(f"  Trades              : {stats['trades']}")
+    print(f"  Win Rate            : {win_rate * 100:.1f}%")
+    print(f"  Average Win         : {avg_win:.2f}")
+    print(f"  Average Loss        : {avg_loss:.2f}")
+    print(f"  Profit Factor       : {pf}")
+    print(f"  Expectancy          : {expectancy:.2f}")
+    print(f"  Runner Capture Rate : {runner_capture_rate * 100:.1f}%")
+
+
+def main():
+    memory_file = MEMORY_FILE if MEMORY_FILE.exists() else LOCAL_MEMORY_FILE
+    if not memory_file.exists():
+        print("trade_memory.csv not found:", MEMORY_FILE, "or", LOCAL_MEMORY_FILE)
+        return
+
+    by_entry = defaultdict(blank_stats)
+    by_day = defaultdict(blank_stats)
+    overall = blank_stats()
+
+    with open(memory_file, "r", encoding="utf-8", errors="ignore", newline="") as f:
         reader = csv.DictReader(f)
-
         for row in reader:
+            if not row:
+                continue
             entry_type = row.get("entry_type", "UNKNOWN") or "UNKNOWN"
-            result = row.get("result", "")
-            profit = float(row.get("profit", 0) or 0)
+            add_trade(overall, row)
+            add_trade(by_entry[entry_type], row)
+            add_trade(by_day[trade_day(row)], row)
 
-            stats[entry_type]["trades"] += 1
-            stats[entry_type]["profit"] += profit
+    print("\n=== RP TRADE MEMORY ANALYSIS — EXPECTANCY FIRST ===\n")
+    print_stats("OVERALL", overall)
 
-            if result == "WIN":
-                stats[entry_type]["wins"] += 1
-            else:
-                stats[entry_type]["losses"] += 1
+    print("\n=== DAILY METRICS ===\n")
+    for day, stats in sorted(by_day.items()):
+        print_stats(day, stats)
 
-    print("\n=== RP TRADE MEMORY ANALYSIS ===\n")
-
-    for entry_type, s in sorted(stats.items()):
-        trades = s["trades"]
-        wins = s["wins"]
-        losses = s["losses"]
-        profit = s["profit"]
-        winrate = (wins / trades * 100) if trades > 0 else 0
-
-        print(f"ENTRY TYPE: {entry_type}")
-        print(f"  Trades : {trades}")
-        print(f"  Wins   : {wins}")
-        print(f"  Losses : {losses}")
-        print(f"  WR     : {winrate:.1f}%")
-        print(f"  Profit : {profit:.2f}")
-        print("-" * 35)
+    print("\n=== ENTRY TYPE METRICS ===\n")
+    for entry_type, stats in sorted(by_entry.items()):
+        print_stats(f"ENTRY TYPE: {entry_type}", stats)
 
     print("\n=== DECISION GUIDE ===\n")
-
-    for entry_type, s in sorted(stats.items()):
-        trades = s["trades"]
-        wins = s["wins"]
-        profit = s["profit"]
-        winrate = (wins / trades * 100) if trades > 0 else 0
-
+    for entry_type, stats in sorted(by_entry.items()):
+        trades = stats["trades"]
+        win_rate, _avg_win, _avg_loss, profit_factor, expectancy, _runner_capture_rate = derived(stats)
         if trades < 5:
             status = "KEEP TESTING"
-        elif winrate >= 55 and profit > 0:
+        elif expectancy > 0 and profit_factor >= 1.25:
             status = "KEEP / MAY SCALE"
-        elif winrate < 40 or profit < 0:
+        elif expectancy <= 0 or profit_factor < 1.0:
             status = "WEAK / REDUCE OR DISABLE"
         else:
             status = "NEUTRAL / NEED MORE DATA"
+        print(f"{entry_type}: {status} | expectancy={expectancy:.2f} win_rate={win_rate * 100:.1f}%")
 
-        print(f"{entry_type}: {status}")
 
 if __name__ == "__main__":
     main()

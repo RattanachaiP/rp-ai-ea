@@ -256,3 +256,39 @@ During Local Single-Machine mode, verify these additional pass criteria:
 4. Confirm weak NOVA momentum appears as `momentum_governance_state=SOFTENED_WEAK_MOMENTUM` with confidence penalty instead of an unconditional `NO_TRADE`.
 5. Confirm strong `TRANSITION+NORMAL` setups with `score_gap >= 4` and only slight RSI miss produce cautious execution or explicit risk-construction wait, not generic `NO_TRADE`.
 6. Confirm cooldown / fast participation logs no longer end in `FAST_PARTICIPATION_NOT_TRADE` when BUY/SELL intent is preserved and infrastructure is fresh.
+
+## 11) V26.5 Execution Quality Validation Addendum
+
+During each local validation run, record execution quality fields from every refreshed `decision.json`:
+- `entry_location_score`
+- `entry_location_grade`
+- `entry_location_positive_factors`
+- `entry_location_negative_factors`
+- `active_execution_leg`
+- `execution_legs`
+- `scale_policy`
+- `profit_lock_ladder`
+- `wait_state`
+- `wait_reason`
+
+Pass criteria:
+- Late/chasing locations publish `WAIT_ENTRY_LOCATION` or low-confidence `WAIT_VALID` instead of forcing poor participation.
+- Valid pullback/continuation locations preserve BUY/SELL intent and produce an executable risk payload.
+- Leg metadata remains one-directional and never enables martingale, loser averaging, or buy+sell hedge behavior.
+- Profit-lock ladder metadata is present on decision payloads for executor-side profit extraction testing.
+
+## 12) Daily Expectancy Review
+
+After each validation day, run:
+- `python analysis/analyze_trade_memory.py`
+
+Review these metrics before changing participation frequency or size:
+- Win Rate
+- Average Win
+- Average Loss
+- Profit Factor
+- Expectancy
+- Runner Capture Rate
+
+Decision gate:
+- Future architecture changes must be justified by improved expectancy, not higher trade count.
