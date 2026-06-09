@@ -1,5 +1,6 @@
 import csv
 from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 
 MEMORY_FILE = Path(
@@ -13,6 +14,40 @@ def safe_float(value, default=0.0):
         return float(value or default)
     except Exception:
         return default
+
+
+def parse_time(value):
+    text = (value or "").strip()
+    if not text:
+        return None
+    text = text.replace("T", " ").replace("Z", "")
+    for fmt, length in (
+        ("%Y-%m-%d %H:%M:%S", 19),
+        ("%Y-%m-%d %H:%M", 16),
+        ("%Y.%m.%d %H:%M:%S", 19),
+        ("%Y.%m.%d %H:%M", 16),
+    ):
+        try:
+            return datetime.strptime(text[:length], fmt)
+        except Exception:
+            continue
+    try:
+        return datetime.fromisoformat(text)
+    except Exception:
+        return None
+
+
+def holding_minutes(row):
+    explicit = safe_float(row.get("holding_minutes", row.get("hold_minutes", row.get("duration_minutes", 0))), 0.0)
+    if explicit > 0:
+        return explicit
+    open_value = next((row.get(k, "") for k in ("open_time", "entry_time", "opened_at") if row.get(k)), "")
+    close_value = next((row.get(k, "") for k in ("close_time", "exit_time", "closed_at") if row.get(k)), "")
+    opened = parse_time(open_value)
+    closed = parse_time(close_value)
+    if opened and closed and closed >= opened:
+        return (closed - opened).total_seconds() / 60.0
+    return 0.0
 
 
 def trade_day(row):
@@ -42,6 +77,8 @@ def blank_stats():
         "losses": 0,
         "gross_win": 0.0,
         "gross_loss": 0.0,
+        "holding_minutes_total": 0.0,
+        "holding_time_trades": 0,
         "runner_trades": 0,
         "runner_wins": 0,
     }
@@ -66,6 +103,11 @@ def add_trade(stats, row):
         if win:
             stats["runner_wins"] += 1
 
+    hold_minutes = holding_minutes(row)
+    if hold_minutes > 0:
+        stats["holding_minutes_total"] += hold_minutes
+        stats["holding_time_trades"] += 1
+
 
 def derived(stats):
     trades = stats["trades"]
@@ -77,12 +119,13 @@ def derived(stats):
     loss_rate = losses / trades if trades else 0.0
     profit_factor = (stats["gross_win"] / stats["gross_loss"]) if stats["gross_loss"] else (float("inf") if stats["gross_win"] > 0 else 0.0)
     expectancy = (win_rate * avg_win) - (loss_rate * avg_loss)
+    avg_holding_minutes = stats["holding_minutes_total"] / stats["holding_time_trades"] if stats["holding_time_trades"] else 0.0
     runner_capture_rate = stats["runner_wins"] / stats["runner_trades"] if stats["runner_trades"] else 0.0
-    return win_rate, avg_win, avg_loss, profit_factor, expectancy, runner_capture_rate
+    return win_rate, avg_win, avg_loss, profit_factor, expectancy, avg_holding_minutes, runner_capture_rate
 
 
 def print_stats(label, stats):
-    win_rate, avg_win, avg_loss, profit_factor, expectancy, runner_capture_rate = derived(stats)
+    win_rate, avg_win, avg_loss, profit_factor, expectancy, avg_holding_minutes, runner_capture_rate = derived(stats)
     pf = "INF" if profit_factor == float("inf") else f"{profit_factor:.2f}"
     print(label)
     print(f"  Trades              : {stats['trades']}")
@@ -91,6 +134,7 @@ def print_stats(label, stats):
     print(f"  Average Loss        : {avg_loss:.2f}")
     print(f"  Profit Factor       : {pf}")
     print(f"  Expectancy          : {expectancy:.2f}")
+    print(f"  Average Holding Time: {avg_holding_minutes:.1f} min")
     print(f"  Runner Capture Rate : {runner_capture_rate * 100:.1f}%")
 
 
@@ -128,7 +172,7 @@ def main():
     print("\n=== DECISION GUIDE ===\n")
     for entry_type, stats in sorted(by_entry.items()):
         trades = stats["trades"]
-        win_rate, _avg_win, _avg_loss, profit_factor, expectancy, _runner_capture_rate = derived(stats)
+        win_rate, _avg_win, _avg_loss, profit_factor, expectancy, _avg_holding_minutes, _runner_capture_rate = derived(stats)
         if trades < 5:
             status = "KEEP TESTING"
         elif expectancy > 0 and profit_factor >= 1.25:

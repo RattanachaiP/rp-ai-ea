@@ -95,7 +95,11 @@ V26_5_PROFIT_LOCK_LADDER_POINTS = [
 V26_5_DAILY_METRICS_ENABLED = True
 
 V26_M3_MAX_NEGATIVE_PENALTY = -15
-V26_FORCE_SCALP_FOR_CAUTIOUS = True
+V26_FORCE_SCALP_FOR_CAUTIOUS = False
+V26_LEGACY_ALIGNMENT_PENALTY = 15
+V26_LEGACY_M3_CONFLICT_PENALTY = 10
+V26_LEGACY_M15_CONFLICT_PENALTY = 15
+V26_TREND_WALK_RUNNER_MIN_GAP = 4
 
 
 V26_FAST_PARTICIPATION_OVERRIDE_ENABLED = True
@@ -162,7 +166,7 @@ FINAL_NO_TRADE_ALLOWED_REASONS = [
 TEMP_LIVE_EXECUTION_MODE = True
 TEMP_MARKET_STATE_STALE_LIMIT_SEC = 20
 TEMP_DECISION_STALE_TARGET_SEC = 45  # EA side should also be changed 15 -> 45 sec.
-TEMP_FORCE_SCALP_ONLY = True
+TEMP_FORCE_SCALP_ONLY = False
 TEMP_RELAX_STYLE_WAIT_BLOCK = True
 TEMP_RELAX_SR_RR_BLOCK = True
 
@@ -177,7 +181,7 @@ VALID_MARKET_MODES = {"TREND", "RANGE", "SPIKE", "TRANSITION"}
 VALID_BB_STATES = {"NORMAL", "WALK_UP", "WALK_DOWN", "REVERSAL_UP", "REVERSAL_DOWN", "COMPRESSION", "EXPANSION", "DEV4_UPPER", "DEV4_LOWER"}
 VALID_DECISIONS = {"TRADE", "NO_TRADE"}
 VALID_BIASES = {"BUY", "SELL", "NEUTRAL"}
-VALID_MANAGEMENT = {"SCALP_TP", "HOLD_TRAIL", "NO_TRADE", "NORMAL"}
+VALID_MANAGEMENT = {"SCALP_TP", "HOLD_TRAIL", "TREND_RUNNER", "NO_TRADE", "NORMAL"}
 VALID_ACTIONS = {"BUY", "SELL", "WAIT", "NO_TRADE", "NEUTRAL"}
 VALID_EXECUTION_STATES = {"EXECUTE_AGGRESSIVE", "EXECUTE_NORMAL", "EXECUTE_CAUTIOUS", "WAIT", "NO_TRADE"}
 decision_sequence_counter = int(time.time())
@@ -458,7 +462,7 @@ PULLBACK_MIN_CANDLE_HISTORY = 4
 
 # V25 Execution Timing Intelligence
 EXEC_TIMING_ENABLED = True
-DISABLE_RUNNER_TEMPORARILY = True
+DISABLE_RUNNER_TEMPORARILY = False
 LATE_ENTRY_BLOCK_SCORE = 70
 EXHAUSTION_BLOCK_SCORE = 75
 EXHAUSTION_COOLDOWN_SECONDS = 20 * 60
@@ -996,11 +1000,10 @@ def attach_v25_adaptive_style_fields(decision):
         f"location={location}; exhaustion={exhaustion}; AO/ATR disabled"
     )
 
-    if str(decision.get("management", "")).upper() == "HOLD_TRAIL":
-        decision["runner_disabled"] = True
-        decision["runner_disable_reason"] = "V25 runner disabled until timing/location engine stable"
-        decision["management"] = "SCALP_TP"
-        decision["mgmt"] = "SCALP_TP"
+    if str(decision.get("management", "")).upper() in ("HOLD_TRAIL", "TREND_RUNNER"):
+        decision["runner_disabled"] = False
+        decision["runner_disable_reason"] = ""
+        decision["runner_preserved_reason"] = "V26.5 expectancy repair: trend runner management is no longer downgraded to SCALP_TP"
 
     if style == "WAIT" and decision.get("decision") == "TRADE":
         high_risk_wait = (
@@ -1185,6 +1188,143 @@ def _v26_has_hard_block(decision):
         return True, "INVALID_SCHEMA_MODE_BB"
 
     return False, ""
+
+
+def _ai_authority_valid(decision, buy_score=None, sell_score=None):
+    """
+    V26.5 expectancy repair authority check.
+
+    Once AI publishes a valid directional TRADE intent and hard safety is clear,
+    legacy quality paths may add penalties but must not silently convert the idea
+    into NO_TRADE. Final hard stops remain infrastructure/risk only.
+    """
+    if not isinstance(decision, dict):
+        return False, "AI_AUTHORITY_INVALID_PAYLOAD"
+    if str(decision.get("decision", "")).upper() != "TRADE":
+        return False, "AI_AUTHORITY_NOT_TRADE"
+    bias = str(decision.get("action", decision.get("bias", "NEUTRAL"))).upper()
+    if bias not in ("BUY", "SELL"):
+        return False, "AI_AUTHORITY_NO_DIRECTION"
+    mode = str(decision.get("market_mode", decision.get("mode", ""))).upper()
+    bb_state = str(decision.get("bb_state", decision.get("bb", ""))).upper()
+    if mode not in VALID_MARKET_MODES or bb_state not in VALID_BB_STATES:
+        return False, "AI_AUTHORITY_INVALID_MODE_BB"
+    if not bool(decision.get("market_state_fresh", True)):
+        return False, "AI_AUTHORITY_STALE_MARKET_STATE"
+    hard_block, hard_reason = _v26_has_hard_block(decision)
+    if hard_block:
+        return False, f"AI_AUTHORITY_HARD_BLOCK:{hard_reason}"
+    buy = safe_int(buy_score if buy_score is not None else decision.get("buy_score", decision.get("buyScore", 0)), 0)
+    sell = safe_int(sell_score if sell_score is not None else decision.get("sell_score", decision.get("sellScore", 0)), 0)
+    if abs(buy - sell) <= 0:
+        return False, "AI_AUTHORITY_NO_SCORE_EDGE"
+    return True, "AI_AUTHORITY_VALID"
+
+
+def add_confidence_penalty(decision, penalty, reason):
+    if not isinstance(decision, dict):
+        return decision
+    penalty = max(0, safe_int(penalty, 0))
+    existing = safe_int(decision.get("confidence_penalty_total", 0), 0)
+    decision["confidence_penalty_total"] = existing + penalty
+    penalties = decision.get("confidence_penalties", [])
+    if not isinstance(penalties, list):
+        penalties = [str(penalties)] if penalties else []
+    penalties.append(f"-{penalty}: {reason}")
+    decision["confidence_penalties"] = penalties
+    base_confidence = safe_int(decision.get("confidence", 65), 65)
+    decision["confidence"] = max(0, base_confidence - penalty)
+    decision["legacy_veto_converted_to_penalty"] = True
+    return decision
+
+
+def _management_prefers_runner(bias, market_mode, bb_state, score_gap):
+    if market_mode != "TREND" or score_gap < V26_TREND_WALK_RUNNER_MIN_GAP:
+        return False
+    return (bias == "BUY" and bb_state == "WALK_UP") or (bias == "SELL" and bb_state == "WALK_DOWN")
+
+
+def align_management_with_trend_context(decision):
+    if not isinstance(decision, dict):
+        return decision
+    if str(decision.get("decision", "")).upper() != "TRADE":
+        return decision
+    bias = str(decision.get("action", decision.get("bias", "NEUTRAL"))).upper()
+    mode = str(decision.get("market_mode", decision.get("mode", ""))).upper()
+    bb_state = str(decision.get("bb_state", decision.get("bb", ""))).upper()
+    score_gap = safe_int(decision.get("score_gap", 0), 0)
+    current = str(decision.get("management", decision.get("mgmt", "SCALP_TP"))).upper()
+    if _management_prefers_runner(bias, mode, bb_state, score_gap) and current == "SCALP_TP":
+        decision["management"] = "HOLD_TRAIL"
+        decision["mgmt"] = "HOLD_TRAIL"
+        decision["market_style"] = "INTRADAY_SWING"
+        decision["management_alignment"] = "TREND_WALK_PREFERS_HOLD_TRAIL"
+        decision["management_alignment_reason"] = f"mode={mode} bb={bb_state} gap={score_gap}; SCALP_TP demoted to secondary"
+    else:
+        decision.setdefault("management_alignment", "UNCHANGED")
+        decision.setdefault("management_alignment_reason", "")
+    return decision
+
+
+def minimum_rr_for_management(mode, management):
+    mgmt = str(management).upper()
+    if mgmt in ("HOLD_TRAIL", "TREND_RUNNER"):
+        return 1.5
+    if str(mode).upper() == "TREND":
+        return 1.5
+    return 1.2
+
+
+def planned_rr(decision):
+    entry = _trade_entry_price(decision)
+    sl = safe_float(decision.get("sl", decision.get("stop_loss", 0)), 0.0)
+    tp = safe_float(decision.get("tp", decision.get("tp1", 0)), 0.0)
+    bias = str(decision.get("action", decision.get("bias", ""))).upper()
+    if entry <= 0 or sl <= 0 or tp <= 0 or bias not in ("BUY", "SELL"):
+        return 0.0
+    risk = abs(entry - sl)
+    reward = (tp - entry) if bias == "BUY" else (entry - tp)
+    if risk <= 0 or reward <= 0:
+        return 0.0
+    return round(reward / risk, 3)
+
+
+def enforce_expectancy_rr_structure(decision):
+    if not isinstance(decision, dict) or str(decision.get("decision", "")).upper() != "TRADE":
+        return decision
+    bias = str(decision.get("action", decision.get("bias", ""))).upper()
+    if bias not in ("BUY", "SELL"):
+        return decision
+    mode = str(decision.get("market_mode", decision.get("mode", "TRANSITION"))).upper()
+    management = str(decision.get("management", decision.get("mgmt", "SCALP_TP"))).upper()
+    entry = _trade_entry_price(decision)
+    sl = safe_float(decision.get("sl", decision.get("stop_loss", 0)), 0.0)
+    if entry <= 0 or sl <= 0:
+        decision["planned_rr"] = 0.0
+        decision["rr_enforcement"] = "WAIT_VALID_MISSING_ENTRY_OR_SL"
+        return decision
+    risk = abs(entry - sl)
+    min_rr = minimum_rr_for_management(mode, management)
+    current_rr = planned_rr(decision)
+    if risk <= 0:
+        decision["planned_rr"] = 0.0
+        decision["rr_enforcement"] = "WAIT_VALID_ZERO_RISK"
+        return decision
+    if current_rr < min_rr:
+        target_tp = entry + (risk * min_rr) if bias == "BUY" else entry - (risk * min_rr)
+        decision["tp"] = round(target_tp, 3)
+        decision["tp1"] = round(target_tp, 3)
+        decision["rr_enforcement"] = "TP_EXTENDED_TO_MIN_EXPECTANCY_RR"
+        decision["rr_enforcement_reason"] = f"{management}/{mode} planned_rr={current_rr:.2f} < min_rr={min_rr:.2f}"
+    else:
+        decision["rr_enforcement"] = "RR_OK"
+        decision["rr_enforcement_reason"] = f"planned_rr={current_rr:.2f} >= min_rr={min_rr:.2f}"
+    decision["planned_rr"] = planned_rr(decision)
+    decision["minimum_required_rr"] = min_rr
+    decision["expectancy_structure_valid"] = decision["planned_rr"] >= min_rr
+    if management in ("HOLD_TRAIL", "TREND_RUNNER"):
+        decision["runner_tp_policy"] = "NO_MICRO_TP_STRUCTURE_TRAIL_WITH_MIN_RR_PROTECTIVE_TARGET"
+    return decision
 
 
 
@@ -1712,9 +1852,15 @@ def apply_v26_execution_confidence_engine(decision):
     if execution_state in ("EXECUTE_AGGRESSIVE", "EXECUTE_NORMAL", "EXECUTE_CAUTIOUS") and bias in ("BUY", "SELL"):
         decision["decision"] = "TRADE"
         decision["entry_allowed"] = True
-        decision["management"] = "SCALP_TP"
-        decision["mgmt"] = "SCALP_TP"
-        if execution_state == "EXECUTE_CAUTIOUS" and V26_FORCE_SCALP_FOR_CAUTIOUS:
+        if _management_prefers_runner(bias, mode, bb, gap):
+            decision["management"] = "HOLD_TRAIL"
+            decision["mgmt"] = "HOLD_TRAIL"
+            decision["market_style"] = "INTRADAY_SWING"
+            decision["management_alignment"] = "TREND_WALK_PREFERS_HOLD_TRAIL"
+        else:
+            decision["management"] = decision.get("management", "SCALP_TP") if str(decision.get("management", "")).upper() not in ("", "NO_TRADE") else "SCALP_TP"
+            decision["mgmt"] = decision["management"]
+        if execution_state == "EXECUTE_CAUTIOUS" and V26_FORCE_SCALP_FOR_CAUTIOUS and str(decision.get("management", "")).upper() == "SCALP_TP":
             decision["market_style"] = "SCALP"
         decision["wait_reason"] = ""
         decision["next_trigger"] = ""
@@ -2624,14 +2770,18 @@ def write_decision(data):
                 data = attach_v25_adaptive_style_fields(data)
                 data = apply_spike_pullback_reentry_v25_6(data, data)
                 data = apply_execution_quality_core_v26_5(data)
+                data = align_management_with_trend_context(data)
                 data = apply_v26_execution_confidence_engine(data)
                 data = apply_execution_quality_core_v26_5(data)
+                data = align_management_with_trend_context(data)
                 data = apply_structure_aware_hold_intelligence_v25_5(data)
                 data = apply_bb_smoothing_fields_to_decision_v25_4(data, data)
                 data = apply_v25_3_rsi_soft_penalty_recovery(data)
                 data = apply_final_decision_gate_trace_v25_2(data)
                 data = normalize_decision_schema_v20_2(data)
+                data = align_management_with_trend_context(data)
                 data = construct_risk_payload_before_validation(data)
+                data = enforce_expectancy_rr_structure(data)
                 data = validate_final_decision_payload(data)
                 data = normalize_decision_schema_v20_2(data)
                 data["runtime_branch"] = RUNTIME_BRANCH
@@ -2763,6 +2913,11 @@ def trade(bias, entry_type, sl, tp, reason, entry_slot=1, market_mode="UNKNOWN",
         "hedge_architecture_allowed": False,
         "profit_lock_ladder": V26_5_PROFIT_LOCK_LADDER_POINTS,
         "profit_extraction_structure": {},
+        "planned_rr": 0.0,
+        "minimum_required_rr": 0.0,
+        "expectancy_structure_valid": False,
+        "rr_enforcement": "NOT_EVALUATED",
+        "rr_enforcement_reason": "",
         "entry_type": entry_type,
         "entry_slot": entry_slot,
         "market_mode": market_mode,
@@ -2873,6 +3028,11 @@ def no_trade(reason, market_mode="UNKNOWN", bb_state="UNKNOWN"):
         "hedge_architecture_allowed": False,
         "profit_lock_ladder": V26_5_PROFIT_LOCK_LADDER_POINTS,
         "profit_extraction_structure": {},
+        "planned_rr": 0.0,
+        "minimum_required_rr": 0.0,
+        "expectancy_structure_valid": False,
+        "rr_enforcement": "NOT_EVALUATED",
+        "rr_enforcement_reason": "",
         "entry_type": "",
         "entry_slot": 0,
         "market_mode": market_mode,
@@ -3034,6 +3194,25 @@ def apply_nova_brain_or_block(decision, market_mode, bb_state, bb_extreme, rsi, 
                 softened["next_trigger"] = "momentum recovery / confidence uplift / timing improves"
                 softened["manual_action"] = f"{bias}_BIAS_WAIT_RECOVERY"
                 softened["reason"] = (str(softened.get("reason", "")) + f" | {nova_reason} -> confidence -{WEAK_MOMENTUM_CONFIDENCE_PENALTY}; WAIT_VALID_DIRECTION_PRESERVED").strip()
+            return softened
+
+        ai_valid, ai_reason = _ai_authority_valid(decision, buy_score, sell_score)
+        if ai_valid and dominance_valid and htf_aligned and payload_valid and not hard_block:
+            softened = dict(decision)
+            softened = add_confidence_penalty(softened, V26_LEGACY_ALIGNMENT_PENALTY, nova_reason)
+            softened["nova_brain"] = "SOFTENED"
+            softened["nova_reason"] = f"{nova_reason} | {ai_reason}; NOVA legacy veto converted to confidence penalty"
+            softened["nova_legacy_veto"] = nova_reason
+            softened["decision"] = "TRADE"
+            softened["entry_allowed"] = True
+            softened["action"] = bias
+            softened["bias"] = bias
+            softened["buy_score"] = buy_score
+            softened["sell_score"] = sell_score
+            softened["buyScore"] = buy_score
+            softened["sellScore"] = sell_score
+            softened["score_gap"] = score_gap
+            softened["reason"] = (str(softened.get("reason", "")) + f" | NOVA_PENALTY_ONLY: {nova_reason}").strip()
             return softened
 
         blocked = no_trade(nova_reason, market_mode, bb_state)
@@ -5915,13 +6094,31 @@ def entry_quality_gate(decision, data, market_mode, bb_state, bb_extreme, buy_sc
     if ENTRY_SCALP_REQUIRE_ALIGNMENT and management == "SCALP_TP" and not is_range_reversal:
         m3_dir = infer_m3_direction(rsi, macd_hist, buy_score, sell_score)
         m15_dir = infer_m15_direction(data, bid, ma50, ma90, ma200)
+        ai_valid, ai_reason = _ai_authority_valid(decision, buy_score, sell_score)
         if m3_dir != "NEUTRAL" and m15_dir != "NEUTRAL" and m3_dir != m15_dir:
-            return False, f"ENTRY BLOCK | M15/M3 not aligned m15={m15_dir} m3={m3_dir}"
+            reason = f"ENTRY PENALTY | M15/M3 not aligned m15={m15_dir} m3={m3_dir}"
+            if ai_valid:
+                add_confidence_penalty(decision, V26_LEGACY_ALIGNMENT_PENALTY, reason)
+                decision["m3_timing_refinement_only"] = True
+                decision["legacy_alignment_authority"] = ai_reason
+            else:
+                return False, reason.replace("ENTRY PENALTY", "ENTRY BLOCK")
         if bias in ("BUY", "SELL"):
             if m3_dir != "NEUTRAL" and bias != m3_dir:
-                return False, f"ENTRY BLOCK | trade bias conflicts with M3 direction bias={bias} m3={m3_dir}"
+                reason = f"ENTRY PENALTY | trade bias conflicts with M3 direction bias={bias} m3={m3_dir}"
+                if ai_valid:
+                    add_confidence_penalty(decision, V26_LEGACY_M3_CONFLICT_PENALTY, reason)
+                    decision["m3_timing_refinement_only"] = True
+                    decision["legacy_alignment_authority"] = ai_reason
+                else:
+                    return False, reason.replace("ENTRY PENALTY", "ENTRY BLOCK")
             if m15_dir != "NEUTRAL" and bias != m15_dir:
-                return False, f"ENTRY BLOCK | trade bias conflicts with M15 direction bias={bias} m15={m15_dir}"
+                reason = f"ENTRY PENALTY | trade bias conflicts with M15 direction bias={bias} m15={m15_dir}"
+                if ai_valid:
+                    add_confidence_penalty(decision, V26_LEGACY_M15_CONFLICT_PENALTY, reason)
+                    decision["legacy_alignment_authority"] = ai_reason
+                else:
+                    return False, reason.replace("ENTRY PENALTY", "ENTRY BLOCK")
 
     # 4) Require momentum confirmation before trade.
     ok, reason = has_momentum_confirmation(bias, market_mode, bb_state, rsi, macd_hist, buy_score, sell_score, entry_type)
@@ -5935,6 +6132,18 @@ def apply_entry_quality_or_block(decision, data, market_mode, bb_state, bb_extre
     ok, gate_reason = entry_quality_gate(decision, data, market_mode, bb_state, bb_extreme, buy_score, sell_score)
     if not ok:
         print(gate_reason)
+        ai_valid, ai_reason = _ai_authority_valid(decision, buy_score, sell_score)
+        if ai_valid:
+            softened = dict(decision)
+            softened = add_confidence_penalty(softened, V26_LEGACY_ALIGNMENT_PENALTY, gate_reason)
+            softened["entry_allowed"] = True
+            softened["entry_quality"] = "SOFTENED_TO_CONFIDENCE_PENALTY"
+            softened["entry_quality_reason"] = f"{gate_reason} | {ai_reason}; legacy quality veto converted to confidence penalty"
+            softened["entry_quality_legacy_veto"] = gate_reason
+            softened["entry_quality_hard_block"] = False
+            softened["decision"] = "TRADE"
+            softened["reason"] = f"{softened.get('reason', '')} | ENTRY_QUALITY_PENALTY_ONLY: {gate_reason}"
+            return softened
         blocked = no_trade(gate_reason, market_mode, bb_state)
         for key in (
             "buy_score", "sell_score", "score_gap", "dir_m15", "dir_m3",

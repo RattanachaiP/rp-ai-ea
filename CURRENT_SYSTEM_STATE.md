@@ -66,4 +66,11 @@ Participation restoration intentionally comes before scaling. Before increasing 
   - Leg C: Continuation Entry / runner capture.
 - Scaling policy is explicit: scale into winners only, no martingale, no averaging losers, and no buy+sell hedge architecture.
 - Profit extraction metadata now includes a profit-lock ladder concept: +100 points lock +50, +200 lock +100, +300 lock +200.
-- Trade-memory analysis now reports daily expectancy metrics: Win Rate, Average Win, Average Loss, Profit Factor, Expectancy, and Runner Capture Rate.
+- Trade-memory analysis now reports daily expectancy metrics: Win Rate, Average Win, Average Loss, Profit Factor, Expectancy, Average Holding Time, and Runner Capture Rate.
+
+## V26.5 expectancy-structure repair
+- Legacy quality paths that previously acted as hidden executor vetoes now defer to AI authority when `decision=TRADE`, bias/mode/BB/schema/heartbeat are valid, and hard safety is clear.
+- M15/M3 misalignment and M3 timing conflicts are timing refinements with explicit confidence penalties instead of trade annihilation layers.
+- NOVA and V17 entry-quality rejections are softened to penalty/audit fields under valid AI authority; only stale data, invalid payload/schema, abnormal spread/liquidity/freeze, duplicate protection, daily risk, and catastrophic risk remain hard final veto classes.
+- Trend-walk management now preserves or upgrades runner intent: `TREND + WALK_UP/WALK_DOWN + score_gap >= 4` prefers `HOLD_TRAIL`, with `SCALP_TP` demoted to a secondary mode.
+- Planned reward/risk is calculated and enforced before final payload validation: SCALP requires at least 1.2R, while TREND/runner structures require at least 1.5R.
