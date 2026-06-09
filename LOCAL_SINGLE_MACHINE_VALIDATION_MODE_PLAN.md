@@ -288,6 +288,7 @@ Review these metrics before changing participation frequency or size:
 - Average Loss
 - Profit Factor
 - Expectancy
+- Average Holding Time
 - Runner Capture Rate
 
 Decision gate:

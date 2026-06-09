@@ -68,3 +68,28 @@ Leg governance remains one-directional only:
 - Leg B may participate only after pullback/continuation quality improves.
 - Leg C is reserved for runner-quality trend expansion.
 - All scaling is winner-only; martingale, averaging losers, and hedge architecture remain prohibited.
+
+## V26.5 expectancy-structure repair update
+The execution chain is now audited as an authority map, not just a participation map:
+
+`AI DECISION`
+-> schema/time/freshness validation
+-> entry-quality/NOVA/candle/exhaustion/structure/timing/location scoring
+-> legacy strategy blocks converted to confidence penalties when AI authority is valid
+-> management alignment and planned RR enforcement
+-> final payload validation
+-> broker/executor hard safety checks
+-> `FINAL ORDER AUTHORITY`.
+
+AI authority is valid only when `decision=TRADE`, bias is BUY/SELL, mode and BB state are schema-valid, heartbeat/market freshness are valid, score edge exists, and no hard safety block is active. In that state, legacy M15/M3 misalignment, M3 timing conflict, NOVA quality rejection, and V17 entry-quality rejection are no longer automatic executor vetoes; they are published as confidence penalties and audit fields.
+
+Final hard veto authority is intentionally limited to:
+- stale market data / heartbeat failure
+- invalid JSON or invalid schema
+- invalid market data
+- abnormal spread / liquidity / broker freeze
+- duplicate order protection
+- daily risk limit / daily loss
+- catastrophic hard-risk state
+
+Expectancy structure is enforced before publishing a TRADE payload. SCALP structures must plan at least 1.2R; TREND and runner structures must plan at least 1.5R. TREND + `WALK_UP` / `WALK_DOWN` with score-gap authority prefers `HOLD_TRAIL` instead of silently downgrading into `SCALP_TP`; `SCALP_TP` remains a secondary management mode.
