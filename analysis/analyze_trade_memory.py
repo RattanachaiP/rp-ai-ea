@@ -70,6 +70,30 @@ def is_runner(row):
     return "RUNNER" in haystack or "SLOT3" in haystack or "LEG C" in haystack
 
 
+def planned_risk_value(row):
+    explicit = safe_float(row.get("planned_risk", row.get("planned_sl_loss", row.get("planned_sl_risk", 0))), 0.0)
+    if explicit > 0:
+        return explicit
+    entry = safe_float(row.get("entry_price", row.get("open_price", row.get("price", 0))), 0.0)
+    sl = safe_float(row.get("sl", row.get("stop_loss", 0)), 0.0)
+    lots = safe_float(row.get("lots", row.get("volume", row.get("lot", 0))), 0.0)
+    tick_value = safe_float(row.get("tick_value", row.get("point_value", 0)), 0.0)
+    risk_points = abs(entry - sl) if entry > 0 and sl > 0 else safe_float(row.get("planned_sl_risk_points", 0), 0.0)
+    if risk_points > 0 and lots > 0 and tick_value > 0:
+        return risk_points * lots * tick_value
+    return risk_points
+
+
+def realized_r(row, profit):
+    explicit = safe_float(row.get("realized_r", row.get("r_multiple", 0)), 0.0)
+    if explicit != 0:
+        return explicit
+    planned = planned_risk_value(row)
+    if planned > 0:
+        return profit / planned
+    return 0.0
+
+
 def blank_stats():
     return {
         "trades": 0,
@@ -77,6 +101,12 @@ def blank_stats():
         "losses": 0,
         "gross_win": 0.0,
         "gross_loss": 0.0,
+        "win_r_total": 0.0,
+        "loss_r_total": 0.0,
+        "planned_loss_total": 0.0,
+        "realized_loss_total": 0.0,
+        "loss_over_plan_count": 0,
+        "max_loss_over_plan_r": 0.0,
         "holding_minutes_total": 0.0,
         "holding_time_trades": 0,
         "runner_trades": 0,
@@ -91,12 +121,26 @@ def add_trade(stats, row):
     loss = profit < 0 or result == "LOSS"
 
     stats["trades"] += 1
+    r_value = realized_r(row, profit)
     if win:
         stats["wins"] += 1
         stats["gross_win"] += max(profit, 0.0)
+        if r_value > 0:
+            stats["win_r_total"] += r_value
     elif loss:
+        planned = planned_risk_value(row)
+        realized_loss = abs(min(profit, 0.0))
         stats["losses"] += 1
-        stats["gross_loss"] += abs(min(profit, 0.0))
+        stats["gross_loss"] += realized_loss
+        if r_value < 0:
+            stats["loss_r_total"] += abs(r_value)
+        if planned > 0:
+            stats["planned_loss_total"] += planned
+            stats["realized_loss_total"] += realized_loss
+            loss_over_plan_r = realized_loss / planned
+            if loss_over_plan_r > 1.05:
+                stats["loss_over_plan_count"] += 1
+            stats["max_loss_over_plan_r"] = max(stats["max_loss_over_plan_r"], loss_over_plan_r)
 
     if is_runner(row):
         stats["runner_trades"] += 1
@@ -121,21 +165,30 @@ def derived(stats):
     expectancy = (win_rate * avg_win) - (loss_rate * avg_loss)
     avg_holding_minutes = stats["holding_minutes_total"] / stats["holding_time_trades"] if stats["holding_time_trades"] else 0.0
     runner_capture_rate = stats["runner_wins"] / stats["runner_trades"] if stats["runner_trades"] else 0.0
-    return win_rate, avg_win, avg_loss, profit_factor, expectancy, avg_holding_minutes, runner_capture_rate
+    avg_r_win = stats["win_r_total"] / wins if wins else 0.0
+    avg_r_loss = stats["loss_r_total"] / losses if losses else 0.0
+    loss_plan_ratio = stats["realized_loss_total"] / stats["planned_loss_total"] if stats["planned_loss_total"] else 0.0
+    return win_rate, avg_win, avg_loss, profit_factor, expectancy, avg_holding_minutes, runner_capture_rate, avg_r_win, avg_r_loss, loss_plan_ratio
 
 
 def print_stats(label, stats):
-    win_rate, avg_win, avg_loss, profit_factor, expectancy, avg_holding_minutes, runner_capture_rate = derived(stats)
+    win_rate, avg_win, avg_loss, profit_factor, expectancy, avg_holding_minutes, runner_capture_rate, avg_r_win, avg_r_loss, loss_plan_ratio = derived(stats)
     pf = "INF" if profit_factor == float("inf") else f"{profit_factor:.2f}"
     print(label)
     print(f"  Trades              : {stats['trades']}")
     print(f"  Win Rate            : {win_rate * 100:.1f}%")
     print(f"  Average Win         : {avg_win:.2f}")
     print(f"  Average Loss        : {avg_loss:.2f}")
+    print(f"  Average R Win       : {avg_r_win:.2f}R")
+    print(f"  Average R Loss      : {avg_r_loss:.2f}R")
     print(f"  Profit Factor       : {pf}")
     print(f"  Expectancy          : {expectancy:.2f}")
     print(f"  Average Holding Time: {avg_holding_minutes:.1f} min")
     print(f"  Runner Capture Rate : {runner_capture_rate * 100:.1f}%")
+    if stats["planned_loss_total"] > 0:
+        print(f"  Realized/Planned Loss: {loss_plan_ratio:.2f}x")
+        print(f"  Loss > 1.05R Count  : {stats['loss_over_plan_count']}")
+        print(f"  Max Loss vs Plan    : {stats['max_loss_over_plan_r']:.2f}R")
 
 
 def main():
@@ -172,7 +225,7 @@ def main():
     print("\n=== DECISION GUIDE ===\n")
     for entry_type, stats in sorted(by_entry.items()):
         trades = stats["trades"]
-        win_rate, _avg_win, _avg_loss, profit_factor, expectancy, _avg_holding_minutes, _runner_capture_rate = derived(stats)
+        win_rate, _avg_win, _avg_loss, profit_factor, expectancy, _avg_holding_minutes, _runner_capture_rate, _avg_r_win, _avg_r_loss, _loss_plan_ratio = derived(stats)
         if trades < 5:
             status = "KEEP TESTING"
         elif expectancy > 0 and profit_factor >= 1.25:

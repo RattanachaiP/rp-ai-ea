@@ -74,3 +74,11 @@ Participation restoration intentionally comes before scaling. Before increasing 
 - NOVA and V17 entry-quality rejections are softened to penalty/audit fields under valid AI authority; only stale data, invalid payload/schema, abnormal spread/liquidity/freeze, duplicate protection, daily risk, and catastrophic risk remain hard final veto classes.
 - Trend-walk management now preserves or upgrades runner intent: `TREND + WALK_UP/WALK_DOWN + score_gap >= 4` prefers `HOLD_TRAIL`, with `SCALP_TP` demoted to a secondary mode.
 - Planned reward/risk is calculated and enforced before final payload validation: SCALP requires at least 1.2R, while TREND/runner structures require at least 1.5R.
+
+## V26.6 expectancy repair program
+- Runtime authority advances to `V26.6 | expectancy-repair-program` under the same `codex-dev` lineage.
+- Trend management is now enforced after confidence recovery and final schema normalization: `MODE=TREND` may not publish `SCALP_TP` unless explicit downgrade metadata exists. Silent trend scalps are upgraded to `HOLD_TRAIL` or `TREND_RUNNER` to preserve asymmetric reward capture.
+- Early participation is graded by score gap without increasing total risk: gap 2 publishes 25% risk, gap 3 publishes 50% risk, and gap 4+ publishes 100% risk through `risk_fraction` / `position_size_multiplier` fields.
+- Loss compression metadata is published on every executable trade: planned SL risk points, max realized loss guard at 1.05R, risk budget fraction, and loss-compression policy fields.
+- Late entry scoring now explicitly tracks RSI compression after expansion, BB overextension, MA50 distance, exhausted MACD expansion, and expansion candle count. High scores wait for location reset; elevated scores reduce size.
+- Expectancy analytics now report Average R Win, Average R Loss, realized-vs-planned loss ratio, loss-over-plan count, and max loss vs plan in addition to daily expectancy metrics.
