@@ -53,8 +53,8 @@ OUTPUT_PATH = BASE_PATH / "decision.json"
 
 
 RUNTIME_BRANCH = "codex-dev"
-ARCH_VERSION = "V26.5"
-BUILD_TAG = "execution-quality-core-upgrade"
+ARCH_VERSION = "V26.6"
+BUILD_TAG = "expectancy-repair-program"
 RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
 
 # V26 Execution Confidence Engine
@@ -100,6 +100,23 @@ V26_LEGACY_ALIGNMENT_PENALTY = 15
 V26_LEGACY_M3_CONFLICT_PENALTY = 10
 V26_LEGACY_M15_CONFLICT_PENALTY = 15
 V26_TREND_WALK_RUNNER_MIN_GAP = 4
+
+# V26.6 Expectancy Repair Program
+# Enforces runner preservation, compresses realized loss budget metadata,
+# enters earlier with graded risk, and treats weak momentum as penalty-only.
+V26_6_SCALP_DOWNGRADE_ALLOWED_FLAGS = {
+    "EXPLICIT_SCALP_DOWNGRADE",
+    "TREND_SCALP_DOWNGRADE",
+    "RANGE_REVERSAL",
+}
+V26_6_LATE_ENTRY_WAIT_SCORE = 80
+V26_6_LATE_ENTRY_SIZE_REDUCE_SCORE = 60
+V26_6_MAX_REALIZED_LOSS_R_MULTIPLE = 1.05
+V26_6_LOSS_GUARD_BUFFER_R = 0.05
+V26_6_EARLY_PARTICIPATION_RISK_FRACTIONS = {2: 0.25, 3: 0.50, 4: 1.00}
+V26_6_FULL_SIZE_GAP = 4
+V26_6_MIN_PARTICIPATION_GAP = 2
+V26_6_WEAK_MOMENTUM_PENALTY_ONLY = True
 
 
 V26_FAST_PARTICIPATION_OVERRIDE_ENABLED = True
@@ -1326,6 +1343,221 @@ def enforce_expectancy_rr_structure(decision):
         decision["runner_tp_policy"] = "NO_MICRO_TP_STRUCTURE_TRAIL_WITH_MIN_RR_PROTECTIVE_TARGET"
     return decision
 
+
+
+def _v26_6_has_explicit_scalp_downgrade(decision):
+    """Return True only when a trend trade was intentionally downgraded to scalp."""
+    haystack = " ".join(
+        str(decision.get(k, ""))
+        for k in (
+            "management_downgrade", "management_alignment", "management_alignment_reason",
+            "runner_disable_reason", "final_gate_reason", "entry_type", "reason"
+        )
+    ).upper()
+    return any(flag in haystack for flag in V26_6_SCALP_DOWNGRADE_ALLOWED_FLAGS)
+
+
+def enforce_trend_management_v26_6(decision):
+    """V26.6: MODE=TREND must not silently publish MGMT=SCALP_TP."""
+    if not isinstance(decision, dict) or str(decision.get("decision", "")).upper() != "TRADE":
+        return decision
+    mode = str(decision.get("market_mode", decision.get("mode", ""))).upper()
+    current = str(decision.get("management", decision.get("mgmt", "SCALP_TP"))).upper()
+    if mode != "TREND" or current != "SCALP_TP":
+        decision.setdefault("trend_management_enforcement", "NOT_REQUIRED" if mode != "TREND" else "UNCHANGED")
+        return decision
+
+    bias = str(decision.get("action", decision.get("bias", "NEUTRAL"))).upper()
+    bb_state = str(decision.get("confirmed_bb_state", decision.get("bb_state", decision.get("bb", "NORMAL")))).upper()
+    score_gap = safe_int(decision.get("score_gap", 0), 0)
+    active_leg = str(decision.get("active_execution_leg", "")).upper()
+    runner_candidate = (
+        active_leg == "C"
+        or score_gap >= V26_TREND_WALK_RUNNER_MIN_GAP
+        or (bias == "BUY" and bb_state == "WALK_UP")
+        or (bias == "SELL" and bb_state == "WALK_DOWN")
+    )
+
+    if _v26_6_has_explicit_scalp_downgrade(decision):
+        decision["trend_management_enforcement"] = "SCALP_TP_EXPLICITLY_DOWNGRADED"
+        decision["trend_management_reason"] = "TREND scalp allowed only because explicit downgrade metadata exists"
+        decision["runner_preservation_required"] = False
+        return decision
+
+    replacement = "TREND_RUNNER" if runner_candidate else "HOLD_TRAIL"
+    decision["management"] = replacement
+    decision["mgmt"] = replacement
+    decision["market_style"] = "INTRADAY_SWING"
+    decision["trend_management_enforcement"] = "SCALP_TP_PROHIBITED_FOR_TREND"
+    decision["trend_management_reason"] = (
+        f"MODE=TREND forbids silent SCALP_TP; upgraded to {replacement} "
+        f"(bias={bias} bb={bb_state} gap={score_gap})"
+    )
+    decision["runner_preservation_required"] = True
+    decision["runner_tp_policy"] = "TREND_PARTICIPATION_TRAIL_OR_RUNNER_NO_SCALP_TP"
+    decision["reason"] = (str(decision.get("reason", "")) + f" | V26_6_TREND_MGMT_{replacement}").strip()
+    return decision
+
+
+def apply_early_participation_sizing_v26_6(decision):
+    """Publish graded risk fractions so gap=2/3 can participate without full-size risk."""
+    if not isinstance(decision, dict):
+        return decision
+    gap = safe_int(decision.get("score_gap", 0), 0)
+    fraction = 0.0
+    if gap >= V26_6_FULL_SIZE_GAP:
+        fraction = 1.0
+    elif gap >= 3:
+        fraction = V26_6_EARLY_PARTICIPATION_RISK_FRACTIONS[3]
+    elif gap >= 2:
+        fraction = V26_6_EARLY_PARTICIPATION_RISK_FRACTIONS[2]
+    decision["early_participation_enabled"] = gap >= V26_6_MIN_PARTICIPATION_GAP
+    decision["early_participation_gap"] = gap
+    decision["risk_fraction"] = round(fraction, 2)
+    decision["position_size_multiplier"] = round(fraction, 2)
+    decision["graded_sizing_policy"] = "gap2=25pct gap3=50pct gap4plus=100pct; total risk not increased"
+    if str(decision.get("decision", "")).upper() == "TRADE" and gap in (2, 3):
+        decision["execution_state"] = "EXECUTE_CAUTIOUS" if gap == 2 else decision.get("execution_state", "EXECUTE_CAUTIOUS")
+        decision["early_participation_reason"] = f"early participation gap={gap}; risk_fraction={fraction:.2f}"
+    return decision
+
+
+def apply_max_realized_loss_guard_v26_6(decision):
+    """Add per-trade max realized loss budget metadata derived from planned SL risk."""
+    if not isinstance(decision, dict):
+        return decision
+    bias = str(decision.get("action", decision.get("bias", ""))).upper()
+    entry = _trade_entry_price(decision)
+    sl = safe_float(decision.get("sl", decision.get("stop_loss", 0)), 0.0)
+    risk_points = abs(entry - sl) if entry > 0 and sl > 0 and bias in ("BUY", "SELL") else 0.0
+    fraction = safe_float(decision.get("risk_fraction", decision.get("position_size_multiplier", 1.0)), 1.0)
+    if str(decision.get("decision", "")).upper() != "TRADE" or risk_points <= 0:
+        decision.setdefault("max_realized_loss_guard", "NOT_ACTIVE")
+        return decision
+    max_loss_points = risk_points * V26_6_MAX_REALIZED_LOSS_R_MULTIPLE
+    decision["planned_sl_risk_points"] = round(risk_points, 3)
+    decision["planned_loss_r"] = 1.0
+    decision["max_realized_loss_guard"] = "ACTIVE"
+    decision["max_realized_loss_r"] = round(V26_6_MAX_REALIZED_LOSS_R_MULTIPLE, 3)
+    decision["max_realized_loss_points"] = round(max_loss_points, 3)
+    decision["max_realized_loss_buffer_r"] = round(V26_6_LOSS_GUARD_BUFFER_R, 3)
+    decision["risk_budget_fraction"] = round(fraction, 2)
+    decision["loss_compression_policy"] = "planned SL risk + 5pct execution buffer; no loss expansion beyond guard"
+    return decision
+
+
+def apply_late_entry_guard_v26_6(decision):
+    """Final maturity guard so later recovery layers cannot chase mature moves."""
+    if not isinstance(decision, dict):
+        return decision
+    score = safe_int(decision.get("late_entry_score", decision.get("late_entry_score_v26_6", 0)), 0)
+    bias = str(decision.get("action", decision.get("bias", decision.get("intended_action", "NEUTRAL")))).upper()
+    if score >= V26_6_LATE_ENTRY_WAIT_SCORE and bias in ("BUY", "SELL"):
+        decision["decision"] = "NO_TRADE"
+        decision["entry_allowed"] = False
+        decision["execution_state"] = "WAIT"
+        decision["wait_state"] = "WAIT_ENTRY_LOCATION"
+        decision["wait_reason"] = "late-entry score high; do not chase mature move"
+        decision["next_trigger"] = "pullback/reset before participation"
+        decision["intended_action"] = bias
+        decision["management"] = "NO_TRADE"
+        decision["mgmt"] = "NO_TRADE"
+        decision["late_entry_action"] = "WAIT_ENTRY_LOCATION"
+        if "V26_6_LATE_ENTRY_WAIT" not in str(decision.get("reason", "")):
+            decision["reason"] = (str(decision.get("reason", "")) + f" | V26_6_LATE_ENTRY_WAIT score={score}").strip()
+    elif score >= V26_6_LATE_ENTRY_SIZE_REDUCE_SCORE:
+        current_fraction = safe_float(decision.get("risk_fraction", 1.0), 1.0)
+        reduced = min(current_fraction, 0.25)
+        decision["risk_fraction"] = round(reduced, 2)
+        decision["position_size_multiplier"] = round(reduced, 2)
+        decision["late_entry_action"] = "REDUCE_SIZE"
+    return decision
+
+
+def _v26_6_recent_expansion_count(bias, data):
+    opens, highs, lows, closes = get_pullback_candles(data)
+    if len(closes) < 2:
+        return 0
+    count = 0
+    for o, h, l, c in zip(opens[:5], highs[:5], lows[:5], closes[:5]):
+        if _trend_side(bias, o, c) and _body_ratio(o, h, l, c) >= PULLBACK_EXPANSION_BODY_RATIO:
+            count += 1
+        else:
+            break
+    return count
+
+
+def enrich_late_entry_score_v26_6(decision, data, market_mode, bb_state, bb_extreme):
+    """Compute LATE_ENTRY_SCORE using existing RSI/BB/MA/MACD/candle-expansion inputs."""
+    if not isinstance(decision, dict) or not isinstance(data, dict):
+        return decision
+    bias = str(decision.get("action", decision.get("bias", "NEUTRAL"))).upper()
+    if bias not in ("BUY", "SELL"):
+        return decision
+    bid = safe_float(data.get("bid", decision.get("bid", decision.get("price", 0))), 0)
+    ma50 = safe_float(data.get("ma50", decision.get("ma50", 0)), 0)
+    rsi = safe_float(data.get("rsi", decision.get("rsi", 50)), 50)
+    macd = safe_float(data.get("macd_hist", decision.get("macd_hist", 0)), 0)
+    upper = safe_float(data.get("bb_upper", decision.get("bb_upper", decision.get("bb_upper2", 0))), 0)
+    mid = safe_float(data.get("bb_middle", data.get("bb_mid", decision.get("bb_middle", decision.get("bb_mid", 0)))), 0)
+    lower = safe_float(data.get("bb_lower", decision.get("bb_lower", decision.get("bb_lower2", 0))), 0)
+    expansion_count = _v26_6_recent_expansion_count(bias, data)
+    base_late = safe_int(decision.get("late_entry_score", 0), 0)
+    score = base_late
+    factors = []
+
+    dist_ma50 = _eti_pct_distance(bid, ma50)
+    bb_overextension = _eti_bb_mid_ratio(bid, upper, mid, lower)
+    edge = _eti_bb_edge_pos(bias, bid, upper, lower)
+    rsi_compressed_after_expansion = expansion_count >= 2 and ((bias == "BUY" and rsi < 58) or (bias == "SELL" and rsi > 42))
+    exhausted_macd_expansion = (bias == "BUY" and 0 < macd <= MACD_DECAY_ABS_WEAK) or (bias == "SELL" and -MACD_DECAY_ABS_WEAK <= macd < 0)
+
+    if rsi_compressed_after_expansion:
+        score += 15; factors.append(f"RSI compression after expansion rsi={rsi:.1f} expansion={expansion_count}")
+    if edge >= VERTICAL_BB_EDGE_RATIO or bb_overextension >= DIST_BB_MID_EXTREME_RATIO:
+        score += 15; factors.append(f"BB overextension edge={edge:.2f} mid_ratio={bb_overextension:.2f}")
+    if dist_ma50 >= DIST_MA50_EXTREME_PCT:
+        score += 12; factors.append(f"distance from MA50={dist_ma50:.4f}")
+    if exhausted_macd_expansion:
+        score += 12; factors.append(f"exhausted MACD expansion macd={macd:.2f}")
+    if expansion_count >= 3:
+        score += 18; factors.append(f"expansion candle count={expansion_count}")
+    elif expansion_count == 2:
+        score += 10; factors.append("expansion candle count=2")
+    if bb_extreme in ("DEV4_UPPER", "DEV4_LOWER"):
+        score += 15; factors.append(f"dev4 overextension={bb_extreme}")
+
+    score = clamp_int(score, 0, 100)
+    decision["late_entry_score"] = score
+    decision["late_entry_score_v26_6"] = score
+    decision["late_entry_factors"] = factors
+    decision["expansion_candle_count"] = expansion_count
+    decision["rsi_compression_after_expansion"] = bool(rsi_compressed_after_expansion)
+    decision["bb_overextension_ratio"] = round(bb_overextension, 3)
+    decision["ma50_distance_pct"] = round(dist_ma50, 5)
+    decision["exhausted_macd_expansion"] = bool(exhausted_macd_expansion)
+    if score >= V26_6_LATE_ENTRY_WAIT_SCORE and str(decision.get("decision", "")).upper() == "TRADE":
+        decision["decision"] = "NO_TRADE"
+        decision["entry_allowed"] = False
+        decision["execution_state"] = "WAIT"
+        decision["wait_state"] = "WAIT_ENTRY_LOCATION"
+        decision["wait_reason"] = "late-entry score high; do not chase mature move"
+        decision["next_trigger"] = "pullback/reset before participation"
+        decision["intended_action"] = bias
+        decision["management"] = "NO_TRADE"
+        decision["mgmt"] = "NO_TRADE"
+        decision["reason"] = (str(decision.get("reason", "")) + f" | V26_6_LATE_ENTRY_WAIT score={score}").strip()
+    elif score >= V26_6_LATE_ENTRY_SIZE_REDUCE_SCORE:
+        current_fraction = safe_float(decision.get("risk_fraction", 1.0), 1.0)
+        reduced = min(current_fraction, 0.25)
+        decision["risk_fraction"] = round(reduced, 2)
+        decision["position_size_multiplier"] = round(reduced, 2)
+        decision["late_entry_action"] = "REDUCE_SIZE"
+        decision["late_entry_reason_v26_6"] = "late-entry score elevated; size compressed instead of chasing full risk"
+    else:
+        decision["late_entry_action"] = "ALLOW"
+        decision["late_entry_reason_v26_6"] = "late-entry score acceptable"
+    return decision
 
 
 def _participation_key(prefix, bias, mode, bb):
@@ -2771,19 +3003,30 @@ def write_decision(data):
                 data = apply_spike_pullback_reentry_v25_6(data, data)
                 data = apply_execution_quality_core_v26_5(data)
                 data = align_management_with_trend_context(data)
+                data = enforce_trend_management_v26_6(data)
                 data = apply_v26_execution_confidence_engine(data)
                 data = apply_execution_quality_core_v26_5(data)
                 data = align_management_with_trend_context(data)
+                data = enforce_trend_management_v26_6(data)
+                data = apply_early_participation_sizing_v26_6(data)
                 data = apply_structure_aware_hold_intelligence_v25_5(data)
                 data = apply_bb_smoothing_fields_to_decision_v25_4(data, data)
                 data = apply_v25_3_rsi_soft_penalty_recovery(data)
                 data = apply_final_decision_gate_trace_v25_2(data)
+                data = apply_late_entry_guard_v26_6(data)
                 data = normalize_decision_schema_v20_2(data)
                 data = align_management_with_trend_context(data)
+                data = enforce_trend_management_v26_6(data)
+                data = apply_early_participation_sizing_v26_6(data)
                 data = construct_risk_payload_before_validation(data)
                 data = enforce_expectancy_rr_structure(data)
+                data = enforce_trend_management_v26_6(data)
+                data = apply_max_realized_loss_guard_v26_6(data)
                 data = validate_final_decision_payload(data)
                 data = normalize_decision_schema_v20_2(data)
+                data = enforce_trend_management_v26_6(data)
+                data = apply_early_participation_sizing_v26_6(data)
+                data = apply_max_realized_loss_guard_v26_6(data)
                 data["runtime_branch"] = RUNTIME_BRANCH
                 data["arch_version"] = ARCH_VERSION
                 data["build_tag"] = BUILD_TAG
@@ -3148,7 +3391,7 @@ def apply_nova_brain_or_block(decision, market_mode, bb_state, bb_extreme, rsi, 
         # V26.4.7 governance softening:
         # Weak trend momentum no longer hard-kills participation when direction/HTF/payload are valid.
         # Convert veto into a confidence penalty while preserving ACTION/MODE/BIAS.
-        if weak_trend_momentum and dominance_valid and htf_aligned and payload_valid and not hard_block:
+        if V26_6_WEAK_MOMENTUM_PENALTY_ONLY and weak_trend_momentum and dominance_valid and htf_aligned and payload_valid and not hard_block:
             softened = dict(decision)
             softened["nova_brain"] = "SOFTENED"
             softened["nova_reason"] = nova_reason
@@ -3170,6 +3413,7 @@ def apply_nova_brain_or_block(decision, market_mode, bb_state, bb_extreme, rsi, 
             softened["confidence_penalty"] = WEAK_MOMENTUM_CONFIDENCE_PENALTY
             softened["confidence"] = max(0, base_confidence - WEAK_MOMENTUM_CONFIDENCE_PENALTY)
             softened["participation_restoration_rule"] = "weak momentum is a confidence penalty, not a hard veto"
+            softened["weak_momentum_reform"] = "PENALTY_ONLY_V26_6"
 
             # Any valid directional gap now participates cautiously; weak momentum no longer erases authority.
             if score_gap >= WEAK_MOMENTUM_EXECUTE_MIN_GAP:
@@ -6715,6 +6959,7 @@ def build_decision(data):
         decision_data = apply_execution_timing_intelligence_v24(
             decision_data, data, market_mode, bb_state, bb_extreme
         )
+        decision_data = enrich_late_entry_score_v26_6(decision_data, data, market_mode, bb_state, bb_extreme)
         decision_data = apply_sr_entry_location_intelligence_v24(
             decision_data, data, market_mode, bb_state, bb_extreme
         )
@@ -6757,6 +7002,7 @@ def build_decision(data):
         decision_data = apply_execution_timing_intelligence_v24(
             decision_data, data, market_mode, bb_state, bb_extreme
         )
+        decision_data = enrich_late_entry_score_v26_6(decision_data, data, market_mode, bb_state, bb_extreme)
         decision_data = apply_sr_entry_location_intelligence_v24(
             decision_data, data, market_mode, bb_state, bb_extreme
         )

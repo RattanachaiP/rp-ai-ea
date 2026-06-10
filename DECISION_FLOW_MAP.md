@@ -93,3 +93,20 @@ Final hard veto authority is intentionally limited to:
 - catastrophic hard-risk state
 
 Expectancy structure is enforced before publishing a TRADE payload. SCALP structures must plan at least 1.2R; TREND and runner structures must plan at least 1.5R. TREND + `WALK_UP` / `WALK_DOWN` with score-gap authority prefers `HOLD_TRAIL` instead of silently downgrading into `SCALP_TP`; `SCALP_TP` remains a secondary management mode.
+
+## V26.6 expectancy-repair flow update
+The final write path now prioritizes expectancy before signal count:
+
+`directional ACTION/BIAS`
+-> existing safety and quality scoring
+-> weak-momentum confidence penalty only when hard safety is clear
+-> `LATE_ENTRY_SCORE` maturity audit
+-> execution confidence
+-> trend management enforcement (`TREND` cannot silently publish `SCALP_TP`)
+-> graded early participation sizing (`gap=2/3/4` => `25%/50%/100%` risk)
+-> risk payload construction and planned RR enforcement
+-> `MAX_REALIZED_LOSS_GUARD` metadata
+-> final validation
+-> executable trade, reduced-size mature-entry trade, or `WAIT_ENTRY_LOCATION`.
+
+This flow keeps existing indicators and classifier structure. It changes execution governance so optimization is measured by expectancy, Average R Win/Loss, runner capture, and realized-vs-planned loss discipline instead of raw signal count.
