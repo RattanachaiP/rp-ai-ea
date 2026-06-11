@@ -82,3 +82,13 @@ Participation restoration intentionally comes before scaling. Before increasing 
 - Loss compression metadata is published on every executable trade: planned SL risk points, max realized loss guard at 1.05R, risk budget fraction, and loss-compression policy fields.
 - Late entry scoring now explicitly tracks RSI compression after expansion, BB overextension, MA50 distance, exhausted MACD expansion, and expansion candle count. High scores wait for location reset; elevated scores reduce size.
 - Expectancy analytics now report Average R Win, Average R Loss, realized-vs-planned loss ratio, loss-over-plan count, and max loss vs plan in addition to daily expectancy metrics.
+
+## V26.6.1 expectancy emergency repair
+- Runtime authority remains `V26.6 | expectancy-repair-program`; patch level V26.6.1 adds realized trade-distribution protections without adding indicators, classifiers, or infrastructure layers.
+- `MAX_REALIZED_LOSS_GUARD` now publishes planned-vs-realized loss discipline fields on every decision path: `planned_R`, `planned_loss_r`, `planned_sl_risk_points`, `realized_R`, `max_realized_loss_r`, `loss_over_plan_count`, `realized_planned_loss_ratio`, and `max_loss_over_plan`.
+- Learning/trade-result ingestion now tracks `planned_R` and `realized_R` from `trade_results.jsonl` / `trade_results.json`, including loss-over-plan counts, cumulative realized/planned loss ratio, max loss over plan, consecutive losses, and last trade R.
+- If `consecutive_losses >= 2`, participation pauses for 20 minutes through `LOSS_CLUSTER_PAUSE` to prevent grouped loss clusters.
+- If the last closed trade realizes at least `2R` or a major runner is captured, participation cools down for 12 minutes through `POST_RUNNER_COOLDOWN` to avoid immediate exhausted trend re-entry.
+- The guard tracks `daily_peak_profit`; if the current day gives back at least 50% of the peak or at least 2.50 profit units, it activates `SESSION_PROFIT_PROTECTION` for the session protection window.
+- Failed continuation attempts decay same-direction conviction. After repeated failed BUY or SELL continuations, same-side participation is reduced to 25% risk or paused through `THESIS_DECAY_WAIT` when score authority is not strong enough.
+- Existing RSI, MA50 distance, BB maturity/overextension, MACD expansion, candle expansion, and trend/exhaustion scores continue to drive mature-entry handling: elevated exhaustion reduces size; high exhaustion forces `WAIT_ENTRY_LOCATION`.
