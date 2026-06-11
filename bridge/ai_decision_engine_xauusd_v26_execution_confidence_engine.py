@@ -49,13 +49,33 @@ OUTPUT_PATH = BASE_PATH / "decision.json"
 
 RUNTIME_BRANCH = "codex-dev"
 ARCH_VERSION = "V26.6.1"
-BUILD_TAG = "expectancy-emergency-repair-protection-authority"
+BUILD_TAG = "executor-legacy-veto-audit-authority-chain"
 RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
 
 # V26 Execution Confidence Engine
 V26_EXECUTION_CONFIDENCE_ENABLED = True
 V26_WAIT_IS_NOT_NO_TRADE = True
 V26_HARD_BLOCKS_ONLY_SAFETY = True
+
+# V26.6.1 Executor Legacy Veto Audit
+# The MT5 executor may still contain historical V15/V17 quality gates.
+# Under AI authority, these fields are compatibility/telemetry only; hard
+# execution veto authority is restricted to stale/invalid payload/schema,
+# abnormal spread/liquidity/freeze, duplicate order protection, and daily risk.
+LEGACY_EXECUTOR_MIN_COMPAT_ANALYSIS_QUALITY = 60
+LEGACY_EXECUTOR_VETO_AUDIT = (
+    {"gate": "V17_AI_QUALITY_BLOCK", "classification": "SOFT_DIAGNOSTIC_PENALTY", "terminal_veto_allowed": False},
+    {"gate": "V15_ENTRY_BLOCK", "classification": "SOFT_DIAGNOSTIC_PENALTY", "terminal_veto_allowed": False},
+    {"gate": "analysis_quality_filters", "classification": "SOFT_DIAGNOSTIC_PENALTY", "terminal_veto_allowed": False},
+    {"gate": "alignment_vetoes", "classification": "SOFT_DIAGNOSTIC_PENALTY", "terminal_veto_allowed": False},
+    {"gate": "legacy_participation_gates", "classification": "SOFT_DIAGNOSTIC_PENALTY", "terminal_veto_allowed": False},
+    {"gate": "stale_decision", "classification": "HARD_SAFETY_BLOCK", "terminal_veto_allowed": True},
+    {"gate": "invalid_payload_or_schema", "classification": "HARD_SAFETY_BLOCK", "terminal_veto_allowed": True},
+    {"gate": "abnormal_spread_liquidity_broker_freeze", "classification": "HARD_SAFETY_BLOCK", "terminal_veto_allowed": True},
+    {"gate": "duplicate_order_protection", "classification": "HARD_SAFETY_BLOCK", "terminal_veto_allowed": True},
+    {"gate": "daily_risk_limit", "classification": "HARD_SAFETY_BLOCK", "terminal_veto_allowed": True},
+)
+
 
 V26_EXECUTE_AGGRESSIVE_SCORE = 82
 V26_EXECUTE_NORMAL_SCORE = 65
@@ -1316,6 +1336,90 @@ def add_confidence_penalty(decision, penalty, reason):
     return decision
 
 
+def _legacy_executor_veto_policy_fields():
+    return [dict(item) for item in LEGACY_EXECUTOR_VETO_AUDIT]
+
+
+def _soften_legacy_veto_if_ai_authority_valid(decision, reason, source, penalty=V26_LEGACY_ALIGNMENT_PENALTY, buy_score=None, sell_score=None):
+    """Convert legacy strategy/quality vetoes to telemetry when AI authority is valid."""
+    ai_valid, ai_reason = _ai_authority_valid(decision, buy_score, sell_score)
+    if not ai_valid:
+        return None
+
+    softened = dict(decision)
+    softened = add_confidence_penalty(softened, penalty, f"{source}: {reason}")
+    softened["decision"] = "TRADE"
+    softened["entry_allowed"] = True
+    softened["legacy_executor_veto_converted"] = True
+    softened["legacy_veto_source"] = source
+    softened["legacy_veto_reason"] = str(reason)
+    softened["legacy_veto_classification"] = "SOFT_DIAGNOSTIC_PENALTY"
+    softened["legacy_veto_terminal_block"] = False
+    softened["legacy_veto_authority"] = ai_reason
+    softened["legacy_executor_veto_policy"] = _legacy_executor_veto_policy_fields()
+    softened["reason"] = (
+        str(softened.get("reason", ""))
+        + f" | {source}_PENALTY_ONLY: {reason}; {ai_reason}"
+    ).strip()
+    return softened
+
+
+def apply_executor_authority_contract_v26_6_1(decision):
+    """Publish the single AI->payload->executor->market authority contract."""
+    if not isinstance(decision, dict):
+        return decision
+
+    ai_valid, ai_reason = _ai_authority_valid(decision)
+    hard_block, hard_reason = _v26_has_hard_block(decision)
+    is_trade = str(decision.get("decision", "")).upper() == "TRADE"
+    entry_allowed = bool(decision.get("entry_allowed", is_trade))
+    payload_valid = bool(decision.get("payload_valid", is_trade)) and not bool(decision.get("payload_validation_failed", False))
+    executable_ai_trade = is_trade and entry_allowed and payload_valid and ai_valid and not hard_block
+
+    decision["ai_decision_authority"] = "PRIMARY"
+    decision["executor_authority_chain"] = "AI_DECISION -> PAYLOAD_VALIDATION -> EXECUTOR -> MARKET"
+    decision["executor_hard_block_scope"] = (
+        "stale decision; invalid payload/schema; abnormal spread/liquidity/broker freeze; "
+        "duplicate order protection; daily risk limit"
+    )
+    decision["legacy_executor_veto_policy"] = _legacy_executor_veto_policy_fields()
+    decision["legacy_quality_terminal_veto_enabled"] = False
+    decision["v17_ai_quality_block_classification"] = "SOFT_DIAGNOSTIC_PENALTY"
+    decision["v15_entry_block_classification"] = "SOFT_DIAGNOSTIC_PENALTY"
+    decision["analysis_quality_terminal_veto_enabled"] = False
+    decision["alignment_terminal_veto_enabled"] = False
+    decision["legacy_participation_terminal_veto_enabled"] = False
+    decision["executor_ai_authority_valid"] = bool(ai_valid)
+    decision["executor_ai_authority_reason"] = ai_reason if ai_valid else (hard_reason or ai_reason)
+
+    raw_quality = safe_int(decision.get("analysis_quality", 0), 0)
+    decision.setdefault("analysis_quality_diagnostic", raw_quality)
+    decision.setdefault("v17_quality_score_diagnostic", raw_quality)
+
+    if executable_ai_trade:
+        decision["allowed"] = True
+        decision["executor_order_send_required"] = True
+        decision["legacy_executor_override_allowed"] = False
+        decision["legacy_v17_quality_veto_result"] = "BYPASSED_DIAGNOSTIC_ONLY"
+        decision["legacy_v15_entry_veto_result"] = "BYPASSED_DIAGNOSTIC_ONLY"
+        if raw_quality < LEGACY_EXECUTOR_MIN_COMPAT_ANALYSIS_QUALITY:
+            decision["analysis_quality_compat_floor_applied"] = True
+            decision["analysis_quality_compat_floor_reason"] = (
+                f"raw analysis_quality={raw_quality} retained as diagnostic; "
+                "compatibility floor prevents legacy V17 terminal veto under valid AI authority"
+            )
+            decision["analysis_quality"] = LEGACY_EXECUTOR_MIN_COMPAT_ANALYSIS_QUALITY
+        else:
+            decision["analysis_quality_compat_floor_applied"] = False
+            decision["analysis_quality"] = raw_quality
+    else:
+        decision["allowed"] = False if not is_trade else entry_allowed
+        decision["executor_order_send_required"] = False
+        decision["legacy_executor_override_allowed"] = bool(hard_block)
+
+    return decision
+
+
 def _management_prefers_runner(bias, market_mode, bb_state, score_gap):
     if market_mode != "TREND" or score_gap < V26_TREND_WALK_RUNNER_MIN_GAP:
         return False
@@ -2076,6 +2180,17 @@ def apply_execution_quality_core_v26_5(decision):
     poor_directional_location = location_score < V26_5_ENTRY_LOCATION_MIN_EXECUTE and bias in ("BUY", "SELL")
     hard_block_active = str(decision.get("hard_block", "")).upper() in ("TRUE", "1", "YES")
     if poor_directional_location and not hard_block_active:
+        veto_reason = f"ENTRY_LOCATION_SCORE {location_score} < {V26_5_ENTRY_LOCATION_MIN_EXECUTE}"
+        softened = _soften_legacy_veto_if_ai_authority_valid(
+            decision, veto_reason, "V26_5_ENTRY_LOCATION_WAIT", V26_5_ENTRY_LOCATION_WEAK_PENALTY
+        )
+        if softened is not None:
+            softened["entry_quality_block"] = False
+            softened["entry_quality_block_reason"] = veto_reason
+            softened["entry_location_wait_diagnostic_only"] = True
+            softened["wait_state"] = ""
+            softened["wait_reason"] = ""
+            return softened
         decision["decision"] = "NO_TRADE"
         decision["entry_allowed"] = False
         decision["execution_state"] = "WAIT"
@@ -2087,7 +2202,7 @@ def apply_execution_quality_core_v26_5(decision):
         decision["management"] = "NO_TRADE"
         decision["mgmt"] = "NO_TRADE"
         decision["entry_quality_block"] = True
-        decision["entry_quality_block_reason"] = f"ENTRY_LOCATION_SCORE {location_score} < {V26_5_ENTRY_LOCATION_MIN_EXECUTE}"
+        decision["entry_quality_block_reason"] = veto_reason
         if "V26_5_ENTRY_LOCATION_WAIT" not in str(decision.get("reason", "")):
             decision["reason"] = (str(decision.get("reason", "")) + " | V26_5_ENTRY_LOCATION_WAIT").strip()
     else:
@@ -3288,11 +3403,13 @@ def write_decision(data):
                 data = enforce_trend_management_v26_6(data)
                 data = apply_max_realized_loss_guard_v26_6(data)
                 data = validate_final_decision_payload(data)
+                data = apply_executor_authority_contract_v26_6_1(data)
                 data = apply_protection_authority_manager_v26_6_1(data, allow_release=False, count_cycle=False)
                 data = normalize_decision_schema_v20_2(data)
                 data = enforce_trend_management_v26_6(data)
                 data = apply_early_participation_sizing_v26_6(data)
                 data = apply_max_realized_loss_guard_v26_6(data)
+                data = apply_executor_authority_contract_v26_6_1(data)
                 data["runtime_branch"] = RUNTIME_BRANCH
                 data["arch_version"] = ARCH_VERSION
                 data["build_tag"] = BUILD_TAG
@@ -3307,6 +3424,19 @@ def write_decision(data):
             os.replace(str(temp_path), str(OUTPUT_PATH))
             replace_latency = round(time.time() - replace_start, 6)
             total_write = round(time.time() - write_start, 6)
+
+            if data.get("executor_order_send_required"):
+                print(
+                    "EXECUTOR AUTHORITY AUDIT:",
+                    "TRADE decision emitted",
+                    "| executor receives TRADE",
+                    "| no legacy V15/V17 veto override allowed",
+                    "| OrderSend required after broker safety checks",
+                    "| allowed", data.get("allowed"),
+                    "| payload_valid", data.get("payload_valid"),
+                    "| raw_v17_quality", data.get("v17_quality_score_diagnostic"),
+                    "| compat_quality", data.get("analysis_quality"),
+                )
 
             print(
                 "DECISION WRITTEN:", data.get("decision", ""),
@@ -5313,6 +5443,14 @@ def apply_candle_intelligence_or_block(decision, data, market_mode, bb_state, bb
             decision["reason"] = f"{decision.get('reason', '')} | {reason}"
         return decision
 
+    softened = _soften_legacy_veto_if_ai_authority_valid(
+        decision, reason, "CANDLE_INTELLIGENCE_BLOCK", V26_LEGACY_ALIGNMENT_PENALTY, buy_score, sell_score
+    )
+    if softened is not None:
+        softened["candle_filter"] = "SOFTENED_TO_CONFIDENCE_PENALTY"
+        softened["candle_reason"] = reason
+        return softened
+
     blocked = no_trade(reason, market_mode, bb_state)
     for key in (
         "buy_score", "sell_score", "buyScore", "sellScore", "score_gap", "dir_m15", "dir_m3",
@@ -5516,6 +5654,14 @@ def apply_trend_exhaustion_or_block(decision, data, market_mode, bb_state, bb_ex
             f"TREND EXHAUSTION BLOCK | score={info.get('trend_exhaustion_score')} "
             f"level={info.get('trend_exhaustion')} | {info.get('trend_exhaustion_reason')}"
         )
+        softened = _soften_legacy_veto_if_ai_authority_valid(
+            decision, reason, "TREND_EXHAUSTION_BLOCK", V26_LEGACY_ALIGNMENT_PENALTY
+        )
+        if softened is not None:
+            softened["trend_exhaustion_diagnostic_only"] = True
+            return softened
+
+
         blocked = no_trade(reason, market_mode, bb_state)
         for key in (
             "buy_score", "sell_score", "buyScore", "sellScore", "score_gap",
@@ -5752,6 +5898,13 @@ def apply_market_structure_exhaustion_master_gate(decision, data, market_mode, b
         return decision
     if not ok:
         reason = f"MASTER GATE BLOCK | score={info.get('master_gate_score')} | {info.get('master_gate_reason')}"
+        softened = _soften_legacy_veto_if_ai_authority_valid(
+            decision, reason, "MASTER_GATE_BLOCK", V26_LEGACY_ALIGNMENT_PENALTY
+        )
+        if softened is not None:
+            softened["master_gate_diagnostic_only"] = True
+            return softened
+
         blocked = no_trade(reason, market_mode, bb_state)
         for key in (
             "buy_score", "sell_score", "buyScore", "sellScore", "score_gap",
@@ -6071,6 +6224,13 @@ def apply_pullback_continuation_or_block(decision, data, market_mode, bb_state, 
 
     if not ok:
         reason = f"PULLBACK BLOCK | timing={info.get('entry_timing')} quality={info.get('pullback_quality')} cont={info.get('continuation_quality')} | {info.get('pullback_reason')}"
+        softened = _soften_legacy_veto_if_ai_authority_valid(
+            decision, reason, "PULLBACK_BLOCK", V26_LEGACY_ALIGNMENT_PENALTY, buy_score, sell_score
+        )
+        if softened is not None:
+            softened["pullback_block_diagnostic_only"] = True
+            return softened
+
         blocked = no_trade(reason, market_mode, bb_state)
         for key in (
             "buy_score", "sell_score", "buyScore", "sellScore", "score_gap",
@@ -6220,6 +6380,14 @@ def apply_sr_entry_location_intelligence_v24(decision, data, market_mode, bb_sta
     )
     if should_block and not SR_REPORT_MODE_ONLY:
         reason = f"SR_ENTRY_LOCATION_BLOCK | state={info['entry_location_state']} score={info['entry_location_score']} RR={info['estimated_reward_risk']} reward={info['remaining_reward_estimate']} | {info['entry_location_reason']} | {info['support_resistance_reason']}"
+        softened = _soften_legacy_veto_if_ai_authority_valid(
+            decision, reason, "SR_ENTRY_LOCATION_BLOCK", V26_5_ENTRY_LOCATION_WEAK_PENALTY
+        )
+        if softened is not None:
+            softened["sr_entry_location_diagnostic_only"] = True
+            softened["execution_timing_reason"] = reason
+            return softened
+
         blocked = no_trade(reason, market_mode, bb_state)
         blocked.update(decision)
         blocked["decision"] = "NO_TRADE"
@@ -6326,7 +6494,16 @@ def apply_execution_timing_intelligence_v24(decision, data, market_mode, bb_stat
     cooldown_until = safe_int(execution_timing_state.get("cooldown_until", 0), 0)
     if cooldown_until > now_ts:
         remain = cooldown_until - now_ts
-        blocked = no_trade(f"EXHAUSTION_COOLDOWN_ACTIVE | remain={remain}s | {execution_timing_state.get('cooldown_reason','')}", market_mode, bb_state)
+        reason = f"EXHAUSTION_COOLDOWN_ACTIVE | remain={remain}s | {execution_timing_state.get('cooldown_reason','')}"
+        softened = _soften_legacy_veto_if_ai_authority_valid(
+            decision, reason, "EXHAUSTION_COOLDOWN_ACTIVE", V26_LEGACY_ALIGNMENT_PENALTY
+        )
+        if softened is not None:
+            softened["exhaustion_cooldown_diagnostic_only"] = True
+            softened["exhaustion_cooldown_reason"] = reason
+            return softened
+
+        blocked = no_trade(reason, market_mode, bb_state)
         blocked.update(decision)
         blocked["decision"] = "NO_TRADE"; blocked["entry_allowed"] = False
         blocked["exhaustion_cooldown_active"] = True
@@ -6335,6 +6512,14 @@ def apply_execution_timing_intelligence_v24(decision, data, market_mode, bb_stat
     should_block = late["late_entry_score"] >= LATE_ENTRY_BLOCK_SCORE or exh["exhaustion_score"] >= EXHAUSTION_BLOCK_SCORE
     if should_block:
         reason = f"EXECUTION_TIMING_BLOCK | late={late['late_entry_score']} {late['late_entry_risk']} | exhaustion={exh['exhaustion_score']} {exh['exhaustion_state']} | {late['late_entry_reason']} | {exh['exhaustion_reason']}"
+        softened = _soften_legacy_veto_if_ai_authority_valid(
+            decision, reason, "EXECUTION_TIMING_BLOCK", V26_LEGACY_ALIGNMENT_PENALTY
+        )
+        if softened is not None:
+            softened["execution_timing_block_diagnostic_only"] = True
+            softened["execution_timing_reason"] = reason
+            return softened
+
         execution_timing_state["cooldown_until"] = now_ts + EXHAUSTION_COOLDOWN_SECONDS
         execution_timing_state["cooldown_reason"] = reason
         blocked = no_trade(reason, market_mode, bb_state)
@@ -6349,6 +6534,14 @@ def apply_execution_timing_intelligence_v24(decision, data, market_mode, bb_stat
     if last_ts > 0 and last_bias == bias and now_ts - last_ts < CONTINUATION_REENTRY_COOLDOWN_SECONDS:
         remain = CONTINUATION_REENTRY_COOLDOWN_SECONDS - (now_ts - last_ts)
         reason = f"CONTINUATION_REENTRY_COOLDOWN | bias={bias} remain={remain}s"
+        softened = _soften_legacy_veto_if_ai_authority_valid(
+            decision, reason, "LEGACY_PARTICIPATION_REENTRY_COOLDOWN", V26_LEGACY_ALIGNMENT_PENALTY
+        )
+        if softened is not None:
+            softened["continuation_reentry_diagnostic_only"] = True
+            softened["execution_timing_reason"] = reason
+            return softened
+
         blocked = no_trade(reason, market_mode, bb_state)
         blocked.update(decision)
         blocked["decision"] = "NO_TRADE"; blocked["entry_allowed"] = False

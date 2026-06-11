@@ -128,3 +128,17 @@ This prevents the prior cascade pattern:
 `LOSS_CLUSTER_PAUSE -> THESIS_DECAY_WAIT -> WAIT_ENTRY_LOCATION -> POST_RUNNER_COOLDOWN -> NO PARTICIPATION`
 
 from becoming recursive. The manager does not remove hard safety; it prevents multiple quality/profit/cooldown protections from all being simultaneously active and unbounded.
+
+## V26.6.1 executor legacy-veto conflict audit update
+The single execution authority chain is now:
+
+`AI Decision`
+-> `Payload Validation`
+-> `Executor broker-safety checks only`
+-> `Market / OrderSend`
+
+Executor-side veto classification:
+- `HARD_SAFETY_BLOCK`: stale decision, invalid payload, invalid schema, abnormal spread, no liquidity, broker freeze, duplicate order protection, daily risk limit.
+- `SOFT_DIAGNOSTIC_PENALTY`: V17 AI quality block, V15 entry block, `analysis_quality` filters, M15/M3 alignment vetoes, legacy participation/cooldown/location/quality gates.
+
+When `decision=TRADE`, `allowed=true`, `entry_allowed=true`, `payload_valid=true`, BUY/SELL bias is valid, and no hard safety block is active, no legacy quality gate may convert the payload to `NO_TRADE`. Legacy quality values remain visible as telemetry (`analysis_quality_diagnostic`, `v17_quality_score_diagnostic`, `legacy_executor_veto_policy`) and may reduce confidence, but they do not override V26 execution authority.
