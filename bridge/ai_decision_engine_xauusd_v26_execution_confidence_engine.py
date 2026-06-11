@@ -117,6 +117,15 @@ V26_6_EARLY_PARTICIPATION_RISK_FRACTIONS = {2: 0.25, 3: 0.50, 4: 1.00}
 V26_6_FULL_SIZE_GAP = 4
 V26_6_MIN_PARTICIPATION_GAP = 2
 V26_6_WEAK_MOMENTUM_PENALTY_ONLY = True
+V26_6_LOSS_CLUSTER_PAUSE_SECONDS = 20 * 60
+V26_6_PROFIT_SPIKE_COOLDOWN_SECONDS = 12 * 60
+V26_6_MAJOR_RUNNER_R = 2.0
+V26_6_DAILY_PEAK_DRAWDOWN_FRACTION = 0.50
+V26_6_DAILY_PEAK_DRAWDOWN_MIN_PROFIT = 2.50
+V26_6_THESIS_DECAY_FAILURES = 2
+V26_6_THESIS_DECAY_SECONDS = 30 * 60
+V26_6_HIGH_EXHAUSTION_REDUCE_SCORE = 60
+V26_6_HIGH_EXHAUSTION_WAIT_SCORE = 80
 
 
 V26_FAST_PARTICIPATION_OVERRIDE_ENABLED = True
@@ -1437,6 +1446,7 @@ def apply_max_realized_loss_guard_v26_6(decision):
     max_loss_points = risk_points * V26_6_MAX_REALIZED_LOSS_R_MULTIPLE
     decision["planned_sl_risk_points"] = round(risk_points, 3)
     decision["planned_loss_r"] = 1.0
+    decision["planned_R"] = 1.0
     decision["max_realized_loss_guard"] = "ACTIVE"
     decision["max_realized_loss_r"] = round(V26_6_MAX_REALIZED_LOSS_R_MULTIPLE, 3)
     decision["max_realized_loss_points"] = round(max_loss_points, 3)
@@ -1471,6 +1481,128 @@ def apply_late_entry_guard_v26_6(decision):
         decision["risk_fraction"] = round(reduced, 2)
         decision["position_size_multiplier"] = round(reduced, 2)
         decision["late_entry_action"] = "REDUCE_SIZE"
+    return decision
+
+
+def _v26_6_guard_remaining_seconds(until_ts):
+    return max(0, safe_int(until_ts, 0) - int(time.time()))
+
+
+def _v26_6_active_daily_stop(guard):
+    today = datetime.now().strftime("%Y-%m-%d")
+    daily = guard.get("daily", {}) if isinstance(guard, dict) else {}
+    today_stats = daily.get(today, {}) if isinstance(daily, dict) else {}
+    remaining = _v26_6_guard_remaining_seconds(today_stats.get("session_stop_until", 0))
+    return remaining, today_stats
+
+
+def _v26_6_block_for_expectancy(decision, wait_state, reason, remaining):
+    bias = str(decision.get("action", decision.get("bias", decision.get("intended_action", "NEUTRAL")))).upper()
+    if bias not in ("BUY", "SELL"):
+        bias = str(decision.get("bias", "NEUTRAL")).upper()
+    decision["decision"] = "NO_TRADE"
+    decision["entry_allowed"] = False
+    decision["execution_state"] = "WAIT"
+    decision["wait_state"] = wait_state
+    decision["wait_reason"] = reason
+    decision["expectancy_guard_wait_remaining_sec"] = remaining
+    decision["intended_action"] = bias if bias in ("BUY", "SELL") else "NEUTRAL"
+    decision["manual_action"] = f"{bias}_BIAS_EXPECTANCY_WAIT" if bias in ("BUY", "SELL") else "WAIT"
+    decision["management"] = "NO_TRADE"
+    decision["mgmt"] = "NO_TRADE"
+    decision["reason"] = (str(decision.get("reason", "")) + f" | V26_6_EXPECTANCY_GUARD {wait_state}: {reason}").strip()
+    return decision
+
+
+def apply_expectancy_emergency_repair_v26_6(decision):
+    """Apply expectancy-first protections from realized trade distribution only."""
+    if not isinstance(decision, dict):
+        return decision
+    state = update_learning_from_trade_results()
+    guard = state.get("expectancy_guard", default_expectancy_guard_state()) if isinstance(state, dict) else default_expectancy_guard_state()
+    now_ts = int(time.time())
+
+    decision["expectancy_guard_enabled"] = True
+    decision["loss_over_plan_count"] = safe_int(guard.get("loss_over_plan_count", 0), 0)
+    decision["realized_planned_loss_ratio"] = safe_float(guard.get("realized_planned_loss_ratio", 0), 0.0)
+    decision["max_loss_over_plan"] = safe_float(guard.get("max_loss_over_plan", 0), 0.0)
+    decision["consecutive_losses"] = safe_int(guard.get("consecutive_losses", 0), 0)
+    decision["last_trade_profit"] = safe_float(guard.get("last_trade_profit", 0), 0.0)
+    decision["last_trade_profit_r"] = safe_float(guard.get("last_trade_profit_r", 0), 0.0)
+    decision["last_trade_realized_R"] = safe_float(guard.get("last_trade_realized_r", 0), 0.0)
+    decision["realized_R"] = safe_float(guard.get("last_trade_realized_r", 0), 0.0)
+    decision["daily_peak_profit"] = 0.0
+
+    daily_remaining, today_stats = _v26_6_active_daily_stop(guard)
+    if today_stats:
+        decision["daily_current_profit"] = safe_float(today_stats.get("current_profit", 0), 0.0)
+        decision["daily_peak_profit"] = safe_float(today_stats.get("daily_peak_profit", 0), 0.0)
+        decision["daily_peak_drawdown"] = round(decision["daily_peak_profit"] - decision["daily_current_profit"], 4)
+    if daily_remaining > 0:
+        return _v26_6_block_for_expectancy(
+            decision,
+            "SESSION_PROFIT_PROTECTION",
+            today_stats.get("session_stop_reason", "daily peak drawdown stop active"),
+            daily_remaining,
+        )
+
+    loss_remaining = _v26_6_guard_remaining_seconds(guard.get("loss_cluster_pause_until", 0))
+    if loss_remaining > 0:
+        return _v26_6_block_for_expectancy(
+            decision,
+            "LOSS_CLUSTER_PAUSE",
+            guard.get("loss_cluster_pause_reason", "consecutive losses pause active"),
+            loss_remaining,
+        )
+
+    profit_remaining = _v26_6_guard_remaining_seconds(guard.get("profit_cooldown_until", 0))
+    if profit_remaining > 0:
+        return _v26_6_block_for_expectancy(
+            decision,
+            "POST_RUNNER_COOLDOWN",
+            guard.get("profit_cooldown_reason", "post 2R/runner cooldown active"),
+            profit_remaining,
+        )
+
+    bias = str(decision.get("action", decision.get("bias", "NEUTRAL"))).upper()
+    decay = guard.get("thesis_decay", {}) if isinstance(guard, dict) else {}
+    side = decay.get(bias, {}) if isinstance(decay, dict) and bias in ("BUY", "SELL") else {}
+    thesis_remaining = _v26_6_guard_remaining_seconds(side.get("pause_until", 0))
+    if thesis_remaining > 0 and str(decision.get("decision", "")).upper() == "TRADE":
+        decision["thesis_decay_active"] = True
+        decision["thesis_decay_reason"] = side.get("reason", "failed continuation attempts decayed conviction")
+        current_fraction = safe_float(decision.get("risk_fraction", decision.get("position_size_multiplier", 1.0)), 1.0)
+        reduced = min(current_fraction, 0.25)
+        decision["risk_fraction"] = round(reduced, 2)
+        decision["position_size_multiplier"] = round(reduced, 2)
+        if safe_int(decision.get("score_gap", 0), 0) < V26_6_FULL_SIZE_GAP:
+            return _v26_6_block_for_expectancy(decision, "THESIS_DECAY_WAIT", decision["thesis_decay_reason"], thesis_remaining)
+    else:
+        decision["thesis_decay_active"] = False
+
+    exhaustion = max(
+        safe_int(decision.get("late_entry_score", 0), 0),
+        safe_int(decision.get("exhaustion_score", 0), 0),
+        safe_int(decision.get("trend_exhaustion_score", 0), 0),
+        safe_int(decision.get("late_entry_score_v26_6", 0), 0),
+    )
+    decision["expectancy_exhaustion_score"] = exhaustion
+    if str(decision.get("decision", "")).upper() == "TRADE" and exhaustion >= V26_6_HIGH_EXHAUSTION_WAIT_SCORE:
+        return _v26_6_block_for_expectancy(
+            decision,
+            "WAIT_ENTRY_LOCATION",
+            f"high exhaustion score={exhaustion}; avoid mature trend re-entry",
+            0,
+        )
+    if str(decision.get("decision", "")).upper() == "TRADE" and exhaustion >= V26_6_HIGH_EXHAUSTION_REDUCE_SCORE:
+        current_fraction = safe_float(decision.get("risk_fraction", decision.get("position_size_multiplier", 1.0)), 1.0)
+        reduced = min(current_fraction, 0.25)
+        decision["risk_fraction"] = round(reduced, 2)
+        decision["position_size_multiplier"] = round(reduced, 2)
+        decision["expectancy_exhaustion_action"] = "REDUCE_SIZE"
+        decision["expectancy_exhaustion_reason"] = f"exhaustion score={exhaustion}; compress risk instead of chasing"
+    else:
+        decision["expectancy_exhaustion_action"] = "ALLOW"
     return decision
 
 
@@ -3022,6 +3154,7 @@ def write_decision(data):
                 data = enforce_expectancy_rr_structure(data)
                 data = enforce_trend_management_v26_6(data)
                 data = apply_max_realized_loss_guard_v26_6(data)
+                data = apply_expectancy_emergency_repair_v26_6(data)
                 data = validate_final_decision_payload(data)
                 data = normalize_decision_schema_v20_2(data)
                 data = enforce_trend_management_v26_6(data)
@@ -3690,7 +3823,41 @@ def make_learning_key(bias, market_mode, bb_state, management, entry_type):
 
 
 def default_learning_state():
-    return {"version": "V19", "processed_ids": [], "setups": {}, "updated_at": now()}
+    return {
+        "version": "V26.6.1",
+        "processed_ids": [],
+        "setups": {},
+        "expectancy_guard": default_expectancy_guard_state(),
+        "updated_at": now(),
+    }
+
+
+def default_expectancy_guard_state():
+    return {
+        "processed_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "gross_win": 0.0,
+        "gross_loss": 0.0,
+        "planned_loss_total": 0.0,
+        "realized_loss_total": 0.0,
+        "loss_over_plan_count": 0,
+        "max_loss_over_plan": 0.0,
+        "consecutive_losses": 0,
+        "loss_cluster_pause_until": 0,
+        "loss_cluster_pause_reason": "",
+        "profit_cooldown_until": 0,
+        "profit_cooldown_reason": "",
+        "last_trade_profit": 0.0,
+        "last_trade_realized_r": 0.0,
+        "last_trade_profit_r": 0.0,
+        "last_trade_bias": "NEUTRAL",
+        "daily": {},
+        "thesis_decay": {
+            "BUY": {"failed_continuations": 0, "pause_until": 0, "reason": ""},
+            "SELL": {"failed_continuations": 0, "pause_until": 0, "reason": ""},
+        },
+    }
 
 
 def load_learning_state():
@@ -3713,6 +3880,52 @@ def save_learning_state(state):
         print("LEARNING STATE WRITE ERROR:", e)
 
 
+def _planned_loss_value_from_trade_record(record):
+    explicit = safe_float(
+        record.get(
+            "planned_loss",
+            record.get("planned_risk", record.get("planned_sl_loss", record.get("planned_sl_risk", 0))),
+        ),
+        0.0,
+    )
+    if explicit > 0:
+        return explicit
+    entry = safe_float(record.get("entry_price", record.get("open_price", record.get("price", 0))), 0.0)
+    sl = safe_float(record.get("sl", record.get("stop_loss", 0)), 0.0)
+    lots = safe_float(record.get("lots", record.get("volume", record.get("lot", 0))), 0.0)
+    tick_value = safe_float(record.get("tick_value", record.get("point_value", 0)), 0.0)
+    risk_points = abs(entry - sl) if entry > 0 and sl > 0 else safe_float(record.get("planned_sl_risk_points", 0), 0.0)
+    if risk_points > 0 and lots > 0 and tick_value > 0:
+        return risk_points * lots * tick_value
+    return risk_points
+
+
+def _record_timestamp(record):
+    for key in ("close_time", "exit_time", "closed_at", "timestamp", "time", "updated_at"):
+        value = str(record.get(key, "")).strip()
+        if not value:
+            continue
+        normalized = value.replace("T", " ").replace("Z", "")
+        for fmt, length in (("%Y-%m-%d %H:%M:%S", 19), ("%Y-%m-%d %H:%M", 16), ("%Y.%m.%d %H:%M:%S", 19), ("%Y.%m.%d %H:%M", 16)):
+            try:
+                return int(datetime.strptime(normalized[:length], fmt).timestamp())
+            except Exception:
+                continue
+        try:
+            return int(datetime.fromisoformat(normalized).timestamp())
+        except Exception:
+            continue
+    return int(time.time())
+
+
+def _trade_record_day(record, ts):
+    for key in ("close_time", "exit_time", "closed_at", "timestamp", "time", "date"):
+        value = str(record.get(key, "")).strip()
+        if value and len(value) >= 10:
+            return value.replace("T", " ").split(" ")[0][:10].replace(".", "-")
+    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+
+
 def normalize_trade_result_record(record):
     """
     Expected optional input files:
@@ -3721,6 +3934,8 @@ def normalize_trade_result_record(record):
 
     Minimal fields accepted:
       profit or pnl: number
+      planned_loss/planned_risk or entry+SL risk fields for planned_R
+      realized_r/r_multiple optional; otherwise derived from profit/planned risk
       bias, market_mode, bb_state, management, entry_type: strings
       id/order/ticket/position/time: any unique identifier
     """
@@ -3740,6 +3955,13 @@ def normalize_trade_result_record(record):
     if bias not in ("BUY", "SELL"):
         typ = str(record.get("type", "")).lower()
         bias = "BUY" if typ == "buy" else "SELL" if typ == "sell" else "NEUTRAL"
+    planned_loss = _planned_loss_value_from_trade_record(record)
+    explicit_realized_r = safe_float(record.get("realized_r", record.get("r_multiple", record.get("r", 0))), 0.0)
+    realized_r = explicit_realized_r if explicit_realized_r != 0 else (profit / planned_loss if planned_loss > 0 else 0.0)
+    ts = _record_timestamp(record)
+    management = str(record.get("management", record.get("mgmt", "UNKNOWN"))).upper()
+    entry_type = str(record.get("entry_type", "UNKNOWN")).upper()
+    haystack = f"{management} {entry_type} {record.get('profit_role', '')} {record.get('active_execution_leg', '')}".upper()
     return {
         "id": rid,
         "profit": profit,
@@ -3747,8 +3969,23 @@ def normalize_trade_result_record(record):
         "bias": bias,
         "market_mode": str(record.get("market_mode", "UNKNOWN")).upper(),
         "bb_state": str(record.get("bb_state", "UNKNOWN")).upper(),
-        "management": str(record.get("management", "UNKNOWN")).upper(),
-        "entry_type": str(record.get("entry_type", "UNKNOWN")).upper(),
+        "management": management,
+        "entry_type": entry_type,
+        "planned_loss": planned_loss,
+        "planned_r": 1.0 if planned_loss > 0 else 0.0,
+        "planned_R": 1.0 if planned_loss > 0 else 0.0,
+        "realized_r": realized_r,
+        "realized_R": realized_r,
+        "loss_over_plan": abs(realized_r) if profit < 0 and realized_r < 0 else 0.0,
+        "timestamp": ts,
+        "day": _trade_record_day(record, ts),
+        "continuation_attempt": (
+            "CONTINUATION" in haystack
+            or "RUNNER" in haystack
+            or "SLOT3" in haystack
+            or str(record.get("market_mode", "")).upper() == "TREND"
+        ),
+        "major_runner_captured": ("RUNNER" in haystack or "SLOT3" in haystack) and realized_r >= V26_6_MAJOR_RUNNER_R,
     }
 
 
@@ -3778,17 +4015,78 @@ def read_trade_result_records():
     return records
 
 
+def _expectancy_guard_apply_trade(guard, rec):
+    now_ts = int(time.time())
+    guard["processed_trades"] = safe_int(guard.get("processed_trades", 0), 0) + 1
+    guard["last_trade_profit"] = round(rec["profit"], 4)
+    guard["last_trade_realized_r"] = round(rec["realized_r"], 4)
+    guard["last_trade_profit_r"] = round(rec["realized_r"], 4)
+    guard["last_trade_bias"] = rec["bias"]
+
+    if rec["win"]:
+        guard["wins"] = safe_int(guard.get("wins", 0), 0) + 1
+        guard["gross_win"] = round(safe_float(guard.get("gross_win", 0), 0) + max(rec["profit"], 0.0), 4)
+        guard["consecutive_losses"] = 0
+    elif rec["profit"] < 0:
+        guard["losses"] = safe_int(guard.get("losses", 0), 0) + 1
+        guard["gross_loss"] = round(safe_float(guard.get("gross_loss", 0), 0) + abs(rec["profit"]), 4)
+        guard["consecutive_losses"] = safe_int(guard.get("consecutive_losses", 0), 0) + 1
+        if rec["planned_loss"] > 0:
+            guard["planned_loss_total"] = round(safe_float(guard.get("planned_loss_total", 0), 0) + rec["planned_loss"], 4)
+            guard["realized_loss_total"] = round(safe_float(guard.get("realized_loss_total", 0), 0) + abs(rec["profit"]), 4)
+        if rec["loss_over_plan"] > V26_6_MAX_REALIZED_LOSS_R_MULTIPLE:
+            guard["loss_over_plan_count"] = safe_int(guard.get("loss_over_plan_count", 0), 0) + 1
+        guard["max_loss_over_plan"] = round(max(safe_float(guard.get("max_loss_over_plan", 0), 0), rec["loss_over_plan"]), 4)
+        if guard["consecutive_losses"] >= 2:
+            guard["loss_cluster_pause_until"] = max(
+                safe_int(guard.get("loss_cluster_pause_until", 0), 0),
+                now_ts + V26_6_LOSS_CLUSTER_PAUSE_SECONDS,
+            )
+            guard["loss_cluster_pause_reason"] = f"consecutive_losses={guard['consecutive_losses']} >= 2; pause participation to prevent loss cluster"
+
+    if rec["realized_r"] >= V26_6_MAJOR_RUNNER_R or rec.get("major_runner_captured", False):
+        guard["profit_cooldown_until"] = max(
+            safe_int(guard.get("profit_cooldown_until", 0), 0),
+            now_ts + V26_6_PROFIT_SPIKE_COOLDOWN_SECONDS,
+        )
+        guard["profit_cooldown_reason"] = f"last_trade_profit_r={rec['realized_r']:.2f}R; cooldown to avoid exhausted trend re-entry"
+
+    daily = guard.setdefault("daily", {})
+    day_stats = daily.setdefault(rec["day"], {"current_profit": 0.0, "daily_peak_profit": 0.0, "session_stop_until": 0, "session_stop_reason": ""})
+    day_stats["current_profit"] = round(safe_float(day_stats.get("current_profit", 0), 0) + rec["profit"], 4)
+    day_stats["daily_peak_profit"] = round(max(safe_float(day_stats.get("daily_peak_profit", 0), 0), day_stats["current_profit"]), 4)
+    peak = safe_float(day_stats.get("daily_peak_profit", 0), 0)
+    drawdown = peak - safe_float(day_stats.get("current_profit", 0), 0)
+    threshold = max(V26_6_DAILY_PEAK_DRAWDOWN_MIN_PROFIT, peak * V26_6_DAILY_PEAK_DRAWDOWN_FRACTION)
+    if peak > 0 and drawdown >= threshold:
+        day_stats["session_stop_until"] = max(safe_int(day_stats.get("session_stop_until", 0), 0), now_ts + 12 * 60 * 60)
+        day_stats["session_stop_reason"] = f"daily peak drawdown {drawdown:.2f} from peak {peak:.2f} exceeds {threshold:.2f}; protect profitable day"
+
+    decay = guard.setdefault("thesis_decay", default_expectancy_guard_state()["thesis_decay"])
+    if rec["bias"] in ("BUY", "SELL") and rec.get("continuation_attempt", False):
+        side = decay.setdefault(rec["bias"], {"failed_continuations": 0, "pause_until": 0, "reason": ""})
+        if rec["profit"] < 0:
+            side["failed_continuations"] = safe_int(side.get("failed_continuations", 0), 0) + 1
+            if side["failed_continuations"] >= V26_6_THESIS_DECAY_FAILURES:
+                side["pause_until"] = max(safe_int(side.get("pause_until", 0), 0), now_ts + V26_6_THESIS_DECAY_SECONDS)
+                side["reason"] = f"{rec['bias']} continuation failed {side['failed_continuations']} times; directional conviction decayed"
+        else:
+            side["failed_continuations"] = 0
+            side["reason"] = ""
+
+
 def update_learning_from_trade_results():
     if not LEARNING_ENABLED:
         return load_learning_state()
     state = load_learning_state()
+    state.setdefault("expectancy_guard", default_expectancy_guard_state())
     processed = set(state.get("processed_ids", []))
     setups = state.setdefault("setups", {})
     changed = False
 
-    for raw in read_trade_result_records():
-        rec = normalize_trade_result_record(raw)
-        if rec is None or rec["id"] in processed:
+    normalized = [rec for rec in (normalize_trade_result_record(raw) for raw in read_trade_result_records()) if rec is not None]
+    for rec in sorted(normalized, key=lambda item: (item.get("timestamp", 0), item.get("id", ""))):
+        if rec["id"] in processed:
             continue
         key = make_learning_key(rec["bias"], rec["market_mode"], rec["bb_state"], rec["management"], rec["entry_type"])
         stats = setups.setdefault(key, {"trades": 0, "wins": 0, "losses": 0, "net_profit": 0.0, "avg_profit": 0.0, "winrate": 0.0})
@@ -3798,9 +4096,18 @@ def update_learning_from_trade_results():
         stats["net_profit"] = round(float(stats.get("net_profit", 0.0)) + rec["profit"], 4)
         stats["avg_profit"] = round(stats["net_profit"] / max(1, stats["trades"]), 4)
         stats["winrate"] = round(stats["wins"] / max(1, stats["trades"]), 4)
+        _expectancy_guard_apply_trade(state["expectancy_guard"], rec)
         processed.add(rec["id"])
         changed = True
 
+    guard = state.setdefault("expectancy_guard", default_expectancy_guard_state())
+    planned = safe_float(guard.get("planned_loss_total", 0), 0)
+    realized = safe_float(guard.get("realized_loss_total", 0), 0)
+    guard["realized_planned_loss_ratio"] = round(realized / planned, 4) if planned > 0 else 0.0
+    trades = safe_int(guard.get("wins", 0), 0) + safe_int(guard.get("losses", 0), 0)
+    guard["win_rate"] = round(safe_int(guard.get("wins", 0), 0) / trades, 4) if trades else 0.0
+    guard["avg_win"] = round(safe_float(guard.get("gross_win", 0), 0) / max(1, safe_int(guard.get("wins", 0), 0)), 4)
+    guard["avg_loss"] = round(safe_float(guard.get("gross_loss", 0), 0) / max(1, safe_int(guard.get("losses", 0), 0)), 4)
     if changed:
         state["processed_ids"] = list(processed)[-1000:]
         save_learning_state(state)

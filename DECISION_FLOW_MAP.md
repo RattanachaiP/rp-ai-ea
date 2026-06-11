@@ -110,3 +110,31 @@ The final write path now prioritizes expectancy before signal count:
 -> executable trade, reduced-size mature-entry trade, or `WAIT_ENTRY_LOCATION`.
 
 This flow keeps existing indicators and classifier structure. It changes execution governance so optimization is measured by expectancy, Average R Win/Loss, runner capture, and realized-vs-planned loss discipline instead of raw signal count.
+
+## V26.6.1 expectancy emergency-repair flow update
+The final write path now applies a realized-distribution guard between planned RR/loss budgeting and final validation:
+
+`planned RR enforcement`
+-> `MAX_REALIZED_LOSS_GUARD`
+-> `EXPECTANCY_EMERGENCY_REPAIR`
+-> final validation
+-> executable trade, reduced-size trade, or capital-protection wait.
+
+`EXPECTANCY_EMERGENCY_REPAIR` is not a new signal layer. It consumes existing market fields plus closed-trade memory only:
+- planned R / realized R
+- loss-over-plan count
+- realized/planned loss ratio
+- max loss over plan
+- consecutive losses
+- last trade profit in R
+- daily peak profit and drawdown from peak
+- failed same-direction continuation count.
+
+Protection states are explicit in `decision.json`:
+- `LOSS_CLUSTER_PAUSE` after at least two consecutive losses.
+- `POST_RUNNER_COOLDOWN` after a `>= 2R` trade or major runner capture.
+- `SESSION_PROFIT_PROTECTION` after excessive drawdown from daily peak profit.
+- `THESIS_DECAY_WAIT` after repeated failed continuation attempts in the same direction.
+- `WAIT_ENTRY_LOCATION` when mature trend/exhaustion score is too high.
+
+The objective is expectancy repair through loss compression, trend-exhaustion avoidance, profit retention, and faster thesis decay while preserving the existing infrastructure and signal-generation model.
