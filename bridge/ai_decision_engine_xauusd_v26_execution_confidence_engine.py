@@ -42,12 +42,7 @@ SYMBOL = "XAUUSD"
 TIMEFRAME = "M15"
 
 COMMON_SHARED_ROOT = Path(r"C:\Users\rp_fu\AppData\Roaming\MetaQuotes\Terminal\Common\Files\RP_AI_EA\shared")
-DEFAULT_SHARED_ROOT = Path(r"D:\RP_AI_EA\shared")
-BASE_PATH = (
-    COMMON_SHARED_ROOT / SYMBOL
-    if (COMMON_SHARED_ROOT / SYMBOL).exists()
-    else DEFAULT_SHARED_ROOT / SYMBOL
-)
+BASE_PATH = COMMON_SHARED_ROOT / SYMBOL
 FILE_PATH = BASE_PATH / "market_state.json"
 OUTPUT_PATH = BASE_PATH / "decision.json"
 
@@ -1997,6 +1992,7 @@ def compute_entry_location_score_v26_5(decision):
 
 def build_execution_legs_v26_5(decision):
     bias = str(decision.get("action", decision.get("bias", "NEUTRAL"))).upper()
+    execution_state = str(decision.get("execution_state", "NO_TRADE")).upper()
     location_score = safe_int(decision.get("entry_location_score", 0), 0)
     continuation_quality = safe_int(decision.get("continuation_quality", 0), 0)
     score_gap = safe_int(decision.get("score_gap", 0), 0)
@@ -3219,6 +3215,35 @@ def validate_final_decision_payload(data):
     data.setdefault("decision_output_state", "TRADE" if decision == "TRADE" else "NO_TRADE")
     return data
 
+def attach_final_write_metadata(data, write_start):
+    """Attach local freshness and publication audit fields before atomic replace."""
+    if not isinstance(data, dict):
+        return data
+
+    now = time.time()
+    write_duration = round(now - write_start, 6)
+    data["write_target_path"] = str(OUTPUT_PATH)
+    data["market_state_read_path"] = str(data.get("market_state_path") or FILE_PATH)
+    data["final_output_state"] = str(
+        data.get("decision_output_state")
+        or data.get("execution_state")
+        or data.get("decision")
+        or "UNKNOWN"
+    ).upper()
+    data["ai_final_write_status"] = "SUCCESS"
+    data["final_decision_build_sec"] = round(safe_float(
+        data.get("final_decision_build_sec", data.get("loop_duration_sec", data.get("stale_prevention_timing_sec", 0.0))),
+        0.0
+    ), 6)
+    data["decision_write_duration"] = write_duration
+    total_cycle_time = safe_float(data.get("total_cycle_time", 0.0), 0.0)
+    if total_cycle_time <= 0:
+        total_cycle_time = safe_float(data.get("loop_duration_sec", 0.0), 0.0) + write_duration
+    data["total_cycle_time"] = round(total_cycle_time, 6)
+    data["file_write_latency"] = 0.0
+    return data
+
+
 def write_decision(data):
     """
     Safe atomic write for decision.json.
@@ -3272,9 +3297,9 @@ def write_decision(data):
                 data["arch_version"] = ARCH_VERSION
                 data["build_tag"] = BUILD_TAG
                 data["runtime_signature"] = RUNTIME_SIGNATURE
-                data["decision_write_duration"] = round(time.time() - write_start, 6)
-                data.setdefault("file_write_latency", 0.0)
-                json.dump(data, f, indent=2)
+                data = attach_final_write_metadata(data, write_start)
+                payload_text = json.dumps(data, indent=2)
+                f.write(payload_text)
                 f.flush()
                 os.fsync(f.fileno())
 
@@ -3284,7 +3309,7 @@ def write_decision(data):
             total_write = round(time.time() - write_start, 6)
 
             print(
-                "AI DECISION:", data.get("decision", ""),
+                "DECISION WRITTEN:", data.get("decision", ""),
                 "|", data.get("entry_type", ""),
                 "| mode", data.get("market_mode", ""),
                 "| bb", data.get("bb_state", ""),
@@ -3292,6 +3317,9 @@ def write_decision(data):
                 "| slot", data.get("entry_slot", 0),
                 "| write_sec", total_write,
                 "| replace_sec", replace_latency,
+                "| target", data.get("write_target_path", str(OUTPUT_PATH)),
+                "| market", data.get("market_state_read_path", str(FILE_PATH)),
+                "| status", data.get("ai_final_write_status", ""),
                 "|", data.get("reason", ""),
             )
             return True
@@ -7289,17 +7317,13 @@ def run():
             decision["stale_prevention_timing_sec"] = decision["loop_duration_sec"]
             fire_ok, fire_reason = can_fire_or_strong_override(key, bar_time, decision, data)
             if fire_ok:
-                write_start = time.time()
+                decision["final_decision_build_sec"] = round(time.time() - cycle_start, 6)
                 write_decision(decision)
-                decision["decision_write_duration"] = round(time.time() - write_start, 6)
-                decision["total_cycle_time"] = round(time.time() - cycle_start, 6)
             else:
                 print("COOLDOWN / MAX SIGNAL BLOCK:", key, "|", fire_reason)
                 blocked_decision = build_cooldown_wait_decision(decision, data, fire_reason, cycle_start)
-                write_start = time.time()
+                blocked_decision["final_decision_build_sec"] = round(time.time() - cycle_start, 6)
                 write_decision(blocked_decision)
-                blocked_decision["decision_write_duration"] = round(time.time() - write_start, 6)
-                blocked_decision["total_cycle_time"] = round(time.time() - cycle_start, 6)
         except Exception as e:
             print("LOGIC ERROR:", e)
             err_decision = no_trade(f"logic error: {e}")
