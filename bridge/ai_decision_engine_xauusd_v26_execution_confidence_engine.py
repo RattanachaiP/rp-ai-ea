@@ -1997,6 +1997,7 @@ def compute_entry_location_score_v26_5(decision):
 
 def build_execution_legs_v26_5(decision):
     bias = str(decision.get("action", decision.get("bias", "NEUTRAL"))).upper()
+    execution_state = str(decision.get("execution_state", "")).upper()
     location_score = safe_int(decision.get("entry_location_score", 0), 0)
     continuation_quality = safe_int(decision.get("continuation_quality", 0), 0)
     score_gap = safe_int(decision.get("score_gap", 0), 0)
@@ -3219,7 +3220,7 @@ def validate_final_decision_payload(data):
     data.setdefault("decision_output_state", "TRADE" if decision == "TRADE" else "NO_TRADE")
     return data
 
-def write_decision(data):
+def write_decision(data, cycle_start=None, final_decision_build_sec=None):
     """
     Safe atomic write for decision.json.
 
@@ -3272,8 +3273,23 @@ def write_decision(data):
                 data["arch_version"] = ARCH_VERSION
                 data["build_tag"] = BUILD_TAG
                 data["runtime_signature"] = RUNTIME_SIGNATURE
+                data["write_target_path"] = str(OUTPUT_PATH)
+                data["market_state_read_path"] = str(FILE_PATH)
+                data["final_output_state"] = data.get(
+                    "decision_output_state",
+                    data.get("execution_state", "TRADE" if data.get("decision") == "TRADE" else "NO_TRADE"),
+                )
+                data["ai_final_write_status"] = "FINAL_PAYLOAD_READY_FOR_ATOMIC_REPLACE"
+                if final_decision_build_sec is not None:
+                    data["final_decision_build_sec"] = round(float(final_decision_build_sec), 6)
+                else:
+                    data.setdefault("final_decision_build_sec", 0.0)
                 data["decision_write_duration"] = round(time.time() - write_start, 6)
                 data.setdefault("file_write_latency", 0.0)
+                if cycle_start is not None:
+                    data["total_cycle_time"] = round(time.time() - float(cycle_start), 6)
+                else:
+                    data.setdefault("total_cycle_time", data.get("loop_duration_sec", 0.0))
                 json.dump(data, f, indent=2)
                 f.flush()
                 os.fsync(f.fileno())
@@ -3284,15 +3300,20 @@ def write_decision(data):
             total_write = round(time.time() - write_start, 6)
 
             print(
-                "AI DECISION:", data.get("decision", ""),
-                "|", data.get("entry_type", ""),
-                "| mode", data.get("market_mode", ""),
-                "| bb", data.get("bb_state", ""),
-                "| mgmt", data.get("management", ""),
-                "| slot", data.get("entry_slot", 0),
-                "| write_sec", total_write,
-                "| replace_sec", replace_latency,
-                "|", data.get("reason", ""),
+                "DECISION WRITTEN |",
+                f"write_target_path={OUTPUT_PATH}",
+                f"decision={data.get('decision', '')}",
+                f"final_output_state={data.get('final_output_state', '')}",
+                f"active_protection_state={data.get('active_protection_state', data.get('ACTIVE_PROTECTION_STATE', ''))}",
+                f"decision_sequence_id={data.get('decision_sequence_id', data.get('sequence_id', 0))}",
+                f"decision_heartbeat_unix={data.get('decision_heartbeat_unix', data.get('heartbeat_unix', 0))}",
+                f"updated_at={data.get('updated_at', '')}",
+                f"loop_duration_sec={data.get('loop_duration_sec', 0)}",
+                f"final_decision_build_sec={data.get('final_decision_build_sec', 0)}",
+                f"decision_write_duration={data.get('decision_write_duration', 0)}",
+                f"total_cycle_time={data.get('total_cycle_time', 0)}",
+                f"replace_sec={replace_latency}",
+                f"reason={data.get('reason', '')}",
             )
             return True
         except PermissionError as e:
@@ -7279,27 +7300,22 @@ def run():
             fallback["decision_write_duration"] = 0.0
             fallback["file_write_latency"] = 0.0
             fallback["total_cycle_time"] = fallback["loop_duration_sec"]
-            write_decision(fallback)
+            write_decision(fallback, cycle_start=cycle_start, final_decision_build_sec=0.0)
             time.sleep(1)
             continue
         try:
             key, bar_time, decision = build_decision(data)
             decision = attach_manual_trend_report(decision, data)
+            final_decision_build_sec = round(time.time() - cycle_start, 6)
             decision["loop_duration_sec"] = round(time.time() - cycle_start, 6)
             decision["stale_prevention_timing_sec"] = decision["loop_duration_sec"]
             fire_ok, fire_reason = can_fire_or_strong_override(key, bar_time, decision, data)
             if fire_ok:
-                write_start = time.time()
-                write_decision(decision)
-                decision["decision_write_duration"] = round(time.time() - write_start, 6)
-                decision["total_cycle_time"] = round(time.time() - cycle_start, 6)
+                write_decision(decision, cycle_start=cycle_start, final_decision_build_sec=final_decision_build_sec)
             else:
                 print("COOLDOWN / MAX SIGNAL BLOCK:", key, "|", fire_reason)
                 blocked_decision = build_cooldown_wait_decision(decision, data, fire_reason, cycle_start)
-                write_start = time.time()
-                write_decision(blocked_decision)
-                blocked_decision["decision_write_duration"] = round(time.time() - write_start, 6)
-                blocked_decision["total_cycle_time"] = round(time.time() - cycle_start, 6)
+                write_decision(blocked_decision, cycle_start=cycle_start, final_decision_build_sec=final_decision_build_sec)
         except Exception as e:
             print("LOGIC ERROR:", e)
             err_decision = no_trade(f"logic error: {e}")
@@ -7308,7 +7324,7 @@ def run():
             err_decision["decision_write_duration"] = 0.0
             err_decision["file_write_latency"] = 0.0
             err_decision["total_cycle_time"] = err_decision["loop_duration_sec"]
-            write_decision(err_decision)
+            write_decision(err_decision, cycle_start=cycle_start, final_decision_build_sec=0.0)
         time.sleep(1)
 
 
