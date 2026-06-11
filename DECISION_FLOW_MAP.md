@@ -110,3 +110,21 @@ The final write path now prioritizes expectancy before signal count:
 -> executable trade, reduced-size mature-entry trade, or `WAIT_ENTRY_LOCATION`.
 
 This flow keeps existing indicators and classifier structure. It changes execution governance so optimization is measured by expectancy, Average R Win/Loss, runner capture, and realized-vs-planned loss discipline instead of raw signal count.
+
+## V26.6.1 protection-authority flow update
+The expectancy repair chain now includes a single protection authority before final payload construction:
+
+`directional ACTION/BIAS`
+-> existing safety and quality scoring
+-> finite WAIT / cooldown / location protection candidates
+-> `Protection Authority Manager`
+-> exactly one `ACTIVE_PROTECTION_STATE`; other detected protections are `PENDING`
+-> mandatory release metadata (`entry_condition`, `exit_condition`, `maximum_duration`, `maximum_cycles`, `recovery_path`)
+-> risk payload construction and final validation
+-> executable trade, released cautious participation, or one finite active protection.
+
+This prevents the prior cascade pattern:
+
+`LOSS_CLUSTER_PAUSE -> THESIS_DECAY_WAIT -> WAIT_ENTRY_LOCATION -> POST_RUNNER_COOLDOWN -> NO PARTICIPATION`
+
+from becoming recursive. The manager does not remove hard safety; it prevents multiple quality/profit/cooldown protections from all being simultaneously active and unbounded.

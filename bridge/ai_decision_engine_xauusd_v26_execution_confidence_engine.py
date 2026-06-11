@@ -53,8 +53,8 @@ OUTPUT_PATH = BASE_PATH / "decision.json"
 
 
 RUNTIME_BRANCH = "codex-dev"
-ARCH_VERSION = "V26.6"
-BUILD_TAG = "expectancy-repair-program"
+ARCH_VERSION = "V26.6.1"
+BUILD_TAG = "expectancy-emergency-repair-protection-authority"
 RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
 
 # V26 Execution Confidence Engine
@@ -117,6 +117,72 @@ V26_6_EARLY_PARTICIPATION_RISK_FRACTIONS = {2: 0.25, 3: 0.50, 4: 1.00}
 V26_6_FULL_SIZE_GAP = 4
 V26_6_MIN_PARTICIPATION_GAP = 2
 V26_6_WEAK_MOMENTUM_PENALTY_ONLY = True
+
+# V26.6.1 Protection Authority Manager
+# Only one protection state may be ACTIVE at once. Other detected protections are
+# PENDING so protective recursion cannot recreate participation starvation.
+PROTECTION_AUTHORITY_STATES = (
+    "SESSION_PROFIT_PROTECTION",
+    "DAILY_PEAK_DRAWDOWN_PROTECTION",
+    "LOSS_CLUSTER_PAUSE",
+    "THESIS_DECAY_WAIT",
+    "POST_RUNNER_COOLDOWN",
+    "WAIT_ENTRY_LOCATION",
+)
+PROTECTION_RELEASE_CONDITIONS = {
+    "SESSION_PROFIT_PROTECTION": {
+        "entry_condition": "session profit lock or profit-protection flag active",
+        "exit_condition": "session reset, profit lock released, or maximum duration reached",
+        "maximum_duration_sec": 60 * 60,
+        "maximum_cycles": 60,
+        "recovery_path": "resume normal eligibility on next fresh setup after session protection release",
+    },
+    "DAILY_PEAK_DRAWDOWN_PROTECTION": {
+        "entry_condition": "daily peak drawdown protection flag active",
+        "exit_condition": "drawdown recovers below threshold, daily reset, or maximum duration reached",
+        "maximum_duration_sec": 60 * 60,
+        "maximum_cycles": 60,
+        "recovery_path": "resume controlled participation only after drawdown state clears",
+    },
+    "LOSS_CLUSTER_PAUSE": {
+        "entry_condition": "2 consecutive losses or loss-cluster pause flag active",
+        "exit_condition": "15 minutes elapsed without a new loss-cluster trigger",
+        "maximum_duration_sec": 20 * 60,
+        "maximum_cycles": 20,
+        "recovery_path": "release to normal evaluation after finite pause timeout",
+    },
+    "THESIS_DECAY_WAIT": {
+        "entry_condition": "failed continuation threshold, WAIT_VALID, or transition thesis decay",
+        "exit_condition": "new directional dominance or wait timeout release",
+        "maximum_duration_sec": 10 * 60,
+        "maximum_cycles": 10,
+        "recovery_path": "release to EXECUTE_CAUTIOUS when directional authority remains valid",
+    },
+    "POST_RUNNER_COOLDOWN": {
+        "entry_condition": "runner/continuation re-entry cooldown active after prior participation",
+        "exit_condition": "cooldown timer expires",
+        "maximum_duration_sec": 8 * 60,
+        "maximum_cycles": 8,
+        "recovery_path": "resume continuation evaluation after cooldown expiry",
+    },
+    "WAIT_ENTRY_LOCATION": {
+        "entry_condition": "entry/location score below threshold or late-entry location wait active",
+        "exit_condition": "location score recovery to executable threshold",
+        "maximum_duration_sec": 6 * 60,
+        "maximum_cycles": 6,
+        "recovery_path": "release to EXECUTE_CAUTIOUS if directional authority persists after max cycles",
+    },
+}
+PROTECTION_PRIORITY = {state: i for i, state in enumerate(PROTECTION_AUTHORITY_STATES)}
+protection_authority_state = {
+    "active_state": "NONE",
+    "active_since_ts": 0,
+    "active_cycles": 0,
+    "activation_counts": {state: 0 for state in PROTECTION_AUTHORITY_STATES},
+    "opportunity_block_count": 0,
+    "recovery_started_ts": 0,
+    "last_recovery_sec": 0,
+}
 
 
 V26_FAST_PARTICIPATION_OVERRIDE_ENABLED = True
@@ -1614,6 +1680,180 @@ def apply_wait_valid_timeout_recovery(decision, bias, mode, bb, hard_block=False
         decision["reason"] = (str(decision.get("reason", "")) + " | V26_4_7_WAIT_TIMEOUT_EXECUTE_CAUTIOUS").strip()
     return decision
 
+
+
+def _protection_bool(value):
+    if isinstance(value, bool):
+        return value
+    return str(value).upper() in ("1", "TRUE", "YES", "ACTIVE", "ON")
+
+
+def _protection_state_template(state):
+    spec = PROTECTION_RELEASE_CONDITIONS[state]
+    return {
+        "state": "INACTIVE",
+        "entry_condition": spec["entry_condition"],
+        "exit_condition": spec["exit_condition"],
+        "maximum_duration_sec": spec["maximum_duration_sec"],
+        "maximum_cycles": spec["maximum_cycles"],
+        "recovery_path": spec["recovery_path"],
+        "duration_sec": 0,
+        "cycles": 0,
+        "activation_count": safe_int(protection_authority_state["activation_counts"].get(state, 0), 0),
+    }
+
+
+def _detect_protection_candidates(decision):
+    """Return protection candidates detected on the current decision packet."""
+    candidates = []
+    wait_state = str(decision.get("wait_state", "")).upper()
+    reason = str(decision.get("reason", "")).upper()
+
+    if _protection_bool(decision.get("session_profit_protection_active", False)) or _protection_bool(decision.get("profit_protection_active", False)):
+        candidates.append("SESSION_PROFIT_PROTECTION")
+    if _protection_bool(decision.get("daily_peak_drawdown_protection_active", False)) or _protection_bool(decision.get("daily_drawdown_protection_active", False)):
+        candidates.append("DAILY_PEAK_DRAWDOWN_PROTECTION")
+    if _protection_bool(decision.get("loss_cluster_pause_active", False)) or safe_int(decision.get("consecutive_losses", 0), 0) >= 2:
+        candidates.append("LOSS_CLUSTER_PAUSE")
+    if wait_state == "WAIT_VALID" or _protection_bool(decision.get("transition_decay_active", False)) or "THESIS_DECAY" in reason or "TRANSITION_WAIT" in reason:
+        candidates.append("THESIS_DECAY_WAIT")
+    if _protection_bool(decision.get("continuation_reentry_block", False)) or _protection_bool(decision.get("post_runner_cooldown_active", False)) or "CONTINUATION_REENTRY_COOLDOWN" in reason:
+        candidates.append("POST_RUNNER_COOLDOWN")
+    if wait_state == "WAIT_ENTRY_LOCATION" or _protection_bool(decision.get("entry_quality_block", False)) or "ENTRY_LOCATION_WAIT" in reason:
+        candidates.append("WAIT_ENTRY_LOCATION")
+
+    # Generic cooldown waits are mapped into post-runner cooldown governance so
+    # they cannot stack on top of a location/thesis wait.
+    if _protection_bool(decision.get("cooldown_wait_active", False)) or _protection_bool(decision.get("cooldown_active", False)):
+        candidates.append("POST_RUNNER_COOLDOWN")
+
+    # Preserve configured priority and de-duplicate.
+    return sorted(set(candidates), key=lambda state: PROTECTION_PRIORITY[state])
+
+
+def _protection_location_recovered(decision):
+    score = safe_int(decision.get("entry_location_score", decision.get("entry_location_score_v26_5", 0)), 0)
+    late_score = safe_int(decision.get("late_entry_score", decision.get("late_entry_score_v26_6", 0)), 0)
+    return score >= V26_5_ENTRY_LOCATION_MIN_EXECUTE and late_score < V26_6_LATE_ENTRY_WAIT_SCORE
+
+
+def _protection_directional_recovery(decision):
+    bias = str(decision.get("action", decision.get("bias", decision.get("intended_action", "NEUTRAL")))).upper()
+    dominance = _protection_bool(decision.get("directional_dominance_active", False))
+    gap = safe_int(decision.get("score_gap", 0), 0)
+    return bias in ("BUY", "SELL") and (dominance or gap >= V26_6_MIN_PARTICIPATION_GAP)
+
+
+def apply_protection_authority_manager_v26_6_1(decision, allow_release=True, count_cycle=True):
+    """
+    V26.6.1 Protection Authority Manager.
+
+    Publishes ACTIVE_PROTECTION_STATE and enforces that only one protection state
+    can be ACTIVE. Every protection advertises entry/exit/max duration and WAIT-
+    like states get an explicit timeout recovery path.
+    """
+    if not isinstance(decision, dict):
+        return decision
+
+    now_ts = int(time.time())
+    candidates = _detect_protection_candidates(decision)
+    selected = candidates[0] if candidates else "NONE"
+    previous = str(protection_authority_state.get("active_state", "NONE"))
+
+    if count_cycle:
+        if selected != previous:
+            if selected != "NONE":
+                protection_authority_state["activation_counts"][selected] = safe_int(
+                    protection_authority_state["activation_counts"].get(selected, 0), 0
+                ) + 1
+                protection_authority_state["active_since_ts"] = now_ts
+                protection_authority_state["active_cycles"] = 1
+                protection_authority_state["recovery_started_ts"] = now_ts
+            else:
+                started = safe_int(protection_authority_state.get("recovery_started_ts", 0), 0)
+                protection_authority_state["last_recovery_sec"] = max(0, now_ts - started) if started > 0 else 0
+                protection_authority_state["active_since_ts"] = 0
+                protection_authority_state["active_cycles"] = 0
+                protection_authority_state["recovery_started_ts"] = 0
+            protection_authority_state["active_state"] = selected
+        elif selected != "NONE":
+            protection_authority_state["active_cycles"] = safe_int(protection_authority_state.get("active_cycles", 0), 0) + 1
+
+    active_since = safe_int(protection_authority_state.get("active_since_ts", 0), 0)
+    duration = max(0, now_ts - active_since) if selected != "NONE" and active_since > 0 else 0
+    cycles = safe_int(protection_authority_state.get("active_cycles", 0), 0) if selected != "NONE" else 0
+
+    registry = {state: _protection_state_template(state) for state in PROTECTION_AUTHORITY_STATES}
+    timed_out = False
+    recovered = False
+    release_reason = ""
+    if selected != "NONE":
+        spec = PROTECTION_RELEASE_CONDITIONS[selected]
+        timed_out = duration >= spec["maximum_duration_sec"] or cycles > spec["maximum_cycles"]
+        recovered = (
+            (selected == "WAIT_ENTRY_LOCATION" and _protection_location_recovered(decision))
+            or (selected == "THESIS_DECAY_WAIT" and _protection_directional_recovery(decision) and cycles > WAIT_TIMEOUT_CYCLES)
+            or (selected == "POST_RUNNER_COOLDOWN" and not _protection_bool(decision.get("continuation_reentry_block", False)) and not _protection_bool(decision.get("cooldown_wait_active", False)))
+            or (selected == "LOSS_CLUSTER_PAUSE" and duration >= 15 * 60)
+            or (selected == "SESSION_PROFIT_PROTECTION" and not _protection_bool(decision.get("session_profit_protection_active", False)) and not _protection_bool(decision.get("profit_protection_active", False)))
+            or (selected == "DAILY_PEAK_DRAWDOWN_PROTECTION" and not _protection_bool(decision.get("daily_peak_drawdown_protection_active", False)) and not _protection_bool(decision.get("daily_drawdown_protection_active", False)))
+        )
+        if timed_out:
+            release_reason = f"{selected} maximum duration reached cycles={cycles} duration_sec={duration}"
+        elif recovered:
+            release_reason = f"{selected} exit condition satisfied"
+
+    active_for_output = selected
+    if allow_release and selected != "NONE" and (timed_out or recovered):
+        active_for_output = "NONE"
+        protection_authority_state["active_state"] = "NONE"
+        protection_authority_state["last_recovery_sec"] = duration
+        protection_authority_state["active_since_ts"] = 0
+        protection_authority_state["active_cycles"] = 0
+        if selected in ("WAIT_ENTRY_LOCATION", "THESIS_DECAY_WAIT") and _protection_directional_recovery(decision):
+            bias = str(decision.get("action", decision.get("bias", decision.get("intended_action", "NEUTRAL")))).upper()
+            decision["decision"] = "TRADE"
+            decision["entry_allowed"] = True
+            decision["execution_state"] = "EXECUTE_CAUTIOUS"
+            decision["management"] = "SCALP_TP" if str(decision.get("management", "")).upper() in ("", "NO_TRADE") else decision.get("management", "SCALP_TP")
+            decision["mgmt"] = decision["management"]
+            decision["bias"] = bias
+            decision["action"] = bias
+            decision["intended_action"] = bias
+            decision["wait_state"] = f"{selected}_RELEASED"
+            decision["wait_reason"] = release_reason
+            decision["participation_release"] = True
+            decision["participation_release_reason"] = release_reason
+
+    protection_authority_state["opportunity_block_count"] = safe_int(protection_authority_state.get("opportunity_block_count", 0), 0)
+    if active_for_output != "NONE" and str(decision.get("decision", "")).upper() != "TRADE":
+        protection_authority_state["opportunity_block_count"] += 1
+
+    for state in PROTECTION_AUTHORITY_STATES:
+        if state == active_for_output:
+            registry[state]["state"] = "ACTIVE"
+            registry[state]["duration_sec"] = duration
+            registry[state]["cycles"] = cycles
+        elif state in candidates:
+            registry[state]["state"] = "PENDING"
+        registry[state]["activation_count"] = safe_int(protection_authority_state["activation_counts"].get(state, 0), 0)
+
+    decision["ACTIVE_PROTECTION_STATE"] = active_for_output
+    decision["active_protection_state"] = active_for_output
+    decision["protection_authority_manager"] = "ACTIVE"
+    decision["protection_states"] = registry
+    decision["protection_activation_count"] = dict(protection_authority_state["activation_counts"])
+    decision["protection_duration_sec"] = duration if active_for_output != "NONE" else 0
+    decision["protection_duration_cycles"] = cycles if active_for_output != "NONE" else 0
+    decision["opportunity_block_count"] = safe_int(protection_authority_state.get("opportunity_block_count", 0), 0)
+    decision["time_to_recovery_sec"] = safe_int(protection_authority_state.get("last_recovery_sec", 0), 0)
+    decision["protection_pending_states"] = [state for state in candidates if state != active_for_output]
+    decision["protection_release_reason"] = release_reason
+    decision["protection_timeout_released"] = bool(timed_out and selected != "NONE")
+    decision["protection_recovery_released"] = bool(recovered and selected != "NONE")
+    decision["protection_expectancy_measurement"] = "compare protection_activation_count, protection_duration_sec, opportunity_block_count, time_to_recovery_sec against expectancy/profit-factor metrics"
+    return decision
+
 def _v26_5_points_distance(a, b):
     a = safe_float(a, 0.0)
     b = safe_float(b, 0.0)
@@ -1760,7 +2000,6 @@ def build_execution_legs_v26_5(decision):
     location_score = safe_int(decision.get("entry_location_score", 0), 0)
     continuation_quality = safe_int(decision.get("continuation_quality", 0), 0)
     score_gap = safe_int(decision.get("score_gap", 0), 0)
-    execution_state = str(decision.get("execution_state", "")).upper()
     in_profit_only = True
 
     legs = [
@@ -3014,6 +3253,7 @@ def write_decision(data):
                 data = apply_v25_3_rsi_soft_penalty_recovery(data)
                 data = apply_final_decision_gate_trace_v25_2(data)
                 data = apply_late_entry_guard_v26_6(data)
+                data = apply_protection_authority_manager_v26_6_1(data)
                 data = normalize_decision_schema_v20_2(data)
                 data = align_management_with_trend_context(data)
                 data = enforce_trend_management_v26_6(data)
@@ -3023,6 +3263,7 @@ def write_decision(data):
                 data = enforce_trend_management_v26_6(data)
                 data = apply_max_realized_loss_guard_v26_6(data)
                 data = validate_final_decision_payload(data)
+                data = apply_protection_authority_manager_v26_6_1(data, allow_release=False, count_cycle=False)
                 data = normalize_decision_schema_v20_2(data)
                 data = enforce_trend_management_v26_6(data)
                 data = apply_early_participation_sizing_v26_6(data)

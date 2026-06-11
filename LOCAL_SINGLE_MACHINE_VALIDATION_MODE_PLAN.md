@@ -293,3 +293,25 @@ Review these metrics before changing participation frequency or size:
 
 Decision gate:
 - Future architecture changes must be justified by improved expectancy, not higher trade count.
+
+## 13) V26.6.1 Protection Authority Validation Addendum
+
+During Local Single-Machine mode, record protection governance fields from every refreshed `decision.json`:
+- `ACTIVE_PROTECTION_STATE`
+- `protection_states`
+- `protection_activation_count`
+- `protection_duration_sec`
+- `protection_duration_cycles`
+- `opportunity_block_count`
+- `time_to_recovery_sec`
+- `protection_pending_states`
+- `protection_timeout_released`
+- `protection_recovery_released`
+
+Pass criteria:
+1. At most one protection state is `ACTIVE` in `protection_states` for any decision packet.
+2. All other detected protection candidates are `PENDING`, not `ACTIVE`.
+3. Every protection state publishes entry condition, exit condition, maximum duration, maximum cycles, and recovery path.
+4. `WAIT_ENTRY_LOCATION` and `THESIS_DECAY_WAIT` show finite release behavior through score recovery, directional dominance recovery, or timeout.
+5. `opportunity_block_count` and `time_to_recovery_sec` are reviewed alongside expectancy metrics to verify that protections improve capital quality without recreating participation starvation.
+6. Observe at least 72 hours after merge/deploy/freeze before proposing V26.6.2 or V27 changes.

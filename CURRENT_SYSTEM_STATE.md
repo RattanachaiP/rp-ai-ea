@@ -82,3 +82,12 @@ Participation restoration intentionally comes before scaling. Before increasing 
 - Loss compression metadata is published on every executable trade: planned SL risk points, max realized loss guard at 1.05R, risk budget fraction, and loss-compression policy fields.
 - Late entry scoring now explicitly tracks RSI compression after expansion, BB overextension, MA50 distance, exhausted MACD expansion, and expansion candle count. High scores wait for location reset; elevated scores reduce size.
 - Expectancy analytics now report Average R Win, Average R Loss, realized-vs-planned loss ratio, loss-over-plan count, and max loss vs plan in addition to daily expectancy metrics.
+
+## V26.6.1 pre-merge governance safety review
+- Runtime authority advances to `V26.6.1 | expectancy-emergency-repair` for protection-cascade control while preserving the V26.6 expectancy repair concept.
+- `ACTIVE_PROTECTION_STATE` is now a required decision payload field managed by the Protection Authority Manager.
+- Only one protection state may be `ACTIVE` at a time across `SESSION_PROFIT_PROTECTION`, `DAILY_PEAK_DRAWDOWN_PROTECTION`, `LOSS_CLUSTER_PAUSE`, `THESIS_DECAY_WAIT`, `POST_RUNNER_COOLDOWN`, and `WAIT_ENTRY_LOCATION`; any additional detected protection becomes `PENDING` instead of stacking recursively.
+- Every governed protection publishes an entry condition, exit condition, maximum duration, maximum cycles, and recovery path in `protection_states`.
+- WAIT-like protections are finite: `THESIS_DECAY_WAIT` releases on directional recovery / timeout, and `WAIT_ENTRY_LOCATION` releases on location recovery / timeout to controlled cautious participation when directional authority remains valid.
+- Monitoring fields now include `protection_activation_count`, `protection_duration_sec`, `protection_duration_cycles`, `opportunity_block_count`, `time_to_recovery_sec`, `protection_pending_states`, `protection_timeout_released`, and `protection_recovery_released`.
+- The 72+ hour observation window must evaluate whether protection states improve expectancy or create participation starvation V2 by comparing protection metrics with expectancy, profit factor, average win/loss, and opportunity-block counts.
