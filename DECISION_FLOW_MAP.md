@@ -89,7 +89,7 @@ Final hard veto authority is intentionally limited to:
 - invalid market data
 - abnormal spread / liquidity / broker freeze
 - duplicate order protection
-- daily risk limit / daily loss
+- catastrophic daily risk limit / hard realized-loss control
 - catastrophic hard-risk state
 
 Expectancy structure is enforced before publishing a TRADE payload. SCALP structures must plan at least 1.2R; TREND and runner structures must plan at least 1.5R. TREND + `WALK_UP` / `WALK_DOWN` with score-gap authority prefers `HOLD_TRAIL` instead of silently downgrading into `SCALP_TP`; `SCALP_TP` remains a secondary management mode.
@@ -125,7 +125,7 @@ The expectancy repair chain now includes a single protection authority before fi
 
 This prevents the prior cascade pattern:
 
-`LOSS_CLUSTER_PAUSE -> THESIS_DECAY_WAIT -> WAIT_ENTRY_LOCATION -> POST_RUNNER_COOLDOWN -> NO PARTICIPATION`
+`THESIS_REVALIDATION_AFTER_LOSS -> THESIS_DECAY_WAIT -> WAIT_ENTRY_LOCATION -> POST_RUNNER_COOLDOWN -> NO PARTICIPATION`
 
 from becoming recursive. The manager does not remove hard safety; it prevents multiple quality/profit/cooldown protections from all being simultaneously active and unbounded.
 
@@ -143,7 +143,7 @@ Executor-side veto classification:
 
 When `decision=TRADE`, `allowed=true`, `entry_allowed=true`, `payload_valid=true`, BUY/SELL bias is valid, and no hard safety block is active, no legacy quality gate may convert the payload to `NO_TRADE`. Legacy quality values remain visible as telemetry (`analysis_quality_diagnostic`, `v17_quality_score_diagnostic`, `legacy_executor_veto_policy`) and may reduce confidence, but they do not override V26 execution authority.
 
-## V26.6.2 profit/loss asymmetry flow update
+## V26.6.2A no-pause adaptive expectancy flow update
 The final write path now includes an emergency expectancy-distribution guard:
 
 `directional ACTION/BIAS`
@@ -151,7 +151,7 @@ The final write path now includes an emergency expectancy-distribution guard:
 -> V26 execution confidence
 -> trend management preservation (`TREND + WALK_UP/WALK_DOWN` prefers `HOLD_TRAIL` / `TREND_RUNNER`)
 -> `V26.6.2_EXPECTANCY_ENTRY_FILTER`
--> `V26.6.2_SESSION_LOSS_GOVERNOR`
+-> `V26.6.2A_SESSION_LOSS_GOVERNOR` (loss diagnosis + adaptive risk reduction; no mandatory pause)
 -> risk payload construction
 -> `V26.6.2_LOSS_CAP_AND_PROFIT_LOCK`
 -> planned RR enforcement
@@ -166,7 +166,10 @@ Emergency distribution rules:
 - If floating loss approaches the cap, executor-side trade management should force exit using the published `floating_force_exit_usd_001_lot` / `floating_force_exit_points` fields.
 - If profit reaches `+$0.80`, executor-side trade management should move SL to breakeven plus spread using the published breakeven ladder fields.
 - If profit reaches `+$1.20`, executor-side trade management should lock at least `+$0.50` using the published lock ladder fields.
-- After two consecutive losses, new entries pause for 30 minutes.
-- At current-day net loss `<= -$5.00`, new entries stop for the session.
+- After every loss, classify the loss cause: `LATE_ENTRY`, `EXHAUSTION_ENTRY`, `CHOP_ENTRY`, `REVERSAL_ENTRY`, `SL_TOO_WIDE`, `BE_TOO_TIGHT`, `TREND_THESIS_FAILED`, or `EXECUTOR_MANAGEMENT_FAILURE`.
+- Two consecutive losses no longer trigger a mandatory pause. Loss clusters are diagnostic telemetry that trigger thesis revalidation and adaptive size-down.
+- Same-direction repeated losses re-check bias, mode, BB state, RSI/MACD context, entry location score, and exhaustion score. Valid thesis continues cautiously; invalid thesis waits for better location or evaluates the opposite thesis.
+- After a loss cluster, next participation is reduced-risk Leg A only: no runner, no pyramid, no runner add, no continuation add, and tighter risk cap.
+- Current-day drawdown beyond threshold activates `DRAWDOWN_CAUTION_MODE`, not a daily kill switch: reduced size, Leg A only, higher entry-location score, no runner add, and no continuation add. Full stop is reserved for catastrophic hard-risk state.
 
-This layer does not add indicators, does not add new classifier branches, and does not bypass hard safety. Its purpose is to transform realized expectancy from many small wins plus larger losses into moderate wins plus controlled losses.
+This layer does not add indicators and does not bypass hard safety. Its purpose is to transform realized expectancy from many small wins plus larger losses into moderate wins plus controlled losses while keeping AI learning and participating with reduced risk.

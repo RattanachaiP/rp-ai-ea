@@ -1,6 +1,6 @@
-# CURRENT_SYSTEM_STATE — V26.4.8 Intent-to-Payload Execution Fix
+# CURRENT_SYSTEM_STATE — V26.6.2A No-Pause Adaptive Expectancy Fix
 
-Date: 2026-06-09 (UTC)
+Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
 ## Governance posture
@@ -36,7 +36,7 @@ Hard safety remains authoritative and was not downgraded:
 - payload/schema validation
 - invalid market data protection
 - abnormal spread / liquidity / broker freeze protection
-- daily-loss and hard-risk controls
+- max realized loss cap and catastrophic hard-risk controls
 
 ## Deferred expectancy review
 Participation restoration intentionally comes before scaling. Before increasing participation size/frequency, review:
@@ -86,7 +86,7 @@ Participation restoration intentionally comes before scaling. Before increasing 
 ## V26.6.1 pre-merge governance safety review
 - Runtime authority advances to `V26.6.1 | expectancy-emergency-repair` for protection-cascade control while preserving the V26.6 expectancy repair concept.
 - `ACTIVE_PROTECTION_STATE` is now a required decision payload field managed by the Protection Authority Manager.
-- Only one protection state may be `ACTIVE` at a time across `SESSION_PROFIT_PROTECTION`, `DAILY_PEAK_DRAWDOWN_PROTECTION`, `LOSS_CLUSTER_PAUSE`, `THESIS_DECAY_WAIT`, `POST_RUNNER_COOLDOWN`, and `WAIT_ENTRY_LOCATION`; any additional detected protection becomes `PENDING` instead of stacking recursively.
+- Only one protection state may be `ACTIVE` at a time across `SESSION_PROFIT_PROTECTION`, `DAILY_PEAK_DRAWDOWN_PROTECTION`, `THESIS_REVALIDATION_AFTER_LOSS`, `THESIS_DECAY_WAIT`, `POST_RUNNER_COOLDOWN`, and `WAIT_ENTRY_LOCATION`; any additional detected protection becomes `PENDING` instead of stacking recursively.
 - Every governed protection publishes an entry condition, exit condition, maximum duration, maximum cycles, and recovery path in `protection_states`.
 - WAIT-like protections are finite: `THESIS_DECAY_WAIT` releases on directional recovery / timeout, and `WAIT_ENTRY_LOCATION` releases on location recovery / timeout to controlled cautious participation when directional authority remains valid.
 - Monitoring fields now include `protection_activation_count`, `protection_duration_sec`, `protection_duration_cycles`, `opportunity_block_count`, `time_to_recovery_sec`, `protection_pending_states`, `protection_timeout_released`, and `protection_recovery_released`.
@@ -100,8 +100,8 @@ Participation restoration intentionally comes before scaling. Before increasing 
 - `V17_AI_QUALITY_BLOCK` is no longer execution authority in the runtime payload contract. It is diagnostic telemetry only; the executor must proceed to broker safety checks and `OrderSend` when `decision=TRADE`, `allowed=true`, `entry_allowed=true`, and `payload_valid=true`.
 - Runtime logs now emit `EXECUTOR AUTHORITY AUDIT` for executable trades, proving the AI emitted TRADE, the executor is expected to receive TRADE, legacy V15/V17 veto override is disallowed, and `OrderSend` is required after broker safety checks.
 
-## V26.6.2 profit/loss asymmetry emergency fix
-- Runtime authority advances to `V26.6.2 | profit-loss-asymmetry-emergency-fix`.
+## V26.6.2 / V26.6.2A profit/loss asymmetry adaptive expectancy fix
+- Runtime authority advances to `V26.6.2A | no-pause-adaptive-expectancy-fix`.
 - Expectancy repair now treats distribution shape as the emergency: weak gap participation is disabled, loss size is compressed, and open profit is protected before trades can return to full loss.
 - For reference size `0.01` lot XAUUSD, the decision payload publishes a hard realized-loss cap of `-$1.20`, a floating force-exit threshold as loss approaches the cap, and compresses new SL distance to the cap before final validation.
 - Profit protection metadata is mandatory on TRADE payloads:
@@ -112,6 +112,6 @@ Participation restoration intentionally comes before scaling. Before increasing 
 - `TRANSITION + NORMAL` now requires `score_gap >= 4`.
 - Entries near BB middle are blocked unless RSI and MACD strongly confirm the intended direction.
 - Trend-walk runner preservation remains authoritative: `MODE=TREND` with `WALK_UP` / `WALK_DOWN` continues to prefer `HOLD_TRAIL` / `TREND_RUNNER` unless existing explicit exhaustion or invalidation metadata appears.
-- Loss clustering now creates a finite 30-minute pause after `consecutive_losses >= 2`.
-- Session damage is capped: if current-day net trade memory is `<= -$5.00`, the decision layer publishes a session stop and blocks new TRADE payloads.
+- V26.6.2A supersedes pause behavior: loss clustering no longer creates a mandatory 30-minute pause; it publishes diagnostic telemetry, forces thesis revalidation, and applies adaptive size-down.
+- V26.6.2A replaces the `<= -$5.00` daily kill switch with `DRAWDOWN_CAUTION_MODE`; new TRADE payloads may continue only as reduced-size Leg A with higher entry-location quality, while full stop is reserved for catastrophic hard-risk state.
 - Measurement targets for this repair are: `Average Win >= +$1.20`, `Average Loss <= -$1.00`, and `Profit Factor > 1.30`.

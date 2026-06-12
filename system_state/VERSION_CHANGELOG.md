@@ -58,7 +58,7 @@ NEXT PRIORITIES
 6. Dynamic Conviction Lot Sizing
 
 ==================================================
-V26.6.2 PROFIT / LOSS ASYMMETRY EMERGENCY FIX
+V26.6.2 / V26.6.2A PROFIT / LOSS ASYMMETRY + NO-PAUSE ADAPTIVE EXPECTANCY FIX
 ==================================================
 
 Active runtime:
@@ -69,10 +69,12 @@ Purpose:
 * compress per-trade realized loss for 0.01 lot XAUUSD to the -$1.20 cap
 * publish executor profit-lock instructions at +$0.80 and +$1.20
 * disable weak gap trades and marginal TRANSITION+NORMAL participation
-* pause after two consecutive losses and stop the session at -$5 daily net loss
+* V26.6.2A disables mandatory consecutive-loss pause and daily kill switch; loss clusters now diagnose, revalidate thesis, reduce size, and continue cautiously
+* daily drawdown now activates DRAWDOWN_CAUTION_MODE instead of full stop unless catastrophic hard-risk state is reached
+* add LOSS_REASON_CLASSIFIER telemetry for LATE_ENTRY, EXHAUSTION_ENTRY, CHOP_ENTRY, REVERSAL_ENTRY, SL_TOO_WIDE, BE_TOO_TIGHT, TREND_THESIS_FAILED, and EXECUTOR_MANAGEMENT_FAILURE
 
 Non-goals:
 * no new indicators
 * no new strategy layers
-* no classifier expansion
+* no new indicator stack
 * no hard-safety bypass
