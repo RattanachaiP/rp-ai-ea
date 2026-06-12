@@ -48,8 +48,8 @@ OUTPUT_PATH = BASE_PATH / "decision.json"
 
 
 RUNTIME_BRANCH = "codex-dev"
-ARCH_VERSION = "V26.6.2"
-BUILD_TAG = "profit-loss-asymmetry-emergency-fix"
+ARCH_VERSION = "V26.6.2A"
+BUILD_TAG = "no-pause-adaptive-expectancy-fix"
 RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
 
 # V26 Execution Confidence Engine
@@ -136,7 +136,7 @@ V26_6_WEAK_MOMENTUM_PENALTY_ONLY = True
 # V26.6.2 Profit/Loss Asymmetry Emergency Fix
 # This layer repairs expectancy distribution without adding indicators or new
 # strategy branches. It compresses loss size, protects open profit, blocks weak
-# marginal gaps, and adds finite session brakes after loss clusters.
+# marginal gaps, replaces pause-based session brakes with diagnosis, thesis revalidation, and adaptive risk reduction after loss clusters.
 V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT = 1.20
 V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT = 1.10
 V26_6_2_USD_PER_PRICE_UNIT_001_LOT = 1.00
@@ -149,8 +149,11 @@ V26_6_2_TRANSITION_NORMAL_MIN_GAP = 4
 V26_6_2_STRONG_MIDDLE_BUY_RSI = 58.0
 V26_6_2_STRONG_MIDDLE_SELL_RSI = 42.0
 V26_6_2_STRONG_MIDDLE_MACD_ABS = 0.80
-V26_6_2_LOSS_CLUSTER_PAUSE_SECONDS = 30 * 60
-V26_6_2_DAILY_STOP_LOSS_USD = -5.00
+V26_6_2_LOSS_CLUSTER_DIAGNOSTIC_SECONDS = 30 * 60
+V26_6_2_DAILY_DRAWDOWN_CAUTION_USD = -5.00
+V26_6_2_CATASTROPHIC_DAILY_STOP_USD = -25.00
+V26_6_2_ADAPTIVE_SIZE_DOWN_FRACTION = 0.25
+V26_6_2_DRAWDOWN_CAUTION_MIN_ENTRY_SCORE = 62
 V26_6_2_EXPECTANCY_TARGET_AVG_WIN = 1.20
 V26_6_2_EXPECTANCY_TARGET_AVG_LOSS = 1.00
 V26_6_2_EXPECTANCY_TARGET_PROFIT_FACTOR = 1.30
@@ -163,7 +166,7 @@ LOCAL_TRADE_MEMORY_PATH = Path(__file__).resolve().parents[1] / "analysis" / "tr
 PROTECTION_AUTHORITY_STATES = (
     "SESSION_PROFIT_PROTECTION",
     "DAILY_PEAK_DRAWDOWN_PROTECTION",
-    "LOSS_CLUSTER_PAUSE",
+    "THESIS_REVALIDATION_AFTER_LOSS",
     "THESIS_DECAY_WAIT",
     "POST_RUNNER_COOLDOWN",
     "WAIT_ENTRY_LOCATION",
@@ -177,18 +180,18 @@ PROTECTION_RELEASE_CONDITIONS = {
         "recovery_path": "resume normal eligibility on next fresh setup after session protection release",
     },
     "DAILY_PEAK_DRAWDOWN_PROTECTION": {
-        "entry_condition": "daily peak drawdown protection flag active",
-        "exit_condition": "drawdown recovers below threshold, daily reset, or maximum duration reached",
+        "entry_condition": "daily drawdown caution threshold exceeded",
+        "exit_condition": "drawdown recovers below threshold, daily reset, or catastrophic hard-risk state is reached",
         "maximum_duration_sec": 60 * 60,
         "maximum_cycles": 60,
-        "recovery_path": "resume controlled participation only after drawdown state clears",
+        "recovery_path": "continue cautious Leg A-only participation with reduced size and higher entry-quality threshold",
     },
-    "LOSS_CLUSTER_PAUSE": {
-        "entry_condition": "2 consecutive losses or loss-cluster pause flag active",
-        "exit_condition": "30 minutes elapsed without a new loss-cluster trigger",
-        "maximum_duration_sec": V26_6_2_LOSS_CLUSTER_PAUSE_SECONDS,
-        "maximum_cycles": 30,
-        "recovery_path": "release to normal evaluation after finite 30-minute loss-cluster pause",
+    "THESIS_REVALIDATION_AFTER_LOSS": {
+        "entry_condition": "loss cluster or repeated same-direction losses detected",
+        "exit_condition": "bias/mode/BB/RSI/MACD/location/exhaustion thesis is revalidated or invalidated",
+        "maximum_duration_sec": 3 * 60,
+        "maximum_cycles": 3,
+        "recovery_path": "valid thesis continues cautiously with reduced risk; invalid thesis switches to WAIT_ENTRY_LOCATION or opposite-thesis evaluation",
     },
     "THESIS_DECAY_WAIT": {
         "entry_condition": "failed continuation threshold, WAIT_VALID, or transition thesis decay",
@@ -1799,6 +1802,14 @@ def _v26_6_2_trade_memory_path():
     return None
 
 
+def _v26_6_2_row_value(row, names, default=""):
+    for name in names:
+        value = row.get(name)
+        if value not in (None, ""):
+            return value
+    return default
+
+
 def _v26_6_2_trade_memory_session_stats():
     import csv
 
@@ -1807,7 +1818,11 @@ def _v26_6_2_trade_memory_session_stats():
         "path": str(path) if path else "",
         "daily_net": 0.0,
         "consecutive_losses": 0,
+        "same_direction_loss_streak": 0,
         "last_loss_age_sec": 999999,
+        "last_loss_direction": "UNKNOWN",
+        "last_loss_profit": 0.0,
+        "last_loss_row": {},
         "trades_today": 0,
         "available": bool(path),
     }
@@ -1823,64 +1838,226 @@ def _v26_6_2_trade_memory_session_stats():
                 close_text = next((row.get(k, "") for k in ("close_time", "exit_time", "closed_at", "timestamp", "time", "date") if row.get(k)), "")
                 closed = _v26_6_2_parse_trade_time(close_text)
                 profit = safe_float(row.get("profit", row.get("pnl", row.get("net_profit", 0))), 0.0)
+                direction = str(_v26_6_2_row_value(row, ("direction", "side", "type", "action", "bias"), "UNKNOWN")).upper()
+                if "BUY" in direction:
+                    direction = "BUY"
+                elif "SELL" in direction:
+                    direction = "SELL"
+                else:
+                    direction = "UNKNOWN"
                 if closed and closed.date() == now_dt.date():
                     stats["daily_net"] += profit
                     stats["trades_today"] += 1
-                rows.append((closed or datetime.min, profit, str(row.get("result", "")).upper()))
+                rows.append((closed or datetime.min, profit, str(row.get("result", "")).upper(), direction, dict(row)))
     except Exception as exc:
         stats["available"] = False
         stats["read_error"] = str(exc)
         return stats
 
     consecutive = 0
+    same_direction = 0
+    first_loss_direction = "UNKNOWN"
     last_loss_time = None
-    for closed, profit, result in sorted(rows, key=lambda item: item[0], reverse=True):
+    last_loss_row = {}
+    last_loss_profit = 0.0
+    for closed, profit, result, direction, row in sorted(rows, key=lambda item: item[0], reverse=True):
         is_loss = profit < 0 or result == "LOSS"
         is_win = profit > 0 or result == "WIN"
         if is_loss:
             consecutive += 1
-            if last_loss_time is None and closed != datetime.min:
-                last_loss_time = closed
+            if last_loss_time is None:
+                if closed != datetime.min:
+                    last_loss_time = closed
+                first_loss_direction = direction
+                last_loss_row = row
+                last_loss_profit = profit
+            if first_loss_direction != "UNKNOWN" and direction == first_loss_direction:
+                same_direction += 1
         elif is_win:
             break
     stats["consecutive_losses"] = consecutive
+    stats["same_direction_loss_streak"] = same_direction
+    stats["last_loss_direction"] = first_loss_direction
+    stats["last_loss_row"] = last_loss_row
+    stats["last_loss_profit"] = round(last_loss_profit, 2)
     if last_loss_time:
         stats["last_loss_age_sec"] = max(0, int((now_dt - last_loss_time).total_seconds()))
     stats["daily_net"] = round(stats["daily_net"], 2)
     return stats
 
 
+def classify_loss_reason_v26_6_2(decision, stats):
+    """Classify the latest realized loss using existing telemetry only."""
+    row = stats.get("last_loss_row", {}) if isinstance(stats, dict) else {}
+    explicit = str(_v26_6_2_row_value(row, ("loss_reason", "exit_reason", "reason", "final_gate_reason"), "")).upper()
+    allowed = {
+        "LATE_ENTRY", "EXHAUSTION_ENTRY", "CHOP_ENTRY", "REVERSAL_ENTRY",
+        "SL_TOO_WIDE", "BE_TOO_TIGHT", "TREND_THESIS_FAILED", "EXECUTOR_MANAGEMENT_FAILURE",
+    }
+    for reason in allowed:
+        if reason in explicit:
+            return reason
+
+    late_score = safe_int(decision.get("late_entry_score", decision.get("late_entry_score_v26_6", 0)), 0)
+    location_score = safe_int(decision.get("entry_location_score", decision.get("entry_location_score_v26_5", 0)), 0)
+    exhaustion_score = safe_int(decision.get("exhaustion_score", decision.get("runner_risk_score", 0)), 0)
+    mode = str(decision.get("market_mode", decision.get("mode", ""))).upper()
+    bb_state = str(decision.get("bb_state", decision.get("bb", ""))).upper()
+    management = str(decision.get("management", decision.get("mgmt", ""))).upper()
+    max_loss = safe_float(decision.get("max_realized_loss_usd_001_lot", V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT), V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT)
+    latest_loss = abs(safe_float(stats.get("last_loss_profit", 0.0), 0.0))
+
+    if latest_loss > max_loss * 1.05:
+        return "SL_TOO_WIDE"
+    if "BE" in explicit and "TIGHT" in explicit:
+        return "BE_TOO_TIGHT"
+    if late_score >= V26_6_LATE_ENTRY_SIZE_REDUCE_SCORE:
+        return "LATE_ENTRY"
+    if exhaustion_score >= 70 or "EXHAUST" in explicit:
+        return "EXHAUSTION_ENTRY"
+    if bb_state == "NORMAL" and mode == "TRANSITION":
+        return "CHOP_ENTRY"
+    if "REVERSAL" in bb_state or "CHOCH" in explicit or "REVERSAL" in explicit:
+        return "REVERSAL_ENTRY"
+    if safe_int(stats.get("same_direction_loss_streak", 0), 0) >= 2:
+        return "TREND_THESIS_FAILED"
+    if management in ("HOLD_TRAIL", "TREND_RUNNER", "SCALP_TP") and location_score >= V26_5_ENTRY_LOCATION_MIN_EXECUTE:
+        return "EXECUTOR_MANAGEMENT_FAILURE"
+    return "TREND_THESIS_FAILED"
+
+
+def apply_adaptive_size_down_v26_6_2(decision, reason):
+    """Reduce exposure after losses without stopping participation."""
+    current_fraction = safe_float(decision.get("risk_fraction", decision.get("position_size_multiplier", 1.0)), 1.0)
+    reduced = min(current_fraction, V26_6_2_ADAPTIVE_SIZE_DOWN_FRACTION)
+    decision["adaptive_size_down_active"] = True
+    decision["adaptive_size_down_reason"] = reason
+    decision["management_downgrade"] = "EXPLICIT_SCALP_DOWNGRADE"
+    decision["management_downgrade_reason"] = reason
+    decision["risk_fraction"] = round(reduced, 2)
+    decision["position_size_multiplier"] = round(reduced, 2)
+    decision["active_execution_leg"] = "A"
+    decision["adaptive_allowed_legs"] = ["A"]
+    decision["runner_allowed"] = False
+    decision["runner_disabled"] = True
+    decision["runner_disable_reason"] = reason
+    decision["pyramid_allowed"] = False
+    decision["continuation_add_allowed"] = False
+    decision["runner_add_allowed"] = False
+    decision["no_runner"] = True
+    decision["no_pyramid"] = True
+    decision["tighter_risk_cap_active"] = True
+    decision["tighter_risk_cap_usd_001_lot"] = round(min(V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT, V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT), 2)
+    decision["adaptive_recovery_condition"] = "return to normal size only after valid recovery trade or improved entry_location_score"
+    if isinstance(decision.get("execution_legs"), list):
+        for leg in decision["execution_legs"]:
+            if str(leg.get("leg", "")).upper() in ("B", "C"):
+                leg["enabled"] = False
+                leg["disabled_reason"] = reason
+    if str(decision.get("decision", "")).upper() == "TRADE":
+        decision["execution_state"] = "EXECUTE_CAUTIOUS"
+        decision["management"] = "SCALP_TP"
+        decision["mgmt"] = "SCALP_TP"
+    return decision
+
+
+def apply_thesis_revalidation_after_loss_v26_6_2(decision, stats, loss_reason):
+    bias = str(decision.get("action", decision.get("bias", decision.get("intended_action", "NEUTRAL")))).upper()
+    location_score = safe_int(decision.get("entry_location_score", decision.get("entry_location_score_v26_5", 0)), 0)
+    exhaustion_score = safe_int(decision.get("exhaustion_score", decision.get("runner_risk_score", 0)), 0)
+    score_gap = safe_int(decision.get("score_gap", 0), 0)
+    bb_state = str(decision.get("bb_state", decision.get("bb", "NORMAL"))).upper()
+    mode = str(decision.get("market_mode", decision.get("mode", "TRANSITION"))).upper()
+    rsi = safe_float(decision.get("rsi", 50), 50)
+    macd_hist = safe_float(decision.get("macd_hist", 0), 0)
+    repeated_same_direction = safe_int(stats.get("same_direction_loss_streak", 0), 0) >= 2
+    thesis_valid = (
+        bias in ("BUY", "SELL")
+        and score_gap >= V26_6_2_MIN_SCORE_GAP
+        and location_score >= V26_5_ENTRY_LOCATION_MIN_EXECUTE
+        and exhaustion_score < 80
+        and not (mode == "TRANSITION" and bb_state == "NORMAL" and loss_reason in ("CHOP_ENTRY", "TREND_THESIS_FAILED"))
+    )
+    decision["thesis_revalidation_after_loss"] = "ACTIVE" if repeated_same_direction else "NOT_REQUIRED"
+    decision["thesis_revalidation_inputs"] = {
+        "bias": bias,
+        "mode": mode,
+        "bb_state": bb_state,
+        "rsi": round(rsi, 2),
+        "macd_hist": round(macd_hist, 3),
+        "entry_location_score": location_score,
+        "exhaustion_score": exhaustion_score,
+        "score_gap": score_gap,
+        "loss_reason": loss_reason,
+    }
+    decision["thesis_revalidation_result"] = "VALID_CONTINUE_CAUTIOUS" if thesis_valid else "INVALID_WAIT_OR_OPPOSITE_EVALUATION"
+    if repeated_same_direction and thesis_valid:
+        decision = apply_adaptive_size_down_v26_6_2(decision, "same-direction loss cluster; thesis revalidated, continue cautiously")
+    elif repeated_same_direction and not thesis_valid:
+        decision["decision"] = "NO_TRADE"
+        decision["entry_allowed"] = False
+        decision["execution_state"] = "WAIT"
+        decision["wait_state"] = "WAIT_ENTRY_LOCATION"
+        decision["wait_reason"] = "same-direction losses invalidated thesis; re-check entry location or evaluate opposite thesis"
+        decision["next_trigger"] = "bias/mode/BB/RSI/MACD/location/exhaustion reset or opposite thesis evaluation"
+        decision["opposite_thesis_evaluation_required"] = True
+    return decision
+
+
 def apply_session_loss_governor_v26_6_2(decision):
-    """Pause after loss clusters and stop the session at -$5 daily net loss."""
+    """Diagnose losses and adapt risk; do not pause or session-stop except catastrophic hard risk."""
     if not isinstance(decision, dict):
         return decision
     stats = _v26_6_2_trade_memory_session_stats()
-    decision["session_loss_governor"] = "V26.6.2_ACTIVE"
+    consecutive_losses = max(safe_int(decision.get("consecutive_losses", 0), 0), safe_int(stats.get("consecutive_losses", 0), 0))
+    loss_reason = classify_loss_reason_v26_6_2(decision, stats) if consecutive_losses > 0 else "NONE"
+
+    decision["session_loss_governor"] = "V26.6.2A_DIAGNOSE_ADAPT_CONTINUE"
     decision["trade_memory_source"] = stats.get("path", "")
     decision["daily_net_pnl"] = stats.get("daily_net", 0.0)
-    decision["daily_stop_loss_usd"] = V26_6_2_DAILY_STOP_LOSS_USD
-    decision["consecutive_losses"] = max(safe_int(decision.get("consecutive_losses", 0), 0), safe_int(stats.get("consecutive_losses", 0), 0))
-    decision["loss_cluster_pause_seconds"] = V26_6_2_LOSS_CLUSTER_PAUSE_SECONDS
+    decision["daily_drawdown_caution_usd"] = V26_6_2_DAILY_DRAWDOWN_CAUTION_USD
+    decision["catastrophic_daily_stop_usd"] = V26_6_2_CATASTROPHIC_DAILY_STOP_USD
+    decision["consecutive_losses"] = consecutive_losses
+    decision["same_direction_loss_streak"] = safe_int(stats.get("same_direction_loss_streak", 0), 0)
+    decision["last_loss_direction"] = stats.get("last_loss_direction", "UNKNOWN")
     decision["last_loss_age_sec"] = stats.get("last_loss_age_sec", 999999)
+    decision["loss_reason_classifier"] = loss_reason
+    decision["loss_cluster_pause_active"] = False
+    decision["loss_cluster_pause_seconds"] = 0
+    decision["loss_cluster_pause_remaining_sec"] = 0
+    decision["loss_cluster_pause_policy"] = "DIAGNOSTIC_ONLY_NO_AUTOMATIC_EXECUTION_STOP"
+    decision["session_stop_active"] = False
+    decision["daily_kill_switch_policy"] = "DISABLED_AS_MANDATORY_BEHAVIOR; DRAWDOWN_CAUTION_MODE_USED_INSTEAD"
 
-    if stats.get("daily_net", 0.0) <= V26_6_2_DAILY_STOP_LOSS_USD:
+    daily_net = safe_float(stats.get("daily_net", 0.0), 0.0)
+    if daily_net <= V26_6_2_CATASTROPHIC_DAILY_STOP_USD:
         decision["session_stop_active"] = True
-        decision["session_stop_reason"] = f"daily net {stats.get('daily_net', 0.0):.2f} <= {V26_6_2_DAILY_STOP_LOSS_USD:.2f}"
+        decision["session_stop_reason"] = f"catastrophic hard-risk daily net {daily_net:.2f} <= {V26_6_2_CATASTROPHIC_DAILY_STOP_USD:.2f}"
         if str(decision.get("decision", "")).upper() == "TRADE":
-            return _v26_6_2_block_trade(decision, "V26_6_2_DAILY_LOSS_STOP", "V26.6.2 SESSION STOP | net daily loss <= -$5")
+            return _v26_6_2_block_trade(decision, "V26_6_2_CATASTROPHIC_DAILY_RISK_STOP", "V26.6.2A catastrophic hard-risk stop")
         return decision
 
-    pause_active = decision["consecutive_losses"] >= 2 and safe_int(stats.get("last_loss_age_sec", 999999), 999999) < V26_6_2_LOSS_CLUSTER_PAUSE_SECONDS
-    decision["loss_cluster_pause_active"] = bool(pause_active)
-    if pause_active:
-        remaining = V26_6_2_LOSS_CLUSTER_PAUSE_SECONDS - safe_int(stats.get("last_loss_age_sec", 0), 0)
-        decision["loss_cluster_pause_remaining_sec"] = max(0, remaining)
-        if str(decision.get("decision", "")).upper() == "TRADE":
-            return _v26_6_2_block_trade(decision, "V26_6_2_LOSS_CLUSTER_PAUSE", f"V26.6.2 LOSS CLUSTER PAUSE | consecutive_losses>=2; remaining={remaining}s")
+    if daily_net <= V26_6_2_DAILY_DRAWDOWN_CAUTION_USD:
+        decision["drawdown_caution_mode"] = True
+        decision["daily_drawdown_protection_active"] = False
+        decision["daily_drawdown_response"] = "DRAWDOWN_CAUTION_MODE_REDUCE_SIZE_LEG_A_ONLY_HIGHER_ENTRY_SCORE_NO_STOP"
+        if safe_int(decision.get("entry_location_score", 0), 0) < V26_6_2_DRAWDOWN_CAUTION_MIN_ENTRY_SCORE:
+            decision["decision"] = "NO_TRADE"
+            decision["entry_allowed"] = False
+            decision["execution_state"] = "WAIT"
+            decision["wait_state"] = "WAIT_ENTRY_LOCATION"
+            decision["wait_reason"] = "drawdown caution requires higher entry_location_score"
+            decision["next_trigger"] = f"entry_location_score >= {V26_6_2_DRAWDOWN_CAUTION_MIN_ENTRY_SCORE}"
+        else:
+            decision = apply_adaptive_size_down_v26_6_2(decision, "daily drawdown caution mode")
     else:
-        decision["loss_cluster_pause_remaining_sec"] = 0
-    return decision
+        decision["drawdown_caution_mode"] = False
 
+    if consecutive_losses > 0:
+        decision = apply_thesis_revalidation_after_loss_v26_6_2(decision, stats, loss_reason)
+    if consecutive_losses >= 2 and str(decision.get("decision", "")).upper() == "TRADE":
+        decision = apply_adaptive_size_down_v26_6_2(decision, "loss cluster adaptive size-down; no pause")
+    return decision
 
 def apply_late_entry_guard_v26_6(decision):
     """Final maturity guard so later recovery layers cannot chase mature moves."""
@@ -2081,10 +2258,10 @@ def _detect_protection_candidates(decision):
 
     if _protection_bool(decision.get("session_profit_protection_active", False)) or _protection_bool(decision.get("profit_protection_active", False)):
         candidates.append("SESSION_PROFIT_PROTECTION")
-    if _protection_bool(decision.get("daily_peak_drawdown_protection_active", False)) or _protection_bool(decision.get("daily_drawdown_protection_active", False)):
+    if _protection_bool(decision.get("drawdown_caution_mode", False)) or _protection_bool(decision.get("daily_peak_drawdown_protection_active", False)) or _protection_bool(decision.get("daily_drawdown_protection_active", False)):
         candidates.append("DAILY_PEAK_DRAWDOWN_PROTECTION")
-    if _protection_bool(decision.get("loss_cluster_pause_active", False)) or safe_int(decision.get("consecutive_losses", 0), 0) >= 2:
-        candidates.append("LOSS_CLUSTER_PAUSE")
+    if _protection_bool(decision.get("thesis_revalidation_after_loss", False)) or safe_int(decision.get("same_direction_loss_streak", 0), 0) >= 2:
+        candidates.append("THESIS_REVALIDATION_AFTER_LOSS")
     if wait_state == "WAIT_VALID" or _protection_bool(decision.get("transition_decay_active", False)) or "THESIS_DECAY" in reason or "TRANSITION_WAIT" in reason:
         candidates.append("THESIS_DECAY_WAIT")
     if _protection_bool(decision.get("continuation_reentry_block", False)) or _protection_bool(decision.get("post_runner_cooldown_active", False)) or "CONTINUATION_REENTRY_COOLDOWN" in reason:
@@ -2164,7 +2341,7 @@ def apply_protection_authority_manager_v26_6_1(decision, allow_release=True, cou
             (selected == "WAIT_ENTRY_LOCATION" and _protection_location_recovered(decision))
             or (selected == "THESIS_DECAY_WAIT" and _protection_directional_recovery(decision) and cycles > WAIT_TIMEOUT_CYCLES)
             or (selected == "POST_RUNNER_COOLDOWN" and not _protection_bool(decision.get("continuation_reentry_block", False)) and not _protection_bool(decision.get("cooldown_wait_active", False)))
-            or (selected == "LOSS_CLUSTER_PAUSE" and duration >= V26_6_2_LOSS_CLUSTER_PAUSE_SECONDS)
+            or (selected == "THESIS_REVALIDATION_AFTER_LOSS" and _protection_directional_recovery(decision))
             or (selected == "SESSION_PROFIT_PROTECTION" and not _protection_bool(decision.get("session_profit_protection_active", False)) and not _protection_bool(decision.get("profit_protection_active", False)))
             or (selected == "DAILY_PEAK_DRAWDOWN_PROTECTION" and not _protection_bool(decision.get("daily_peak_drawdown_protection_active", False)) and not _protection_bool(decision.get("daily_drawdown_protection_active", False)))
         )
