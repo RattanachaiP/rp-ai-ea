@@ -48,8 +48,8 @@ OUTPUT_PATH = BASE_PATH / "decision.json"
 
 
 RUNTIME_BRANCH = "codex-dev"
-ARCH_VERSION = "V26.6.1"
-BUILD_TAG = "executor-legacy-veto-audit-authority-chain"
+ARCH_VERSION = "V26.6.2"
+BUILD_TAG = "profit-loss-asymmetry-emergency-fix"
 RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
 
 # V26 Execution Confidence Engine
@@ -133,6 +133,30 @@ V26_6_FULL_SIZE_GAP = 4
 V26_6_MIN_PARTICIPATION_GAP = 2
 V26_6_WEAK_MOMENTUM_PENALTY_ONLY = True
 
+# V26.6.2 Profit/Loss Asymmetry Emergency Fix
+# This layer repairs expectancy distribution without adding indicators or new
+# strategy branches. It compresses loss size, protects open profit, blocks weak
+# marginal gaps, and adds finite session brakes after loss clusters.
+V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT = 1.20
+V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT = 1.10
+V26_6_2_USD_PER_PRICE_UNIT_001_LOT = 1.00
+V26_6_2_MAX_SL_POINTS = round(V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT / V26_6_2_USD_PER_PRICE_UNIT_001_LOT, 3)
+V26_6_2_BE_TRIGGER_USD_001_LOT = 0.80
+V26_6_2_LOCK_TRIGGER_USD_001_LOT = 1.20
+V26_6_2_LOCK_PROFIT_USD_001_LOT = 0.50
+V26_6_2_MIN_SCORE_GAP = 3
+V26_6_2_TRANSITION_NORMAL_MIN_GAP = 4
+V26_6_2_STRONG_MIDDLE_BUY_RSI = 58.0
+V26_6_2_STRONG_MIDDLE_SELL_RSI = 42.0
+V26_6_2_STRONG_MIDDLE_MACD_ABS = 0.80
+V26_6_2_LOSS_CLUSTER_PAUSE_SECONDS = 30 * 60
+V26_6_2_DAILY_STOP_LOSS_USD = -5.00
+V26_6_2_EXPECTANCY_TARGET_AVG_WIN = 1.20
+V26_6_2_EXPECTANCY_TARGET_AVG_LOSS = 1.00
+V26_6_2_EXPECTANCY_TARGET_PROFIT_FACTOR = 1.30
+TRADE_MEMORY_PATH = BASE_PATH / "trade_memory.csv"
+LOCAL_TRADE_MEMORY_PATH = Path(__file__).resolve().parents[1] / "analysis" / "trade_memory.csv"
+
 # V26.6.1 Protection Authority Manager
 # Only one protection state may be ACTIVE at once. Other detected protections are
 # PENDING so protective recursion cannot recreate participation starvation.
@@ -161,10 +185,10 @@ PROTECTION_RELEASE_CONDITIONS = {
     },
     "LOSS_CLUSTER_PAUSE": {
         "entry_condition": "2 consecutive losses or loss-cluster pause flag active",
-        "exit_condition": "15 minutes elapsed without a new loss-cluster trigger",
-        "maximum_duration_sec": 20 * 60,
-        "maximum_cycles": 20,
-        "recovery_path": "release to normal evaluation after finite pause timeout",
+        "exit_condition": "30 minutes elapsed without a new loss-cluster trigger",
+        "maximum_duration_sec": V26_6_2_LOSS_CLUSTER_PAUSE_SECONDS,
+        "maximum_cycles": 30,
+        "recovery_path": "release to normal evaluation after finite 30-minute loss-cluster pause",
     },
     "THESIS_DECAY_WAIT": {
         "entry_condition": "failed continuation threshold, WAIT_VALID, or transition thesis decay",
@@ -1599,15 +1623,262 @@ def apply_max_realized_loss_guard_v26_6(decision):
     if str(decision.get("decision", "")).upper() != "TRADE" or risk_points <= 0:
         decision.setdefault("max_realized_loss_guard", "NOT_ACTIVE")
         return decision
-    max_loss_points = risk_points * V26_6_MAX_REALIZED_LOSS_R_MULTIPLE
-    decision["planned_sl_risk_points"] = round(risk_points, 3)
+    compressed_risk_points = min(risk_points, V26_6_2_MAX_SL_POINTS)
+    max_loss_points = min(
+        compressed_risk_points * V26_6_MAX_REALIZED_LOSS_R_MULTIPLE,
+        V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT / V26_6_2_USD_PER_PRICE_UNIT_001_LOT,
+    )
+    decision["planned_sl_risk_points"] = round(compressed_risk_points, 3)
+    decision["raw_planned_sl_risk_points"] = round(risk_points, 3)
     decision["planned_loss_r"] = 1.0
     decision["max_realized_loss_guard"] = "ACTIVE"
-    decision["max_realized_loss_r"] = round(V26_6_MAX_REALIZED_LOSS_R_MULTIPLE, 3)
+    decision["max_realized_loss_r"] = round(max_loss_points / compressed_risk_points, 3) if compressed_risk_points > 0 else 0
     decision["max_realized_loss_points"] = round(max_loss_points, 3)
+    decision["max_realized_loss_usd_001_lot"] = round(V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT, 2)
+    decision["floating_force_exit_usd_001_lot"] = round(V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT, 2)
+    decision["floating_force_exit_points"] = round(V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT / V26_6_2_USD_PER_PRICE_UNIT_001_LOT, 3)
     decision["max_realized_loss_buffer_r"] = round(V26_6_LOSS_GUARD_BUFFER_R, 3)
     decision["risk_budget_fraction"] = round(fraction, 2)
-    decision["loss_compression_policy"] = "planned SL risk + 5pct execution buffer; no loss expansion beyond guard"
+    decision["loss_compression_policy"] = "V26.6.2 hard cap: 0.01 lot XAUUSD realized loss <= $1.20; force exit as floating loss approaches cap"
+    return decision
+
+
+def _v26_6_2_usd_to_points(usd_value):
+    return round(safe_float(usd_value, 0.0) / V26_6_2_USD_PER_PRICE_UNIT_001_LOT, 3)
+
+
+def apply_loss_cap_and_profit_lock_v26_6_2(decision):
+    """Compress SL to the $1.20/0.01-lot cap and publish profit-lock ladder."""
+    if not isinstance(decision, dict):
+        return decision
+
+    bias = str(decision.get("action", decision.get("bias", ""))).upper()
+    if str(decision.get("decision", "")).upper() != "TRADE" or bias not in ("BUY", "SELL"):
+        decision.setdefault("profit_loss_asymmetry_guard", "NOT_ACTIVE")
+        return decision
+
+    entry = _trade_entry_price(decision)
+    sl = safe_float(decision.get("sl", decision.get("stop_loss", 0)), 0.0)
+    if entry > 0:
+        desired_sl = entry - V26_6_2_MAX_SL_POINTS if bias == "BUY" else entry + V26_6_2_MAX_SL_POINTS
+        if sl <= 0 or abs(entry - sl) > V26_6_2_MAX_SL_POINTS:
+            sl = desired_sl
+            decision["sl"] = round(sl, 3)
+            decision["stop_loss"] = round(sl, 3)
+            decision["sl_compression_applied"] = True
+            decision["sl_compression_reason"] = f"V26.6.2 max realized loss cap ${V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT:.2f} per 0.01 lot"
+        else:
+            decision["sl_compression_applied"] = False
+
+    spread_points = safe_float(decision.get("spread_points", decision.get("spread", 0)), 0.0)
+    decision["profit_loss_asymmetry_guard"] = "ACTIVE"
+    decision["reference_lot"] = 0.01
+    decision["usd_per_price_unit_001_lot"] = V26_6_2_USD_PER_PRICE_UNIT_001_LOT
+    decision["max_realized_loss_usd_001_lot"] = V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT
+    decision["floating_force_exit_usd_001_lot"] = V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT
+    decision["floating_force_exit_policy"] = "FORCE_EXIT_WHEN_FLOATING_LOSS_APPROACHES_RISK_CAP"
+    decision["breakeven_trigger_usd_001_lot"] = V26_6_2_BE_TRIGGER_USD_001_LOT
+    decision["breakeven_trigger_points"] = _v26_6_2_usd_to_points(V26_6_2_BE_TRIGGER_USD_001_LOT)
+    decision["breakeven_lock_policy"] = "MOVE_SL_TO_BREAKEVEN_PLUS_SPREAD"
+    decision["lock_profit_trigger_usd_001_lot"] = V26_6_2_LOCK_TRIGGER_USD_001_LOT
+    decision["lock_profit_usd_001_lot"] = V26_6_2_LOCK_PROFIT_USD_001_LOT
+    decision["lock_profit_trigger_points"] = _v26_6_2_usd_to_points(V26_6_2_LOCK_TRIGGER_USD_001_LOT)
+    decision["lock_profit_points"] = _v26_6_2_usd_to_points(V26_6_2_LOCK_PROFIT_USD_001_LOT)
+    decision["profit_protection_ladder"] = [
+        {
+            "trigger_usd_001_lot": V26_6_2_BE_TRIGGER_USD_001_LOT,
+            "trigger_points": _v26_6_2_usd_to_points(V26_6_2_BE_TRIGGER_USD_001_LOT),
+            "lock": "BREAKEVEN_PLUS_SPREAD",
+            "spread_points_source": spread_points,
+        },
+        {
+            "trigger_usd_001_lot": V26_6_2_LOCK_TRIGGER_USD_001_LOT,
+            "trigger_points": _v26_6_2_usd_to_points(V26_6_2_LOCK_TRIGGER_USD_001_LOT),
+            "lock_usd_001_lot": V26_6_2_LOCK_PROFIT_USD_001_LOT,
+            "lock_points": _v26_6_2_usd_to_points(V26_6_2_LOCK_PROFIT_USD_001_LOT),
+        },
+    ]
+    decision["profit_protection_goal"] = "prevent profitable trades from returning into full loss"
+    return decision
+
+
+def _v26_6_2_block_trade(decision, block_code, reason):
+    bias = str(decision.get("action", decision.get("bias", decision.get("intended_action", "NEUTRAL")))).upper()
+    if bias not in ("BUY", "SELL"):
+        bias = "NEUTRAL"
+    decision["decision"] = "NO_TRADE"
+    decision["entry_allowed"] = False
+    decision["execution_state"] = "NO_TRADE"
+    decision["management"] = "NO_TRADE"
+    decision["mgmt"] = "NO_TRADE"
+    decision["intended_action"] = bias
+    decision["expectancy_emergency_block"] = block_code
+    decision["expectancy_emergency_reason"] = reason
+    decision["final_gate_block_reason_class"] = block_code
+    decision["reason"] = (str(decision.get("reason", "")) + " | " + reason).strip()
+    return decision
+
+
+def _v26_6_2_strong_middle_confirmation(bias, rsi, macd_hist):
+    if bias == "BUY":
+        return rsi >= V26_6_2_STRONG_MIDDLE_BUY_RSI and macd_hist >= V26_6_2_STRONG_MIDDLE_MACD_ABS
+    if bias == "SELL":
+        return rsi <= V26_6_2_STRONG_MIDDLE_SELL_RSI and macd_hist <= -V26_6_2_STRONG_MIDDLE_MACD_ABS
+    return False
+
+
+def apply_expectancy_entry_filters_v26_6_2(decision):
+    """Emergency expectancy filters: no weak gaps, stricter transition-normal, no BB-mid chop."""
+    if not isinstance(decision, dict):
+        return decision
+    if str(decision.get("decision", "")).upper() != "TRADE":
+        return decision
+
+    bias = str(decision.get("action", decision.get("bias", "NEUTRAL"))).upper()
+    mode = str(decision.get("market_mode", decision.get("mode", "TRANSITION"))).upper()
+    bb_state = str(decision.get("bb_state", decision.get("bb", "NORMAL"))).upper()
+    score_gap = safe_int(decision.get("score_gap", 0), 0)
+    rsi = safe_float(decision.get("rsi", 50), 50)
+    macd_hist = safe_float(decision.get("macd_hist", 0), 0)
+    bid = _trade_entry_price(decision)
+    bb_upper = safe_float(decision.get("bb_upper", decision.get("bb_upper2", 0)), 0.0)
+    bb_middle = safe_float(decision.get("bb_middle", decision.get("bb_mid", 0)), 0.0)
+    bb_lower = safe_float(decision.get("bb_lower", decision.get("bb_lower2", 0)), 0.0)
+
+    decision["expectancy_emergency_filter"] = "V26.6.2_ACTIVE"
+    decision["minimum_score_gap_required"] = V26_6_2_MIN_SCORE_GAP
+    decision["transition_normal_minimum_score_gap"] = V26_6_2_TRANSITION_NORMAL_MIN_GAP
+
+    if score_gap < V26_6_2_MIN_SCORE_GAP:
+        return _v26_6_2_block_trade(
+            decision,
+            "V26_6_2_WEAK_GAP_NO_TRADE",
+            f"V26.6.2 WEAK GAP NO_TRADE | score_gap={score_gap} < {V26_6_2_MIN_SCORE_GAP}",
+        )
+
+    if mode == "TRANSITION" and bb_state == "NORMAL" and score_gap < V26_6_2_TRANSITION_NORMAL_MIN_GAP:
+        return _v26_6_2_block_trade(
+            decision,
+            "V26_6_2_TRANSITION_NORMAL_GAP_BLOCK",
+            f"V26.6.2 TRANSITION+NORMAL requires score_gap>={V26_6_2_TRANSITION_NORMAL_MIN_GAP}; got {score_gap}",
+        )
+
+    near_middle = bb_state == "NORMAL" and bid > 0 and is_near_bb_middle(bid, bb_upper, bb_middle, bb_lower)
+    if near_middle and not _v26_6_2_strong_middle_confirmation(bias, rsi, macd_hist):
+        return _v26_6_2_block_trade(
+            decision,
+            "V26_6_2_BB_MIDDLE_CHOP_BLOCK",
+            f"V26.6.2 BB middle block | RSI/MACD not strong enough bias={bias} rsi={rsi:.2f} macd={macd_hist:.2f}",
+        )
+
+    decision["expectancy_emergency_block"] = "NONE"
+    decision["middle_zone_confirmed_strong"] = bool(near_middle and _v26_6_2_strong_middle_confirmation(bias, rsi, macd_hist))
+    return decision
+
+
+def _v26_6_2_parse_trade_time(value):
+    text = str(value or "").strip().replace("T", " ").replace("Z", "")
+    if not text:
+        return None
+    for fmt, length in (("%Y-%m-%d %H:%M:%S", 19), ("%Y-%m-%d %H:%M", 16), ("%Y.%m.%d %H:%M:%S", 19), ("%Y.%m.%d %H:%M", 16)):
+        try:
+            return datetime.strptime(text[:length], fmt)
+        except Exception:
+            continue
+    try:
+        return datetime.fromisoformat(text)
+    except Exception:
+        return None
+
+
+def _v26_6_2_trade_memory_path():
+    if TRADE_MEMORY_PATH.exists():
+        return TRADE_MEMORY_PATH
+    if LOCAL_TRADE_MEMORY_PATH.exists():
+        return LOCAL_TRADE_MEMORY_PATH
+    return None
+
+
+def _v26_6_2_trade_memory_session_stats():
+    import csv
+
+    path = _v26_6_2_trade_memory_path()
+    stats = {
+        "path": str(path) if path else "",
+        "daily_net": 0.0,
+        "consecutive_losses": 0,
+        "last_loss_age_sec": 999999,
+        "trades_today": 0,
+        "available": bool(path),
+    }
+    if not path:
+        return stats
+
+    now_dt = datetime.utcnow()
+    rows = []
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                close_text = next((row.get(k, "") for k in ("close_time", "exit_time", "closed_at", "timestamp", "time", "date") if row.get(k)), "")
+                closed = _v26_6_2_parse_trade_time(close_text)
+                profit = safe_float(row.get("profit", row.get("pnl", row.get("net_profit", 0))), 0.0)
+                if closed and closed.date() == now_dt.date():
+                    stats["daily_net"] += profit
+                    stats["trades_today"] += 1
+                rows.append((closed or datetime.min, profit, str(row.get("result", "")).upper()))
+    except Exception as exc:
+        stats["available"] = False
+        stats["read_error"] = str(exc)
+        return stats
+
+    consecutive = 0
+    last_loss_time = None
+    for closed, profit, result in sorted(rows, key=lambda item: item[0], reverse=True):
+        is_loss = profit < 0 or result == "LOSS"
+        is_win = profit > 0 or result == "WIN"
+        if is_loss:
+            consecutive += 1
+            if last_loss_time is None and closed != datetime.min:
+                last_loss_time = closed
+        elif is_win:
+            break
+    stats["consecutive_losses"] = consecutive
+    if last_loss_time:
+        stats["last_loss_age_sec"] = max(0, int((now_dt - last_loss_time).total_seconds()))
+    stats["daily_net"] = round(stats["daily_net"], 2)
+    return stats
+
+
+def apply_session_loss_governor_v26_6_2(decision):
+    """Pause after loss clusters and stop the session at -$5 daily net loss."""
+    if not isinstance(decision, dict):
+        return decision
+    stats = _v26_6_2_trade_memory_session_stats()
+    decision["session_loss_governor"] = "V26.6.2_ACTIVE"
+    decision["trade_memory_source"] = stats.get("path", "")
+    decision["daily_net_pnl"] = stats.get("daily_net", 0.0)
+    decision["daily_stop_loss_usd"] = V26_6_2_DAILY_STOP_LOSS_USD
+    decision["consecutive_losses"] = max(safe_int(decision.get("consecutive_losses", 0), 0), safe_int(stats.get("consecutive_losses", 0), 0))
+    decision["loss_cluster_pause_seconds"] = V26_6_2_LOSS_CLUSTER_PAUSE_SECONDS
+    decision["last_loss_age_sec"] = stats.get("last_loss_age_sec", 999999)
+
+    if stats.get("daily_net", 0.0) <= V26_6_2_DAILY_STOP_LOSS_USD:
+        decision["session_stop_active"] = True
+        decision["session_stop_reason"] = f"daily net {stats.get('daily_net', 0.0):.2f} <= {V26_6_2_DAILY_STOP_LOSS_USD:.2f}"
+        if str(decision.get("decision", "")).upper() == "TRADE":
+            return _v26_6_2_block_trade(decision, "V26_6_2_DAILY_LOSS_STOP", "V26.6.2 SESSION STOP | net daily loss <= -$5")
+        return decision
+
+    pause_active = decision["consecutive_losses"] >= 2 and safe_int(stats.get("last_loss_age_sec", 999999), 999999) < V26_6_2_LOSS_CLUSTER_PAUSE_SECONDS
+    decision["loss_cluster_pause_active"] = bool(pause_active)
+    if pause_active:
+        remaining = V26_6_2_LOSS_CLUSTER_PAUSE_SECONDS - safe_int(stats.get("last_loss_age_sec", 0), 0)
+        decision["loss_cluster_pause_remaining_sec"] = max(0, remaining)
+        if str(decision.get("decision", "")).upper() == "TRADE":
+            return _v26_6_2_block_trade(decision, "V26_6_2_LOSS_CLUSTER_PAUSE", f"V26.6.2 LOSS CLUSTER PAUSE | consecutive_losses>=2; remaining={remaining}s")
+    else:
+        decision["loss_cluster_pause_remaining_sec"] = 0
     return decision
 
 
@@ -1893,7 +2164,7 @@ def apply_protection_authority_manager_v26_6_1(decision, allow_release=True, cou
             (selected == "WAIT_ENTRY_LOCATION" and _protection_location_recovered(decision))
             or (selected == "THESIS_DECAY_WAIT" and _protection_directional_recovery(decision) and cycles > WAIT_TIMEOUT_CYCLES)
             or (selected == "POST_RUNNER_COOLDOWN" and not _protection_bool(decision.get("continuation_reentry_block", False)) and not _protection_bool(decision.get("cooldown_wait_active", False)))
-            or (selected == "LOSS_CLUSTER_PAUSE" and duration >= 15 * 60)
+            or (selected == "LOSS_CLUSTER_PAUSE" and duration >= V26_6_2_LOSS_CLUSTER_PAUSE_SECONDS)
             or (selected == "SESSION_PROFIT_PROTECTION" and not _protection_bool(decision.get("session_profit_protection_active", False)) and not _protection_bool(decision.get("profit_protection_active", False)))
             or (selected == "DAILY_PEAK_DRAWDOWN_PROTECTION" and not _protection_bool(decision.get("daily_peak_drawdown_protection_active", False)) and not _protection_bool(decision.get("daily_drawdown_protection_active", False)))
         )
@@ -3393,12 +3664,17 @@ def write_decision(data):
                 data = apply_v25_3_rsi_soft_penalty_recovery(data)
                 data = apply_final_decision_gate_trace_v25_2(data)
                 data = apply_late_entry_guard_v26_6(data)
+                data = apply_expectancy_entry_filters_v26_6_2(data)
+                data = apply_session_loss_governor_v26_6_2(data)
                 data = apply_protection_authority_manager_v26_6_1(data)
                 data = normalize_decision_schema_v20_2(data)
                 data = align_management_with_trend_context(data)
                 data = enforce_trend_management_v26_6(data)
                 data = apply_early_participation_sizing_v26_6(data)
+                data = apply_expectancy_entry_filters_v26_6_2(data)
+                data = apply_session_loss_governor_v26_6_2(data)
                 data = construct_risk_payload_before_validation(data)
+                data = apply_loss_cap_and_profit_lock_v26_6_2(data)
                 data = enforce_expectancy_rr_structure(data)
                 data = enforce_trend_management_v26_6(data)
                 data = apply_max_realized_loss_guard_v26_6(data)
@@ -3408,6 +3684,7 @@ def write_decision(data):
                 data = normalize_decision_schema_v20_2(data)
                 data = enforce_trend_management_v26_6(data)
                 data = apply_early_participation_sizing_v26_6(data)
+                data = apply_loss_cap_and_profit_lock_v26_6_2(data)
                 data = apply_max_realized_loss_guard_v26_6(data)
                 data = apply_executor_authority_contract_v26_6_1(data)
                 data["runtime_branch"] = RUNTIME_BRANCH
@@ -6952,12 +7229,16 @@ def classify_market(bid, ma50, rsi, macd_hist, buy_score, sell_score, bb_state, 
 
 def risk_points_for_mode(market_mode):
     if market_mode == "TREND":
-        return SL_POINTS_TREND, TP_POINTS_TREND
-    if market_mode == "RANGE":
-        return SL_POINTS_RANGE, TP_POINTS_RANGE
-    if market_mode == "SPIKE":
-        return SL_POINTS_SPIKE, TP_POINTS_SPIKE
-    return SL_POINTS_TRANSITION, TP_POINTS_TRANSITION
+        sl_points, tp_points = SL_POINTS_TREND, TP_POINTS_TREND
+    elif market_mode == "RANGE":
+        sl_points, tp_points = SL_POINTS_RANGE, TP_POINTS_RANGE
+    elif market_mode == "SPIKE":
+        sl_points, tp_points = SL_POINTS_SPIKE, TP_POINTS_SPIKE
+    else:
+        sl_points, tp_points = SL_POINTS_TRANSITION, TP_POINTS_TRANSITION
+
+    compressed_sl = min(sl_points, V26_6_2_MAX_SL_POINTS)
+    return compressed_sl, max(tp_points, compressed_sl * 1.5)
 
 
 def is_buy_runner(market_mode, bb_state, bid, ma50, rsi, macd_hist, buy_score, sell_score):

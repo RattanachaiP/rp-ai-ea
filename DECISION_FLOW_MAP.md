@@ -142,3 +142,31 @@ Executor-side veto classification:
 - `SOFT_DIAGNOSTIC_PENALTY`: V17 AI quality block, V15 entry block, `analysis_quality` filters, M15/M3 alignment vetoes, legacy participation/cooldown/location/quality gates.
 
 When `decision=TRADE`, `allowed=true`, `entry_allowed=true`, `payload_valid=true`, BUY/SELL bias is valid, and no hard safety block is active, no legacy quality gate may convert the payload to `NO_TRADE`. Legacy quality values remain visible as telemetry (`analysis_quality_diagnostic`, `v17_quality_score_diagnostic`, `legacy_executor_veto_policy`) and may reduce confidence, but they do not override V26 execution authority.
+
+## V26.6.2 profit/loss asymmetry flow update
+The final write path now includes an emergency expectancy-distribution guard:
+
+`directional ACTION/BIAS`
+-> existing safety and quality scoring
+-> V26 execution confidence
+-> trend management preservation (`TREND + WALK_UP/WALK_DOWN` prefers `HOLD_TRAIL` / `TREND_RUNNER`)
+-> `V26.6.2_EXPECTANCY_ENTRY_FILTER`
+-> `V26.6.2_SESSION_LOSS_GOVERNOR`
+-> risk payload construction
+-> `V26.6.2_LOSS_CAP_AND_PROFIT_LOCK`
+-> planned RR enforcement
+-> final payload validation
+-> executor hard-safety contract.
+
+Emergency distribution rules:
+- `score_gap < 3` is `NO_TRADE`.
+- `TRANSITION + NORMAL` requires `score_gap >= 4`.
+- BB-middle entries require strong RSI and MACD confirmation in the trade direction.
+- For `0.01` lot XAUUSD, new TRADE payloads publish `max_realized_loss_usd_001_lot = 1.20` and compress SL distance to that reference cap.
+- If floating loss approaches the cap, executor-side trade management should force exit using the published `floating_force_exit_usd_001_lot` / `floating_force_exit_points` fields.
+- If profit reaches `+$0.80`, executor-side trade management should move SL to breakeven plus spread using the published breakeven ladder fields.
+- If profit reaches `+$1.20`, executor-side trade management should lock at least `+$0.50` using the published lock ladder fields.
+- After two consecutive losses, new entries pause for 30 minutes.
+- At current-day net loss `<= -$5.00`, new entries stop for the session.
+
+This layer does not add indicators, does not add new classifier branches, and does not bypass hard safety. Its purpose is to transform realized expectancy from many small wins plus larger losses into moderate wins plus controlled losses.

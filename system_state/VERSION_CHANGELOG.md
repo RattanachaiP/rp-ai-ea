@@ -56,3 +56,23 @@ NEXT PRIORITIES
 4. Exhaustion Detection
 5. RR-First Gate
 6. Dynamic Conviction Lot Sizing
+
+==================================================
+V26.6.2 PROFIT / LOSS ASYMMETRY EMERGENCY FIX
+==================================================
+
+Active runtime:
+bridge/ai_decision_engine_xauusd_v26_execution_confidence_engine.py
+
+Purpose:
+* repair negative expectancy caused by small wins and larger losses
+* compress per-trade realized loss for 0.01 lot XAUUSD to the -$1.20 cap
+* publish executor profit-lock instructions at +$0.80 and +$1.20
+* disable weak gap trades and marginal TRANSITION+NORMAL participation
+* pause after two consecutive losses and stop the session at -$5 daily net loss
+
+Non-goals:
+* no new indicators
+* no new strategy layers
+* no classifier expansion
+* no hard-safety bypass
