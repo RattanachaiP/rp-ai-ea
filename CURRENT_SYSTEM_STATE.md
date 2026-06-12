@@ -99,3 +99,19 @@ Participation restoration intentionally comes before scaling. Before increasing 
 - For executable AI-authorized trades, raw legacy quality remains available as `analysis_quality_diagnostic` / `v17_quality_score_diagnostic`, while `analysis_quality` receives a V17 compatibility floor of `60` to prevent historical executor code from treating missing/zero quality as a terminal veto.
 - `V17_AI_QUALITY_BLOCK` is no longer execution authority in the runtime payload contract. It is diagnostic telemetry only; the executor must proceed to broker safety checks and `OrderSend` when `decision=TRADE`, `allowed=true`, `entry_allowed=true`, and `payload_valid=true`.
 - Runtime logs now emit `EXECUTOR AUTHORITY AUDIT` for executable trades, proving the AI emitted TRADE, the executor is expected to receive TRADE, legacy V15/V17 veto override is disallowed, and `OrderSend` is required after broker safety checks.
+
+## V26.6.2 profit/loss asymmetry emergency fix
+- Runtime authority advances to `V26.6.2 | profit-loss-asymmetry-emergency-fix`.
+- Expectancy repair now treats distribution shape as the emergency: weak gap participation is disabled, loss size is compressed, and open profit is protected before trades can return to full loss.
+- For reference size `0.01` lot XAUUSD, the decision payload publishes a hard realized-loss cap of `-$1.20`, a floating force-exit threshold as loss approaches the cap, and compresses new SL distance to the cap before final validation.
+- Profit protection metadata is mandatory on TRADE payloads:
+  - at `+$0.80` per `0.01` lot, move SL to breakeven plus spread;
+  - at `+$1.20` per `0.01` lot, lock at least `+$0.50`.
+- Signal expansion is explicitly not introduced. The fix reuses existing score, BB, RSI, MACD, trade-memory, and risk-payload fields only.
+- Weak gap trades are disabled: `score_gap < 3` becomes `NO_TRADE`.
+- `TRANSITION + NORMAL` now requires `score_gap >= 4`.
+- Entries near BB middle are blocked unless RSI and MACD strongly confirm the intended direction.
+- Trend-walk runner preservation remains authoritative: `MODE=TREND` with `WALK_UP` / `WALK_DOWN` continues to prefer `HOLD_TRAIL` / `TREND_RUNNER` unless existing explicit exhaustion or invalidation metadata appears.
+- Loss clustering now creates a finite 30-minute pause after `consecutive_losses >= 2`.
+- Session damage is capped: if current-day net trade memory is `<= -$5.00`, the decision layer publishes a session stop and blocks new TRADE payloads.
+- Measurement targets for this repair are: `Average Win >= +$1.20`, `Average Loss <= -$1.00`, and `Profit Factor > 1.30`.
