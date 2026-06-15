@@ -48,8 +48,8 @@ OUTPUT_PATH = BASE_PATH / "decision.json"
 
 
 RUNTIME_BRANCH = "codex-dev"
-ARCH_VERSION = "V26.6.2A"
-BUILD_TAG = "no-pause-adaptive-expectancy-fix"
+ARCH_VERSION = "V26.6.3"
+BUILD_TAG = "exit-risk-asymmetry-emergency-fix"
 RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
 
 # V26 Execution Confidence Engine
@@ -141,9 +141,13 @@ V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT = 1.20
 V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT = 1.10
 V26_6_2_USD_PER_PRICE_UNIT_001_LOT = 1.00
 V26_6_2_MAX_SL_POINTS = round(V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT / V26_6_2_USD_PER_PRICE_UNIT_001_LOT, 3)
-V26_6_2_BE_TRIGGER_USD_001_LOT = 0.80
-V26_6_2_LOCK_TRIGGER_USD_001_LOT = 1.20
-V26_6_2_LOCK_PROFIT_USD_001_LOT = 0.50
+V26_6_2_BE_TRIGGER_USD_001_LOT = 0.60
+V26_6_2_BE_MAX_RESIDUAL_RISK_USD_001_LOT = 0.10
+V26_6_2_EARLY_DAMAGE_CUT_USD_001_LOT = 0.80
+V26_6_2_LOCK_TRIGGER_USD_001_LOT = 1.00
+V26_6_2_LOCK_PROFIT_USD_001_LOT = 0.40
+V26_6_2_RUNNER_MOMENTUM_TIMEOUT_SEC = 45
+V26_6_2_RUNNER_MIN_MOMENTUM_PROVE_SEC = 30
 V26_6_2_MIN_SCORE_GAP = 3
 V26_6_2_TRANSITION_NORMAL_MIN_GAP = 4
 V26_6_2_STRONG_MIDDLE_BUY_RSI = 58.0
@@ -151,9 +155,11 @@ V26_6_2_STRONG_MIDDLE_SELL_RSI = 42.0
 V26_6_2_STRONG_MIDDLE_MACD_ABS = 0.80
 V26_6_2_LOSS_CLUSTER_DIAGNOSTIC_SECONDS = 30 * 60
 V26_6_2_DAILY_DRAWDOWN_CAUTION_USD = -5.00
-V26_6_2_CATASTROPHIC_DAILY_STOP_USD = -25.00
+V26_6_2_CATASTROPHIC_DAILY_STOP_USD = -5.00
 V26_6_2_ADAPTIVE_SIZE_DOWN_FRACTION = 0.25
 V26_6_2_DRAWDOWN_CAUTION_MIN_ENTRY_SCORE = 62
+V26_6_3_EXTREME_CAUTION_LOSS_STREAK = 3
+V26_6_3_EXTREME_CAUTION_LOSS_CAP_USD_001_LOT = 1.00
 V26_6_2_EXPECTANCY_TARGET_AVG_WIN = 1.20
 V26_6_2_EXPECTANCY_TARGET_AVG_LOSS = 1.00
 V26_6_2_EXPECTANCY_TARGET_PROFIT_FACTOR = 1.30
@@ -1651,7 +1657,7 @@ def _v26_6_2_usd_to_points(usd_value):
 
 
 def apply_loss_cap_and_profit_lock_v26_6_2(decision):
-    """Compress SL to the $1.20/0.01-lot cap and publish profit-lock ladder."""
+    """Compress SL to the $1.20/0.01-lot cap and publish V26.6.3 exit controls."""
     if not isinstance(decision, dict):
         return decision
 
@@ -1680,9 +1686,15 @@ def apply_loss_cap_and_profit_lock_v26_6_2(decision):
     decision["max_realized_loss_usd_001_lot"] = V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT
     decision["floating_force_exit_usd_001_lot"] = V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT
     decision["floating_force_exit_policy"] = "FORCE_EXIT_WHEN_FLOATING_LOSS_APPROACHES_RISK_CAP"
+    decision["hard_loss_cap_policy"] = "V26.6.3: standard 0.01 XAUUSD slot may not realize losses below -$1.20; executor must force-close at floating threshold"
+    decision["early_damage_cut_usd_001_lot"] = V26_6_2_EARLY_DAMAGE_CUT_USD_001_LOT
+    decision["early_damage_cut_points"] = _v26_6_2_usd_to_points(V26_6_2_EARLY_DAMAGE_CUT_USD_001_LOT)
+    decision["early_damage_cut_condition"] = "IF floating loss <= -0.80 before max favorable excursion reaches +0.60, force close immediately"
     decision["breakeven_trigger_usd_001_lot"] = V26_6_2_BE_TRIGGER_USD_001_LOT
     decision["breakeven_trigger_points"] = _v26_6_2_usd_to_points(V26_6_2_BE_TRIGGER_USD_001_LOT)
-    decision["breakeven_lock_policy"] = "MOVE_SL_TO_BREAKEVEN_PLUS_SPREAD"
+    decision["breakeven_max_residual_risk_usd_001_lot"] = V26_6_2_BE_MAX_RESIDUAL_RISK_USD_001_LOT
+    decision["breakeven_max_residual_risk_points"] = _v26_6_2_usd_to_points(V26_6_2_BE_MAX_RESIDUAL_RISK_USD_001_LOT)
+    decision["breakeven_lock_policy"] = "AT +$0.60 MOVE_SL_TO_BREAKEVEN_OR_MAX_RESIDUAL_RISK_MINUS_$0.10"
     decision["lock_profit_trigger_usd_001_lot"] = V26_6_2_LOCK_TRIGGER_USD_001_LOT
     decision["lock_profit_usd_001_lot"] = V26_6_2_LOCK_PROFIT_USD_001_LOT
     decision["lock_profit_trigger_points"] = _v26_6_2_usd_to_points(V26_6_2_LOCK_TRIGGER_USD_001_LOT)
@@ -1691,7 +1703,8 @@ def apply_loss_cap_and_profit_lock_v26_6_2(decision):
         {
             "trigger_usd_001_lot": V26_6_2_BE_TRIGGER_USD_001_LOT,
             "trigger_points": _v26_6_2_usd_to_points(V26_6_2_BE_TRIGGER_USD_001_LOT),
-            "lock": "BREAKEVEN_PLUS_SPREAD",
+            "lock": "BREAKEVEN_OR_MAX_MINUS_0_10",
+            "max_residual_risk_usd_001_lot": V26_6_2_BE_MAX_RESIDUAL_RISK_USD_001_LOT,
             "spread_points_source": spread_points,
         },
         {
@@ -1702,6 +1715,12 @@ def apply_loss_cap_and_profit_lock_v26_6_2(decision):
         },
     ]
     decision["profit_protection_goal"] = "prevent profitable trades from returning into full loss"
+    decision["runner_damage_limit_usd_001_lot"] = V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT
+    decision["runner_damage_policy"] = "RP_SLOT_2/RUNNER uses same hard loss cap and may not become a -$2.00 to -$3.80 loss container"
+    decision["runner_momentum_timeout_sec"] = V26_6_2_RUNNER_MOMENTUM_TIMEOUT_SEC
+    decision["runner_momentum_min_prove_sec"] = V26_6_2_RUNNER_MIN_MOMENTUM_PROVE_SEC
+    decision["runner_momentum_timeout_policy"] = "If runner has no momentum expansion within 30-45 seconds, disable runner or convert to protected exit mode"
+    decision["protected_exit_mode_on_runner_timeout"] = True
     return decision
 
 
@@ -1930,6 +1949,7 @@ def apply_adaptive_size_down_v26_6_2(decision, reason):
     """Reduce exposure after losses without stopping participation."""
     current_fraction = safe_float(decision.get("risk_fraction", decision.get("position_size_multiplier", 1.0)), 1.0)
     reduced = min(current_fraction, V26_6_2_ADAPTIVE_SIZE_DOWN_FRACTION)
+    extreme_caution = "extreme caution" in str(reason).lower()
     decision["adaptive_size_down_active"] = True
     decision["adaptive_size_down_reason"] = reason
     decision["management_downgrade"] = "EXPLICIT_SCALP_DOWNGRADE"
@@ -1947,7 +1967,30 @@ def apply_adaptive_size_down_v26_6_2(decision, reason):
     decision["no_runner"] = True
     decision["no_pyramid"] = True
     decision["tighter_risk_cap_active"] = True
-    decision["tighter_risk_cap_usd_001_lot"] = round(min(V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT, V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT), 2)
+    decision["tighter_risk_cap_usd_001_lot"] = round(
+        min(
+            V26_6_3_EXTREME_CAUTION_LOSS_CAP_USD_001_LOT if extreme_caution else V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT,
+            V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT,
+        ),
+        2,
+    )
+    if extreme_caution:
+        decision["extreme_caution_mode"] = True
+        decision["extreme_caution_rules"] = [
+            "Leg A only",
+            "reduced size",
+            "no runner",
+            "no continuation add",
+            "tighter loss cap",
+        ]
+        decision["max_realized_loss_usd_001_lot"] = min(
+            safe_float(decision.get("max_realized_loss_usd_001_lot", V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT), V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT),
+            V26_6_3_EXTREME_CAUTION_LOSS_CAP_USD_001_LOT,
+        )
+        decision["floating_force_exit_usd_001_lot"] = min(
+            safe_float(decision.get("floating_force_exit_usd_001_lot", V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT), V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT),
+            V26_6_3_EXTREME_CAUTION_LOSS_CAP_USD_001_LOT,
+        )
     decision["adaptive_recovery_condition"] = "return to normal size only after valid recovery trade or improved entry_location_score"
     if isinstance(decision.get("execution_legs"), list):
         for leg in decision["execution_legs"]:
@@ -2012,7 +2055,7 @@ def apply_session_loss_governor_v26_6_2(decision):
     consecutive_losses = max(safe_int(decision.get("consecutive_losses", 0), 0), safe_int(stats.get("consecutive_losses", 0), 0))
     loss_reason = classify_loss_reason_v26_6_2(decision, stats) if consecutive_losses > 0 else "NONE"
 
-    decision["session_loss_governor"] = "V26.6.2A_DIAGNOSE_ADAPT_CONTINUE"
+    decision["session_loss_governor"] = "V26.6.3_EXIT_RISK_ASYMMETRY_GOVERNOR"
     decision["trade_memory_source"] = stats.get("path", "")
     decision["daily_net_pnl"] = stats.get("daily_net", 0.0)
     decision["daily_drawdown_caution_usd"] = V26_6_2_DAILY_DRAWDOWN_CAUTION_USD
@@ -2027,14 +2070,14 @@ def apply_session_loss_governor_v26_6_2(decision):
     decision["loss_cluster_pause_remaining_sec"] = 0
     decision["loss_cluster_pause_policy"] = "DIAGNOSTIC_ONLY_NO_AUTOMATIC_EXECUTION_STOP"
     decision["session_stop_active"] = False
-    decision["daily_kill_switch_policy"] = "DISABLED_AS_MANDATORY_BEHAVIOR; DRAWDOWN_CAUTION_MODE_USED_INSTEAD"
+    decision["daily_kill_switch_policy"] = "V26.6.3: if net daily loss <= -$5.00 disable new entries only; keep open position management active"
 
     daily_net = safe_float(stats.get("daily_net", 0.0), 0.0)
     if daily_net <= V26_6_2_CATASTROPHIC_DAILY_STOP_USD:
         decision["session_stop_active"] = True
         decision["session_stop_reason"] = f"catastrophic hard-risk daily net {daily_net:.2f} <= {V26_6_2_CATASTROPHIC_DAILY_STOP_USD:.2f}"
         if str(decision.get("decision", "")).upper() == "TRADE":
-            return _v26_6_2_block_trade(decision, "V26_6_2_CATASTROPHIC_DAILY_RISK_STOP", "V26.6.2A catastrophic hard-risk stop")
+            return _v26_6_2_block_trade(decision, "V26_6_3_DAILY_EMERGENCY_RISK_STOP", "V26.6.3 daily emergency risk stop: disable new entries at <= -$5.00")
         return decision
 
     if daily_net <= V26_6_2_DAILY_DRAWDOWN_CAUTION_USD:
@@ -2055,7 +2098,9 @@ def apply_session_loss_governor_v26_6_2(decision):
 
     if consecutive_losses > 0:
         decision = apply_thesis_revalidation_after_loss_v26_6_2(decision, stats, loss_reason)
-    if consecutive_losses >= 2 and str(decision.get("decision", "")).upper() == "TRADE":
+    if consecutive_losses >= V26_6_3_EXTREME_CAUTION_LOSS_STREAK and str(decision.get("decision", "")).upper() == "TRADE":
+        decision = apply_adaptive_size_down_v26_6_2(decision, "3 consecutive losses extreme caution mode")
+    elif consecutive_losses >= 2 and str(decision.get("decision", "")).upper() == "TRADE":
         decision = apply_adaptive_size_down_v26_6_2(decision, "loss cluster adaptive size-down; no pause")
     return decision
 
