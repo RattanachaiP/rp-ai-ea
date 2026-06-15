@@ -173,3 +173,21 @@ Emergency distribution rules:
 - Current-day drawdown beyond threshold activates `DRAWDOWN_CAUTION_MODE`, not a daily kill switch: reduced size, Leg A only, higher entry-location score, no runner add, and no continuation add. Full stop is reserved for catastrophic hard-risk state.
 
 This layer does not add indicators and does not bypass hard safety. Its purpose is to transform realized expectancy from many small wins plus larger losses into moderate wins plus controlled losses while keeping AI learning and participating with reduced risk.
+
+## V26.6.3 exit / risk asymmetry emergency flow update
+The final write path keeps the existing entry engine and adds an exit-first risk asymmetry layer:
+
+`directional ACTION/BIAS`
+-> existing safety and quality scoring
+-> V26 execution confidence
+-> unchanged V26.6.2 expectancy entry filters
+-> `V26.6.3_EXIT_RISK_ASYMMETRY_GOVERNOR`
+-> risk payload construction
+-> hard loss cap / early damage cut / breakeven ladder / profit lock ladder
+-> runner damage limit and 30-45 second runner momentum timeout metadata
+-> daily emergency risk stop at `<= -$5.00`
+-> three-loss extreme caution mode
+-> final payload validation
+-> executor hard-safety contract.
+
+This update does not add indicators, redesign signal generation, introduce hedging, martingale, or average losing trades. It changes position lifecycle enforcement so big realized losses below `-$2.00` should approach zero under standard `0.01` lot operation.

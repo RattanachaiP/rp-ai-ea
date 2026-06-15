@@ -115,3 +115,12 @@ Participation restoration intentionally comes before scaling. Before increasing 
 - V26.6.2A supersedes pause behavior: loss clustering no longer creates a mandatory 30-minute pause; it publishes diagnostic telemetry, forces thesis revalidation, and applies adaptive size-down.
 - V26.6.2A replaces the `<= -$5.00` daily kill switch with `DRAWDOWN_CAUTION_MODE`; new TRADE payloads may continue only as reduced-size Leg A with higher entry-location quality, while full stop is reserved for catastrophic hard-risk state.
 - Measurement targets for this repair are: `Average Win >= +$1.20`, `Average Loss <= -$1.00`, and `Profit Factor > 1.30`.
+
+## V26.6.3 exit / risk asymmetry emergency fix
+- Runtime authority advances to `V26.6.3 | exit-risk-asymmetry-emergency-fix` while keeping the current entry engine intact.
+- The emergency fix targets distribution shape only: hard loss cap, early damage cut, profit-lock ladder, runner damage control, runner momentum timeout, daily emergency risk stop, and loss-cluster caution.
+- For reference `0.01` lot XAUUSD, published trade management now enforces maximum realized loss `-$1.20`, floating force-exit near `-$1.10`, and early damage cut at `-$0.80` if price has not first reached `+$0.60` MFE.
+- Profit protection now moves to breakeven or maximum residual `-$0.10` at `+$0.60`, then locks at least `+$0.40` at `+$1.00`.
+- Runner/RP_SLOT_2 inherits the same hard loss cap and must prove momentum expansion within `30-45` seconds or convert to protected exit mode / disable runner behavior.
+- Daily risk is catastrophic protection only: if net daily loss is `<= -$5.00`, new entries are disabled for the session while open-position management remains active.
+- Three consecutive losses activate extreme caution mode: Leg A only, reduced size, no runner, no continuation add, and tighter `-$1.00` reference loss cap.
