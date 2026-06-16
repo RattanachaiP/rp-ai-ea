@@ -191,3 +191,18 @@ The final write path keeps the existing entry engine and adds an exit-first risk
 -> executor hard-safety contract.
 
 This update does not add indicators, redesign signal generation, introduce hedging, martingale, or average losing trades. It changes position lifecycle enforcement so big realized losses below `-$2.00` should approach zero under standard `0.01` lot operation.
+
+## V26.6.4 exit authority / leg-aware profit protection flow update
+The final write path now ends with an executor-enforceable exit authority manager:
+
+`payload validation / risk construction`
+-> `hard loss cap + leg-aware profit ladder publication`
+-> `single Exit Authority Manager`
+-> `management authority lock`
+-> `executor authority contract`
+-> `decision.json`.
+
+Exit authority priority is fixed and non-recursive:
+`EMERGENCY_EXIT -> HARD_LOSS_CAP -> DAILY_GUARD_RISK_COMPRESSION -> FORCE_SCALP_TP -> LEG_A_SCALP_EXIT -> LEG_B_CONFIRMATION_EXIT -> LEG_C_RUNNER_EXIT`.
+
+If `FORCE_SCALP_TP` owns a position, all downstream fields must treat management as `SCALP_TP`; runner/trail management cannot reactivate underneath that owner. Leg A and Leg B use distinct USD-per-0.01-lot ladders, while Leg C preserves runner intent through structure trail, momentum decay, swing protection, and BB-walk continuity. Daily Guard compresses risk and blocks new entries without converting open losing positions into arbitrary panic closes.

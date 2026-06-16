@@ -48,8 +48,8 @@ OUTPUT_PATH = BASE_PATH / "decision.json"
 
 
 RUNTIME_BRANCH = "codex-dev"
-ARCH_VERSION = "V26.6.3"
-BUILD_TAG = "exit-risk-asymmetry-emergency-fix"
+ARCH_VERSION = "V26.6.4"
+BUILD_TAG = "exit-authority-leg-aware-profit-protection-fix"
 RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
 
 # V26 Execution Confidence Engine
@@ -137,8 +137,8 @@ V26_6_WEAK_MOMENTUM_PENALTY_ONLY = True
 # This layer repairs expectancy distribution without adding indicators or new
 # strategy branches. It compresses loss size, protects open profit, blocks weak
 # marginal gaps, replaces pause-based session brakes with diagnosis, thesis revalidation, and adaptive risk reduction after loss clusters.
-V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT = 1.20
-V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT = 1.10
+V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT = 1.00
+V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT = 0.80
 V26_6_2_USD_PER_PRICE_UNIT_001_LOT = 1.00
 V26_6_2_MAX_SL_POINTS = round(V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT / V26_6_2_USD_PER_PRICE_UNIT_001_LOT, 3)
 V26_6_2_BE_TRIGGER_USD_001_LOT = 0.60
@@ -163,6 +163,15 @@ V26_6_3_EXTREME_CAUTION_LOSS_CAP_USD_001_LOT = 1.00
 V26_6_2_EXPECTANCY_TARGET_AVG_WIN = 1.20
 V26_6_2_EXPECTANCY_TARGET_AVG_LOSS = 1.00
 V26_6_2_EXPECTANCY_TARGET_PROFIT_FACTOR = 1.30
+V26_6_4_EXIT_AUTHORITY_PRIORITY = (
+    "EMERGENCY_EXIT",
+    "HARD_LOSS_CAP",
+    "DAILY_GUARD_RISK_COMPRESSION",
+    "FORCE_SCALP_TP",
+    "LEG_A_SCALP_EXIT",
+    "LEG_B_CONFIRMATION_EXIT",
+    "LEG_C_RUNNER_EXIT",
+)
 TRADE_MEMORY_PATH = BASE_PATH / "trade_memory.csv"
 LOCAL_TRADE_MEMORY_PATH = Path(__file__).resolve().parents[1] / "analysis" / "trade_memory.csv"
 
@@ -1555,9 +1564,41 @@ def _v26_6_has_explicit_scalp_downgrade(decision):
     return any(flag in haystack for flag in V26_6_SCALP_DOWNGRADE_ALLOWED_FLAGS)
 
 
+def _force_scalp_tp_active_v26_6_4(decision):
+    """Detect executor/AI conditions where V20.2 forced scalp mode owns management."""
+    if not isinstance(decision, dict):
+        return False
+    haystack = " ".join(
+        str(decision.get(k, ""))
+        for k in (
+            "management_downgrade", "management_downgrade_reason", "final_gate_reason",
+            "runner_disable_reason", "adaptive_size_down_reason", "execution_state", "reason"
+        )
+    ).upper()
+    return (
+        str(decision.get("management", decision.get("mgmt", ""))).upper() == "SCALP_TP"
+        and (
+            "FORCE_SCALP" in haystack
+            or "V20.2" in haystack
+            or "EXPLICIT_SCALP_DOWNGRADE" in haystack
+            or bool(decision.get("force_scalp_tp_active", False))
+        )
+    )
+
+
 def enforce_trend_management_v26_6(decision):
     """V26.6: MODE=TREND must not silently publish MGMT=SCALP_TP."""
     if not isinstance(decision, dict) or str(decision.get("decision", "")).upper() != "TRADE":
+        return decision
+    if _force_scalp_tp_active_v26_6_4(decision):
+        decision.setdefault("original_management_mode", str(decision.get("original_management_mode", decision.get("management", "SCALP_TP"))).upper())
+        decision["effective_management_mode"] = "SCALP_TP"
+        decision["management"] = "SCALP_TP"
+        decision["mgmt"] = "SCALP_TP"
+        decision["forced_management_reason"] = decision.get("forced_management_reason", "V20.2/FORCE_SCALP_TP active; lower runner/trail management cannot override")
+        decision["management_authority_owner"] = "FORCE_SCALP_TP"
+        decision["trend_management_enforcement"] = "FORCE_SCALP_TP_AUTHORITY_LOCK"
+        decision["trend_management_reason"] = "Forced scalp mode owns management; TREND_RUNNER/HOLD_TRAIL override suppressed"
         return decision
     mode = str(decision.get("market_mode", decision.get("mode", ""))).upper()
     current = str(decision.get("management", decision.get("mgmt", "SCALP_TP"))).upper()
@@ -1721,6 +1762,98 @@ def apply_loss_cap_and_profit_lock_v26_6_2(decision):
     decision["runner_momentum_min_prove_sec"] = V26_6_2_RUNNER_MIN_MOMENTUM_PROVE_SEC
     decision["runner_momentum_timeout_policy"] = "If runner has no momentum expansion within 30-45 seconds, disable runner or convert to protected exit mode"
     decision["protected_exit_mode_on_runner_timeout"] = True
+    return decision
+
+
+def _leg_type_v26_6_4(decision):
+    active_leg = str(decision.get("active_execution_leg", decision.get("leg_type", ""))).upper()
+    if active_leg in ("A", "LEG_A", "SCOUT", "SCALP"):
+        return "LEG_A"
+    if active_leg in ("B", "LEG_B", "CONFIRMATION"):
+        return "LEG_B"
+    if active_leg in ("C", "LEG_C", "RUNNER"):
+        return "LEG_C"
+    mgmt = str(decision.get("management", decision.get("mgmt", ""))).upper()
+    if mgmt in ("HOLD_TRAIL", "TREND_RUNNER"):
+        return "LEG_C"
+    return "LEG_A" if mgmt == "SCALP_TP" else "LEG_B"
+
+
+def _leg_aware_ladder_v26_6_4(leg_type):
+    if leg_type == "LEG_A":
+        return [
+            {"trigger_usd_001_lot": 0.20, "lock_usd_001_lot": -0.05, "action": "SL_MAX_RISK_MINUS_0_05"},
+            {"trigger_usd_001_lot": 0.40, "lock_usd_001_lot": 0.00, "action": "MOVE_SL_TO_BREAKEVEN"},
+            {"trigger_usd_001_lot": 0.60, "lock_usd_001_lot": 0.20, "action": "LOCK_PROFIT_0_20"},
+        ]
+    if leg_type == "LEG_B":
+        return [
+            {"trigger_usd_001_lot": 0.40, "lock_usd_001_lot": 0.00, "action": "MOVE_SL_TO_BREAKEVEN"},
+            {"trigger_usd_001_lot": 0.80, "lock_usd_001_lot": 0.30, "action": "LOCK_PROFIT_0_30"},
+            {"trigger_usd_001_lot": 1.20, "lock_usd_001_lot": 0.60, "action": "LOCK_PROFIT_0_60"},
+        ]
+    return [
+        {"trigger": "STRUCTURE_TRAIL", "action": "swing high/low protection"},
+        {"trigger": "MOMENTUM_DECAY", "action": "protected exit when weak expansion evidence appears"},
+        {"trigger": "BB_WALK_FAILURE", "action": "protect runner continuity"},
+    ]
+
+
+def apply_exit_authority_manager_v26_6_4(decision):
+    """Publish the single owner of exit/management authority and leg-aware protection contract."""
+    if not isinstance(decision, dict):
+        return decision
+
+    original = str(decision.get("original_management_mode", decision.get("management", decision.get("mgmt", "NO_TRADE")))).upper()
+    effective = str(decision.get("management", decision.get("mgmt", original))).upper()
+    leg_type = _leg_type_v26_6_4(decision)
+    force_scalp = _force_scalp_tp_active_v26_6_4(decision)
+    daily_guard = bool(decision.get("drawdown_caution_mode", False) or decision.get("session_stop_active", False) or decision.get("daily_guard_active", False))
+
+    owner = "LEG_C_RUNNER_EXIT" if leg_type == "LEG_C" else "LEG_B_CONFIRMATION_EXIT" if leg_type == "LEG_B" else "LEG_A_SCALP_EXIT"
+    if force_scalp:
+        owner = "FORCE_SCALP_TP"
+        effective = "SCALP_TP"
+    if daily_guard:
+        owner = "DAILY_GUARD_RISK_COMPRESSION"
+    if bool(decision.get("hard_loss_cap_triggered", False)):
+        owner = "HARD_LOSS_CAP"
+    if bool(decision.get("emergency_exit_triggered", False)):
+        owner = "EMERGENCY_EXIT"
+
+    decision["exit_authority_manager"] = "V26.6.4_SINGLE_OWNER"
+    decision["exit_authority_priority"] = list(V26_6_4_EXIT_AUTHORITY_PRIORITY)
+    decision["leg_type"] = leg_type
+    decision["original_management_mode"] = original
+    decision["effective_management_mode"] = effective
+    decision["management_authority_owner"] = owner
+    decision["management_authority_lock"] = owner
+    decision["lower_authority_reactivation_allowed"] = False
+    decision["forced_management_reason"] = decision.get("forced_management_reason", "NONE" if not force_scalp else "FORCE_SCALP_TP active")
+    decision["management"] = effective if str(decision.get("decision", "")).upper() == "TRADE" else "NO_TRADE"
+    decision["mgmt"] = decision["management"]
+
+    decision["max_floating_profit_per_position_required"] = True
+    decision["max_floating_profit"] = safe_float(decision.get("max_floating_profit", decision.get("max_floating_profit_per_position", 0.0)), 0.0)
+    decision["current_profit"] = safe_float(decision.get("current_profit", decision.get("floating_profit", 0.0)), 0.0)
+    decision["profit_lock_level"] = decision.get("profit_lock_level", 0.0)
+    decision["hard_loss_cap_triggered"] = bool(decision.get("hard_loss_cap_triggered", False))
+    decision["runner_timeout_triggered"] = bool(decision.get("runner_timeout_triggered", False))
+    decision["runner_momentum_decay_triggered"] = bool(decision.get("runner_momentum_decay_triggered", False))
+    decision["exit_reason"] = decision.get("exit_reason", "")
+    decision["realized_profit"] = safe_float(decision.get("realized_profit", 0.0), 0.0)
+    decision["realized_R"] = safe_float(decision.get("realized_R", 0.0), 0.0)
+    decision["leg_aware_profit_protection_ladder"] = _leg_aware_ladder_v26_6_4(leg_type)
+    decision["profit_protection_ladder_scope"] = "LEG_A_AND_LEG_B_ONLY; LEG_C_USES_STRUCTURE_MOMENTUM_BB_WALK_PROTECTION"
+    decision["no_profit_reversal_policy"] = "If MFE >= +$0.20/0.01 and current profit reverses aggressively, executor must apply the active leg-aware lock before loss reaches -$0.50"
+    decision["hard_loss_cap_owner"] = "EA_EXECUTOR"
+    decision["hard_loss_warning_usd_001_lot"] = 0.80
+    decision["absolute_emergency_close_usd_001_lot"] = 1.00
+    decision["runner_max_loss_usd_001_lot"] = 1.00
+    decision["runner_timeout_policy"] = "30-45 seconds elapsed AND weak momentum expansion, OR 3 consecutive weak momentum cycles"
+    decision["runner_momentum_evidence"] = ["MACDHist weakening", "BB walk failure", "ATR/price expansion failure", "structure failure", "failed continuation follow-through"]
+    decision["daily_guard_open_position_policy"] = "No new entries while active; profitable open RP positions move SL to BE or lock +$0.05; losing positions use hard loss cap/risk compression, not automatic -$0.30 panic close"
+    decision["expectancy_targets"] = {"average_loss_usd_001_lot": "-0.80_to_-1.00", "average_win_usd_001_lot": ">=+1.20", "profit_factor": ">1.20", "loss_below_minus_2": "approach_zero"}
     return decision
 
 
@@ -3897,6 +4030,7 @@ def write_decision(data):
                 data = apply_session_loss_governor_v26_6_2(data)
                 data = construct_risk_payload_before_validation(data)
                 data = apply_loss_cap_and_profit_lock_v26_6_2(data)
+                data = apply_exit_authority_manager_v26_6_4(data)
                 data = enforce_expectancy_rr_structure(data)
                 data = enforce_trend_management_v26_6(data)
                 data = apply_max_realized_loss_guard_v26_6(data)
@@ -3908,6 +4042,7 @@ def write_decision(data):
                 data = apply_early_participation_sizing_v26_6(data)
                 data = apply_loss_cap_and_profit_lock_v26_6_2(data)
                 data = apply_max_realized_loss_guard_v26_6(data)
+                data = apply_exit_authority_manager_v26_6_4(data)
                 data = apply_executor_authority_contract_v26_6_1(data)
                 data["runtime_branch"] = RUNTIME_BRANCH
                 data["arch_version"] = ARCH_VERSION

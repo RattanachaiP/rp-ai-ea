@@ -124,3 +124,13 @@ Participation restoration intentionally comes before scaling. Before increasing 
 - Runner/RP_SLOT_2 inherits the same hard loss cap and must prove momentum expansion within `30-45` seconds or convert to protected exit mode / disable runner behavior.
 - Daily risk is catastrophic protection only: if net daily loss is `<= -$5.00`, new entries are disabled for the session while open-position management remains active.
 - Three consecutive losses activate extreme caution mode: Leg A only, reduced size, no runner, no continuation add, and tighter `-$1.00` reference loss cap.
+
+## V26.6.4 exit authority / leg-aware profit protection fix
+- Runtime authority advances to `V26.6.4 | exit-authority-leg-aware-profit-protection-fix`; entry timing and classifier structure remain unchanged.
+- Exit ownership is now a single-authority contract with priority: `EMERGENCY_EXIT -> HARD_LOSS_CAP -> DAILY_GUARD_RISK_COMPRESSION -> FORCE_SCALP_TP -> LEG_A_SCALP_EXIT -> LEG_B_CONFIRMATION_EXIT -> LEG_C_RUNNER_EXIT`.
+- Forced scalp mode is authority-locked: when V20.2 / `FORCE_SCALP_TP` is active, downstream management must report `effective_management_mode=SCALP_TP` and may not be overwritten by `TREND_RUNNER` or `HOLD_TRAIL`.
+- Profit protection is leg-aware instead of applying one micro ladder to every position: Leg A banks small profit quickly, Leg B allows confirmation breathing room, and Leg C uses structure/momentum/BB-walk protection rather than a micro-profit-only ladder.
+- Standard `0.01` XAUUSD hard loss ownership moves to the EA Executor contract: warning/protection at `-$0.80`, absolute emergency close at `-$1.00`, and AI cannot override this cap.
+- Daily Guard is risk compression, not panic exit: new entries are disabled while active; profitable existing positions move to BE or lock at least `+$0.05`; losing positions continue under hard loss cap and compression instead of arbitrary `-$0.30` panic close.
+- Runner timeout is not time-only: protected exit requires 30-45 seconds plus weak expansion evidence, or three consecutive weak momentum cycles.
+- Decision payloads now publish per-position exit telemetry: `leg_type`, original/effective management mode, authority owner, max/current floating profit, profit lock level, hard loss/runner triggers, exit reason, realized profit, and realized R.
