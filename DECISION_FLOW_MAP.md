@@ -143,6 +143,19 @@ Executor-side veto classification:
 
 When `decision=TRADE`, `allowed=true`, `entry_allowed=true`, `payload_valid=true`, BUY/SELL bias is valid, and no hard safety block is active, no legacy quality gate may convert the payload to `NO_TRADE`. Legacy quality values remain visible as telemetry (`analysis_quality_diagnostic`, `v17_quality_score_diagnostic`, `legacy_executor_veto_policy`) and may reduce confidence, but they do not override V26 execution authority.
 
+## V26.6.5A executor authority enforcement hotfix
+The restored single execution authority chain is:
+
+`AI Decision`
+-> `Payload Validation`
+-> `Broker Safety`
+-> `OrderSend`
+-> `Market`
+
+If `decision=TRADE`, `allowed=true`, `payload_valid=true`, and `schema_valid=true`, the executor must not allow legacy strategy filters to terminate execution. V15/V16/V17 entry, AI-quality, hard-block, and M15/M3 alignment findings remain visible as warnings/diagnostics, but they do not own execution authority and may not suppress `OrderSend`.
+
+Only these classes may terminate execution after an AI-approved payload: invalid payload, invalid schema, stale decision, broker freeze, abnormal spread, duplicate order, insufficient margin, market closed, and catastrophic risk state. A validated TRADE that does not call `OrderSend` must emit `EXECUTOR_BUG_NO_ORDERSEND_AFTER_TRADE`. Normal send path logs are `EXECUTOR_FINAL_GATE_PASS`, `ORDER_SEND_ATTEMPT`, and exactly one of `ORDER_SEND_OK` / `ORDER_SEND_FAIL`.
+
 ## V26.6.2A no-pause adaptive expectancy flow update
 The final write path now includes an emergency expectancy-distribution guard:
 
