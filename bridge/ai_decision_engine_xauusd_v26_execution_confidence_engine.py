@@ -48,8 +48,8 @@ OUTPUT_PATH = BASE_PATH / "decision.json"
 
 
 RUNTIME_BRANCH = "codex-dev"
-ARCH_VERSION = "V26.6.4"
-BUILD_TAG = "exit-authority-leg-aware-profit-protection-fix"
+ARCH_VERSION = "V26.6.5"
+BUILD_TAG = "execution-timing-layer-short-term-trend-gate"
 RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
 
 # V26 Execution Confidence Engine
@@ -132,6 +132,19 @@ V26_6_EARLY_PARTICIPATION_RISK_FRACTIONS = {2: 0.25, 3: 0.50, 4: 1.00}
 V26_6_FULL_SIZE_GAP = 4
 V26_6_MIN_PARTICIPATION_GAP = 2
 V26_6_WEAK_MOMENTUM_PENALTY_ONLY = True
+
+# V26.6.5 Execution Timing Layer
+# Directional bias answers "which way?"; this layer answers "when?".
+# It reuses existing candle/structure/BB/RSI/MACD telemetry to avoid buying
+# into active M1/M3 selling or selling into active M1/M3 buying while preserving
+# the HTF bias and participation cadence through WAIT_ENTRY_WINDOW.
+V26_6_5_ENTRY_WINDOW_MIN_SCORE = 55
+V26_6_5_ACTIVE_COUNTERTREND_SCORE = 45
+V26_6_5_STRONG_MACD_COUNTER = 0.80
+V26_6_5_RSI_BUY_RECOVERY = 48.0
+V26_6_5_RSI_SELL_RECOVERY = 52.0
+V26_6_5_RSI_STRONG_COUNTER_BUY = 45.0
+V26_6_5_RSI_STRONG_COUNTER_SELL = 55.0
 
 # V26.6.2 Profit/Loss Asymmetry Emergency Fix
 # This layer repairs expectancy distribution without adding indicators or new
@@ -2838,6 +2851,175 @@ def apply_execution_quality_core_v26_5(decision):
     return decision
 
 
+def _v26_6_5_directional_alignment(value, bias, bullish_values, bearish_values):
+    state = str(value or "UNKNOWN").upper()
+    if state in bullish_values:
+        return 1 if bias == "BUY" else -1 if bias == "SELL" else 0
+    if state in bearish_values:
+        return 1 if bias == "SELL" else -1 if bias == "BUY" else 0
+    return 0
+
+
+def compute_execution_timing_layer_v26_6_5(decision):
+    """
+    V26.6.5 Execution Timing Layer.
+
+    Directional intelligence is preserved. This layer only decides whether the
+    short-term execution window is open for the already-selected BUY/SELL bias.
+    It intentionally reuses existing candle, structure, BB, RSI, MACD, pullback,
+    and continuation telemetry rather than adding indicators or classifier
+    branches.
+    """
+    bias = str(decision.get("action", decision.get("bias", decision.get("intended_action", "NEUTRAL")))).upper()
+    bb_state = str(decision.get("confirmed_bb_state", decision.get("bb_state", decision.get("bb", "NORMAL")))).upper()
+    candle_trend = str(decision.get("candle_trend", "UNKNOWN")).upper()
+    structure_trend = str(decision.get("structure_trend", "UNKNOWN")).upper()
+    momentum_shape = str(decision.get("momentum_shape", "UNKNOWN")).upper()
+    pullback_state = str(decision.get("pullback_state", "UNKNOWN")).upper()
+    entry_timing = str(decision.get("entry_timing", "UNKNOWN")).upper()
+    timing_state = str(decision.get("execution_timing_state", "")).upper()
+    rsi = safe_float(decision.get("rsi", 50.0), 50.0)
+    macd_hist = safe_float(decision.get("macd_hist", 0.0), 0.0)
+    pullback_quality = safe_int(decision.get("pullback_quality", 0), 0)
+    continuation_quality = safe_int(decision.get("continuation_quality", 0), 0)
+    candle_count = safe_int(decision.get("candle_count", 0), 0)
+
+    score = 50
+    factors = []
+    counter_factors = []
+    recovery_factors = []
+
+    candle_align = _v26_6_5_directional_alignment(candle_trend, bias, {"UP"}, {"DOWN"})
+    structure_align = _v26_6_5_directional_alignment(structure_trend, bias, {"HH_HL"}, {"LH_LL"})
+    momentum_align = _v26_6_5_directional_alignment(momentum_shape, bias, {"EXPANDING_BULL"}, {"EXPANDING_BEAR"})
+    bb_align = _v26_6_5_directional_alignment(bb_state, bias, {"WALK_UP"}, {"WALK_DOWN"})
+
+    for name, align, weight in (
+        ("candle_trend", candle_align, 14),
+        ("structure", structure_align, 16),
+        ("momentum_shape", momentum_align, 14),
+        ("bb_walk", bb_align, 16),
+    ):
+        if align > 0:
+            score += weight
+            recovery_factors.append(f"{name}_with_bias")
+        elif align < 0:
+            score -= weight
+            counter_factors.append(f"{name}_against_bias")
+
+    if bias == "BUY":
+        if macd_hist <= -V26_6_5_STRONG_MACD_COUNTER:
+            score -= 18; counter_factors.append(f"negative_macd_expansion={macd_hist:.2f}")
+        elif macd_hist > -V26_6_5_STRONG_MACD_COUNTER:
+            score += 6; recovery_factors.append(f"macd_improving={macd_hist:.2f}")
+        if rsi <= V26_6_5_RSI_STRONG_COUNTER_BUY:
+            score -= 10; counter_factors.append(f"rsi_still_selling={rsi:.2f}")
+        elif rsi >= V26_6_5_RSI_BUY_RECOVERY:
+            score += 8; recovery_factors.append(f"rsi_recovering={rsi:.2f}")
+    elif bias == "SELL":
+        if macd_hist >= V26_6_5_STRONG_MACD_COUNTER:
+            score -= 18; counter_factors.append(f"positive_macd_expansion={macd_hist:.2f}")
+        elif macd_hist < V26_6_5_STRONG_MACD_COUNTER:
+            score += 6; recovery_factors.append(f"macd_improving={macd_hist:.2f}")
+        if rsi >= V26_6_5_RSI_STRONG_COUNTER_SELL:
+            score -= 10; counter_factors.append(f"rsi_still_buying={rsi:.2f}")
+        elif rsi <= V26_6_5_RSI_SELL_RECOVERY:
+            score += 8; recovery_factors.append(f"rsi_recovering={rsi:.2f}")
+
+    if pullback_quality >= PULLBACK_CONTINUATION_MIN_QUALITY:
+        score += 10
+        recovery_factors.append(f"pullback_mature={pullback_quality}")
+    elif pullback_state in ("WAIT_PULLBACK_AFTER_SPIKE", "WAIT_PULLBACK"):
+        score -= 10
+        counter_factors.append(f"pullback_not_mature={pullback_state}")
+
+    if continuation_quality >= PULLBACK_CONTINUATION_MIN_QUALITY or str(decision.get("continuation_return", False)).upper() in ("TRUE", "1", "YES"):
+        score += 12
+        recovery_factors.append(f"continuation_confirmed={continuation_quality}")
+
+    if timing_state in ("HEALTHY_CONTINUATION", "EARLY_CONTINUATION") or entry_timing in ("PULLBACK_REENTRY_AFTER_SPIKE",):
+        score += 10
+        recovery_factors.append(f"timing={timing_state or entry_timing}")
+    elif timing_state == "LATE_CONTINUATION":
+        score -= 8
+        counter_factors.append("late_continuation")
+
+    score = _v26_clamp_score(score)
+    active_countertrend = bias in ("BUY", "SELL") and score <= V26_6_5_ACTIVE_COUNTERTREND_SCORE and len(counter_factors) >= 2 and candle_count >= 3
+    execution_window_open = bias in ("BUY", "SELL") and not active_countertrend and score >= V26_6_5_ENTRY_WINDOW_MIN_SCORE
+
+    if active_countertrend:
+        phase = "PULLBACK"
+    elif execution_window_open and recovery_factors:
+        phase = "RESUMPTION"
+    elif score >= 75 and not counter_factors:
+        phase = "TREND_EXPANSION"
+    elif timing_state == "LATE_CONTINUATION" or safe_int(decision.get("late_entry_score", 0), 0) >= 70:
+        phase = "EXHAUSTION"
+    else:
+        phase = "PULLBACK" if counter_factors else "RESUMPTION"
+
+    factors.extend(recovery_factors)
+    factors.extend(counter_factors)
+    return {
+        "execution_window_state": "OPEN" if execution_window_open else "WAIT_ENTRY_WINDOW",
+        "entry_window_score": score,
+        "short_term_countertrend": bool(active_countertrend),
+        "pullback_phase": phase == "PULLBACK",
+        "trend_phase": phase,
+        "execution_delay_reason": "; ".join(counter_factors) if not execution_window_open else "",
+        "execution_window_open": bool(execution_window_open),
+        "bias_preserved": bias in ("BUY", "SELL"),
+        "entry_window_factors": factors,
+        "entry_window_recovery_factors": recovery_factors,
+        "entry_window_counter_factors": counter_factors,
+    }
+
+
+def apply_execution_timing_layer_v26_6_5(decision):
+    if not isinstance(decision, dict):
+        return decision
+
+    bias = str(decision.get("action", decision.get("bias", decision.get("intended_action", "NEUTRAL")))).upper()
+    if bias not in ("BUY", "SELL"):
+        decision.setdefault("execution_window_state", "NO_DIRECTION")
+        decision.setdefault("entry_window_score", 0)
+        decision.setdefault("short_term_countertrend", False)
+        decision.setdefault("pullback_phase", False)
+        decision.setdefault("trend_phase", "UNKNOWN")
+        decision.setdefault("execution_delay_reason", "no BUY/SELL bias")
+        decision.setdefault("execution_window_open", False)
+        decision.setdefault("bias_preserved", False)
+        return decision
+
+    fields = compute_execution_timing_layer_v26_6_5(decision)
+    decision.update(fields)
+
+    hard_block, _hard_reason = _v26_has_hard_block(decision)
+    is_trade = str(decision.get("decision", "")).upper() == "TRADE"
+    if is_trade and not hard_block and not fields["execution_window_open"]:
+        decision["decision"] = "NO_TRADE"
+        decision["entry_allowed"] = False
+        decision["allowed"] = False
+        decision["execution_state"] = "WAIT"
+        decision["wait_state"] = "WAIT_ENTRY_WINDOW"
+        decision["wait_reason"] = "short-term execution window not open; directional bias preserved"
+        decision["next_trigger"] = "pullback losing momentum / higher-low or lower-high break / MACD-RSI recovery / BB walk ending / continuation candle"
+        decision["intended_action"] = bias
+        decision["manual_action"] = f"{bias}_BIAS_WAIT_ENTRY_WINDOW"
+        decision["management"] = "NO_TRADE"
+        decision["mgmt"] = "NO_TRADE"
+        decision["bias"] = bias
+        decision["action"] = bias
+        decision["bias_preserved"] = True
+        decision["entry_window_validation"] = "WAIT_ENTRY_WINDOW"
+        decision["reason"] = (str(decision.get("reason", "")) + " | V26_6_5_WAIT_ENTRY_WINDOW").strip()
+    elif fields["execution_window_open"]:
+        decision["entry_window_validation"] = "OPEN"
+
+    return decision
+
+
 def apply_v26_execution_confidence_engine(decision):
     """
     V26 Execution Confidence Engine.
@@ -3706,6 +3888,14 @@ def ensure_ea_v17_compat_fields(data):
     data.setdefault("trend_quality", 0)
     data.setdefault("candle_filter", "NOT_EVALUATED")
     data.setdefault("candle_reason", "")
+    data.setdefault("execution_window_state", "NOT_EVALUATED")
+    data.setdefault("entry_window_score", 0)
+    data.setdefault("short_term_countertrend", False)
+    data.setdefault("pullback_phase", False)
+    data.setdefault("trend_phase", "UNKNOWN")
+    data.setdefault("execution_delay_reason", "")
+    data.setdefault("execution_window_open", False)
+    data.setdefault("entry_window_validation", "NOT_EVALUATED")
     data.setdefault("trend_momentum_mode", "")
     data.setdefault("trend_momentum_reason", "")
     data.setdefault("trend_momentum_override", False)
@@ -4010,6 +4200,7 @@ def write_decision(data):
                 data = align_management_with_trend_context(data)
                 data = enforce_trend_management_v26_6(data)
                 data = apply_v26_execution_confidence_engine(data)
+                data = apply_execution_timing_layer_v26_6_5(data)
                 data = apply_execution_quality_core_v26_5(data)
                 data = align_management_with_trend_context(data)
                 data = enforce_trend_management_v26_6(data)
@@ -4022,6 +4213,7 @@ def write_decision(data):
                 data = apply_expectancy_entry_filters_v26_6_2(data)
                 data = apply_session_loss_governor_v26_6_2(data)
                 data = apply_protection_authority_manager_v26_6_1(data)
+                data = apply_execution_timing_layer_v26_6_5(data)
                 data = normalize_decision_schema_v20_2(data)
                 data = align_management_with_trend_context(data)
                 data = enforce_trend_management_v26_6(data)
@@ -4036,6 +4228,7 @@ def write_decision(data):
                 data = apply_max_realized_loss_guard_v26_6(data)
                 data = validate_final_decision_payload(data)
                 data = apply_executor_authority_contract_v26_6_1(data)
+                data = apply_execution_timing_layer_v26_6_5(data)
                 data = apply_protection_authority_manager_v26_6_1(data, allow_release=False, count_cycle=False)
                 data = normalize_decision_schema_v20_2(data)
                 data = enforce_trend_management_v26_6(data)

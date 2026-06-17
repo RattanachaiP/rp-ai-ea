@@ -134,3 +134,12 @@ Participation restoration intentionally comes before scaling. Before increasing 
 - Daily Guard is risk compression, not panic exit: new entries are disabled while active; profitable existing positions move to BE or lock at least `+$0.05`; losing positions continue under hard loss cap and compression instead of arbitrary `-$0.30` panic close.
 - Runner timeout is not time-only: protected exit requires 30-45 seconds plus weak expansion evidence, or three consecutive weak momentum cycles.
 - Decision payloads now publish per-position exit telemetry: `leg_type`, original/effective management mode, authority owner, max/current floating profit, profit lock level, hard loss/runner triggers, exit reason, realized profit, and realized R.
+
+## V26.6.5 execution timing layer / short-term trend gate
+- Runtime authority advances to `V26.6.5 | execution-timing-layer-short-term-trend-gate` while preserving the current entry engine, HTF bias engine, directional classifier logic, and indicator set.
+- Directional bias and execution trigger are now independent concepts: bias answers `which direction`, while the Execution Timing Layer answers `when to enter`.
+- A valid BUY/SELL bias can no longer publish immediate execution when short-term M1/M3 telemetry is strongly moving against that direction. Instead it publishes `WAIT_ENTRY_WINDOW` with `bias_preserved=true`.
+- Trend context is phased into `TREND_EXPANSION`, `PULLBACK`, `RESUMPTION`, and `EXHAUSTION` using existing candle trend, structure trend, BB walk state, MACD histogram, RSI, pullback quality, continuation quality, and late-entry timing fields.
+- Decision payloads now publish `execution_window_state`, `entry_window_score`, `short_term_countertrend`, `pullback_phase`, `trend_phase`, `execution_delay_reason`, `execution_window_open`, `entry_window_validation`, and `bias_preserved`.
+- Strong short-term countertrend does not reverse HTF bias and does not suppress signal generation; it delays execution until recovery/resumption evidence appears.
+- Expected measurement focus: reduced stop-loss frequency from countertrend entries, fewer late-pullback entries, improved average loss, and improved expectancy without reducing directional participation cadence.
