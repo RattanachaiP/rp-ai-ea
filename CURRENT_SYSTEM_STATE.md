@@ -100,6 +100,12 @@ Participation restoration intentionally comes before scaling. Before increasing 
 - `V17_AI_QUALITY_BLOCK` is no longer execution authority in the runtime payload contract. It is diagnostic telemetry only; the executor must proceed to broker safety checks and `OrderSend` when `decision=TRADE`, `allowed=true`, `entry_allowed=true`, and `payload_valid=true`.
 - Runtime logs now emit `EXECUTOR AUTHORITY AUDIT` for executable trades, proving the AI emitted TRADE, the executor is expected to receive TRADE, legacy V15/V17 veto override is disallowed, and `OrderSend` is required after broker safety checks.
 
+## V26.6.5A executor authority enforcement hotfix
+- Runtime authority advances to `V26.6.5A | executor-authority-enforcement-hotfix`. The only valid execution chain is `AI Decision -> Payload Validation -> Broker Safety -> OrderSend -> Market`.
+- When `decision=TRADE`, `allowed=true`, `payload_valid=true`, and `schema_valid=true`, legacy V15/V16/V17 strategy logic is diagnostic only and may not skip `OrderSend`. This includes `V16 ENTRY BLOCK low momentum`, `V17 AI QUALITY BLOCK`, `V17 HARD BLOCK`, and M15/M3 alignment diagnostics.
+- Executor terminal blocks are restricted to invalid payload, invalid schema, stale decision, broker freeze, abnormal spread, duplicate order, insufficient margin, market closed, and catastrophic risk state.
+- Executable trade payloads now publish mandatory executor log expectations: `EXECUTOR_FINAL_GATE_PASS`, `ORDER_SEND_ATTEMPT`, `ORDER_SEND_OK`, `ORDER_SEND_FAIL`, and `EXECUTOR_BUG_NO_ORDERSEND_AFTER_TRADE` if a validated TRADE reaches the executor but `OrderSend` is never called.
+
 ## V26.6.2 / V26.6.2A profit/loss asymmetry adaptive expectancy fix
 - Runtime authority advances to `V26.6.2A | no-pause-adaptive-expectancy-fix`.
 - Expectancy repair now treats distribution shape as the emergency: weak gap participation is disabled, loss size is compressed, and open profit is protected before trades can return to full loss.

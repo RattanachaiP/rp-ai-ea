@@ -48,8 +48,8 @@ OUTPUT_PATH = BASE_PATH / "decision.json"
 
 
 RUNTIME_BRANCH = "codex-dev"
-ARCH_VERSION = "V26.6.5"
-BUILD_TAG = "execution-timing-layer-short-term-trend-gate"
+ARCH_VERSION = "V26.6.5A"
+BUILD_TAG = "executor-authority-enforcement-hotfix"
 RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
 
 # V26 Execution Confidence Engine
@@ -57,23 +57,30 @@ V26_EXECUTION_CONFIDENCE_ENABLED = True
 V26_WAIT_IS_NOT_NO_TRADE = True
 V26_HARD_BLOCKS_ONLY_SAFETY = True
 
-# V26.6.1 Executor Legacy Veto Audit
-# The MT5 executor may still contain historical V15/V17 quality gates.
+# V26.6.5A Executor Authority Enforcement Hotfix
+# The MT5 executor may still contain historical V15/V16/V17 strategy gates.
 # Under AI authority, these fields are compatibility/telemetry only; hard
-# execution veto authority is restricted to stale/invalid payload/schema,
-# abnormal spread/liquidity/freeze, duplicate order protection, and daily risk.
+# execution veto authority is restricted to invalid/stale payload/schema, broker
+# safety, duplicate protection, insufficient margin, market closed, and
+# catastrophic risk states. Strategy arbitration belongs exclusively to AI.
 LEGACY_EXECUTOR_MIN_COMPAT_ANALYSIS_QUALITY = 60
 LEGACY_EXECUTOR_VETO_AUDIT = (
     {"gate": "V17_AI_QUALITY_BLOCK", "classification": "SOFT_DIAGNOSTIC_PENALTY", "terminal_veto_allowed": False},
+    {"gate": "V17_HARD_BLOCK", "classification": "SOFT_DIAGNOSTIC_PENALTY", "terminal_veto_allowed": False},
+    {"gate": "V16_ENTRY_BLOCK_LOW_MOMENTUM", "classification": "SOFT_DIAGNOSTIC_PENALTY", "terminal_veto_allowed": False},
     {"gate": "V15_ENTRY_BLOCK", "classification": "SOFT_DIAGNOSTIC_PENALTY", "terminal_veto_allowed": False},
     {"gate": "analysis_quality_filters", "classification": "SOFT_DIAGNOSTIC_PENALTY", "terminal_veto_allowed": False},
     {"gate": "alignment_vetoes", "classification": "SOFT_DIAGNOSTIC_PENALTY", "terminal_veto_allowed": False},
+    {"gate": "M15_M3_alignment_diagnostics", "classification": "SOFT_DIAGNOSTIC_PENALTY", "terminal_veto_allowed": False},
     {"gate": "legacy_participation_gates", "classification": "SOFT_DIAGNOSTIC_PENALTY", "terminal_veto_allowed": False},
     {"gate": "stale_decision", "classification": "HARD_SAFETY_BLOCK", "terminal_veto_allowed": True},
     {"gate": "invalid_payload_or_schema", "classification": "HARD_SAFETY_BLOCK", "terminal_veto_allowed": True},
     {"gate": "abnormal_spread_liquidity_broker_freeze", "classification": "HARD_SAFETY_BLOCK", "terminal_veto_allowed": True},
     {"gate": "duplicate_order_protection", "classification": "HARD_SAFETY_BLOCK", "terminal_veto_allowed": True},
     {"gate": "daily_risk_limit", "classification": "HARD_SAFETY_BLOCK", "terminal_veto_allowed": True},
+    {"gate": "insufficient_margin", "classification": "HARD_SAFETY_BLOCK", "terminal_veto_allowed": True},
+    {"gate": "market_closed", "classification": "HARD_SAFETY_BLOCK", "terminal_veto_allowed": True},
+    {"gate": "catastrophic_risk_state", "classification": "HARD_SAFETY_BLOCK", "terminal_veto_allowed": True},
 )
 
 
@@ -1326,6 +1333,10 @@ def _v26_has_hard_block(decision):
         "INVALID_MARKET_DATA",
         "DAILY_LOSS",
         "HARD_RISK",
+        "DUPLICATE_ORDER",
+        "INSUFFICIENT_MARGIN",
+        "MARKET_CLOSED",
+        "CATASTROPHIC_RISK",
     ]
     for term in hard_terms:
         if term in reason:
@@ -1427,20 +1438,24 @@ def apply_executor_authority_contract_v26_6_1(decision):
     ai_valid, ai_reason = _ai_authority_valid(decision)
     hard_block, hard_reason = _v26_has_hard_block(decision)
     is_trade = str(decision.get("decision", "")).upper() == "TRADE"
+    allowed = bool(decision.get("allowed", is_trade))
     entry_allowed = bool(decision.get("entry_allowed", is_trade))
     payload_valid = bool(decision.get("payload_valid", is_trade)) and not bool(decision.get("payload_validation_failed", False))
-    executable_ai_trade = is_trade and entry_allowed and payload_valid and ai_valid and not hard_block
+    schema_valid = bool(decision.get("schema_valid", decision.get("schema_validation_ok", is_trade)))
+    executable_ai_trade = is_trade and allowed and payload_valid and schema_valid and ai_valid and not hard_block
 
     decision["ai_decision_authority"] = "PRIMARY"
-    decision["executor_authority_chain"] = "AI_DECISION -> PAYLOAD_VALIDATION -> EXECUTOR -> MARKET"
+    decision["executor_authority_chain"] = "AI_DECISION -> PAYLOAD_VALIDATION -> BROKER_SAFETY -> ORDER_SEND -> MARKET"
     decision["executor_hard_block_scope"] = (
-        "stale decision; invalid payload/schema; abnormal spread/liquidity/broker freeze; "
-        "duplicate order protection; daily risk limit"
+        "invalid payload; invalid schema; stale decision; broker freeze; abnormal spread; "
+        "duplicate order; insufficient margin; market closed; catastrophic risk state"
     )
     decision["legacy_executor_veto_policy"] = _legacy_executor_veto_policy_fields()
     decision["legacy_quality_terminal_veto_enabled"] = False
     decision["v17_ai_quality_block_classification"] = "SOFT_DIAGNOSTIC_PENALTY"
     decision["v15_entry_block_classification"] = "SOFT_DIAGNOSTIC_PENALTY"
+    decision["v16_entry_block_classification"] = "SOFT_DIAGNOSTIC_PENALTY"
+    decision["v17_hard_block_classification"] = "SOFT_DIAGNOSTIC_PENALTY"
     decision["analysis_quality_terminal_veto_enabled"] = False
     decision["alignment_terminal_veto_enabled"] = False
     decision["legacy_participation_terminal_veto_enabled"] = False
@@ -1453,10 +1468,17 @@ def apply_executor_authority_contract_v26_6_1(decision):
 
     if executable_ai_trade:
         decision["allowed"] = True
+        decision["entry_allowed"] = True
         decision["executor_order_send_required"] = True
         decision["legacy_executor_override_allowed"] = False
         decision["legacy_v17_quality_veto_result"] = "BYPASSED_DIAGNOSTIC_ONLY"
         decision["legacy_v15_entry_veto_result"] = "BYPASSED_DIAGNOSTIC_ONLY"
+        decision["legacy_v16_entry_veto_result"] = "BYPASSED_DIAGNOSTIC_ONLY"
+        decision["legacy_v17_hard_block_result"] = "BYPASSED_DIAGNOSTIC_ONLY"
+        decision["executor_final_gate_required_log"] = "EXECUTOR_FINAL_GATE_PASS"
+        decision["executor_order_send_attempt_required_log"] = "ORDER_SEND_ATTEMPT"
+        decision["executor_order_send_result_required_logs"] = ["ORDER_SEND_OK", "ORDER_SEND_FAIL"]
+        decision["executor_no_ordersend_after_trade_bug_log"] = "EXECUTOR_BUG_NO_ORDERSEND_AFTER_TRADE"
         if raw_quality < LEGACY_EXECUTOR_MIN_COMPAT_ANALYSIS_QUALITY:
             decision["analysis_quality_compat_floor_applied"] = True
             decision["analysis_quality_compat_floor_reason"] = (
@@ -4253,6 +4275,10 @@ def write_decision(data):
             total_write = round(time.time() - write_start, 6)
 
             if data.get("executor_order_send_required"):
+                print(
+                    "EXECUTOR_FINAL_GATE_PASS:",
+                    "AI TRADE payload validated; broker safety owns final pre-send gate",
+                )
                 print(
                     "EXECUTOR AUTHORITY AUDIT:",
                     "TRADE decision emitted",
