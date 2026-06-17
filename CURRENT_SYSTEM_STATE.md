@@ -149,3 +149,13 @@ Participation restoration intentionally comes before scaling. Before increasing 
 - Decision payloads now publish `execution_window_state`, `entry_window_score`, `short_term_countertrend`, `pullback_phase`, `trend_phase`, `execution_delay_reason`, `execution_window_open`, `entry_window_validation`, and `bias_preserved`.
 - Strong short-term countertrend does not reverse HTF bias and does not suppress signal generation; it delays execution until recovery/resumption evidence appears.
 - Expected measurement focus: reduced stop-loss frequency from countertrend entries, fewer late-pullback entries, improved average loss, and improved expectancy without reducing directional participation cadence.
+
+## V26.6.6 expectancy diagnostic + exhaustion / protection patch
+- Runtime authority advances to `V26.6.6 | expectancy-diagnostic-exhaustion-protection-patch` while preserving V26.6.5A executor authority and V26.6.5 execution timing authority.
+- Entry frequency is intentionally not reduced globally. The patch targets negative expectancy by diagnosing real-vs-opposite performance, late exhaustion entries, green-to-red reversals, and same-direction loss chains.
+- Every real TRADE signal now creates or updates a non-live shadow opposite-direction audit record. The shadow direction is never traded; it tracks simulated real/shadow profit, MFE, MAE, original-vs-opposite profit, and whether each side would have won.
+- Exhaustion protection only intervenes when mature-move risk is clear. High exhaustion publishes `WAIT_ENTRY_WINDOW`; elevated exhaustion reduces size, disables runner behavior, and forces scalp-only management rather than turning the whole system into no-trade mode.
+- Profit protection is strengthened around the observed small-win distribution: at `+$0.50` per `0.01` lot the executor should move SL to breakeven, and by `+$0.80` it should lock small profit when possible. Runner activation requires the primary/scalp leg to be protected first.
+- After three consecutive losses in the same direction, only that direction is paused. The opposite thesis remains evaluable, and the paused direction resumes only after fresh continuation confirmation, a new structural setup, or exhaustion reset.
+- Decision payload metrics now include win rate, average win, average loss, profit factor, original-vs-opposite profit, entry age after move, MFE/MAE, MFE-to-realized ratio, MAE-to-realized-loss ratio, loss-cluster direction, exhaustion score at entry, and profit-protection trigger state.
+- V26.6.6 remains prohibited from adding live hedge trading, martingale, averaging losers, legacy executor veto resurrection, or broad entry-frequency reduction.

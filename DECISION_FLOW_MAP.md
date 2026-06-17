@@ -233,3 +233,17 @@ The final write path now separates directional thesis from executable timing:
 -> executor hard-safety contract.
 
 The timing layer is not a new directional classifier. It reuses existing short-term candle/structure/BB/RSI/MACD/pullback/continuation telemetry. If HTF bias is BUY while short-term state shows bearish impulse, lower-high/lower-low structure, BB walk down, negative MACD expansion, or weak RSI recovery, the payload preserves BUY bias but waits with `WAIT_ENTRY_WINDOW`. SELL is handled by mirrored logic. Entry reopens when short-term phase transitions from `PULLBACK` to `RESUMPTION` / `TREND_EXPANSION` through recovery evidence such as pullback maturity, momentum improvement, continuation quality, and BB-walk ending/aligning.
+
+## V26.6.6 expectancy diagnostic + exhaustion / protection flow update
+The final write path now adds diagnostic and protective expectancy controls without reducing the normal signal cadence:
+
+`real BUY/SELL signal`
+-> `shadow opposite-direction audit record (non-live)`
+-> existing execution timing / location scoring
+-> `V26.6.6_EXHAUSTION_PROTECTION` (`WAIT_ENTRY_WINDOW`, reduced size, no-runner scalp-only, or allow)
+-> `same-direction loss-chain direction pause` (pause losing direction only after 3 losses)
+-> `profit protection publication` (`+$0.50` BE, `+$0.80` small-profit lock)
+-> `runner allowed only after primary leg protected`
+-> executor authority contract.
+
+The shadow audit answers whether loss clusters are caused by wrong direction or by poor timing/exit management. It is telemetry only and cannot place opposite live trades.

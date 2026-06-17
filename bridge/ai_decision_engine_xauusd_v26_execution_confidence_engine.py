@@ -48,8 +48,8 @@ OUTPUT_PATH = BASE_PATH / "decision.json"
 
 
 RUNTIME_BRANCH = "codex-dev"
-ARCH_VERSION = "V26.6.5A"
-BUILD_TAG = "executor-authority-enforcement-hotfix"
+ARCH_VERSION = "V26.6.6"
+BUILD_TAG = "expectancy-diagnostic-exhaustion-protection-patch"
 RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
 
 # V26 Execution Confidence Engine
@@ -161,11 +161,12 @@ V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT = 1.00
 V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT = 0.80
 V26_6_2_USD_PER_PRICE_UNIT_001_LOT = 1.00
 V26_6_2_MAX_SL_POINTS = round(V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT / V26_6_2_USD_PER_PRICE_UNIT_001_LOT, 3)
-V26_6_2_BE_TRIGGER_USD_001_LOT = 0.60
-V26_6_2_BE_MAX_RESIDUAL_RISK_USD_001_LOT = 0.10
+V26_6_2_BE_TRIGGER_USD_001_LOT = 0.50
+V26_6_2_BE_SECOND_TRIGGER_USD_001_LOT = 0.80
+V26_6_2_BE_MAX_RESIDUAL_RISK_USD_001_LOT = 0.00
 V26_6_2_EARLY_DAMAGE_CUT_USD_001_LOT = 0.80
-V26_6_2_LOCK_TRIGGER_USD_001_LOT = 1.00
-V26_6_2_LOCK_PROFIT_USD_001_LOT = 0.40
+V26_6_2_LOCK_TRIGGER_USD_001_LOT = 0.80
+V26_6_2_LOCK_PROFIT_USD_001_LOT = 0.10
 V26_6_2_RUNNER_MOMENTUM_TIMEOUT_SEC = 45
 V26_6_2_RUNNER_MIN_MOMENTUM_PROVE_SEC = 30
 V26_6_2_MIN_SCORE_GAP = 3
@@ -194,6 +195,11 @@ V26_6_4_EXIT_AUTHORITY_PRIORITY = (
 )
 TRADE_MEMORY_PATH = BASE_PATH / "trade_memory.csv"
 LOCAL_TRADE_MEMORY_PATH = Path(__file__).resolve().parents[1] / "analysis" / "trade_memory.csv"
+LOCAL_SHADOW_AUDIT_PATH = Path(__file__).resolve().parents[1] / "analysis" / "shadow_opposite_audit.json"
+V26_6_6_SHADOW_AUDIT_HORIZON_SEC = 15 * 60
+V26_6_6_DIRECTION_LOSS_PAUSE_STREAK = 3
+V26_6_6_EXHAUSTION_WAIT_SCORE = 80
+V26_6_6_EXHAUSTION_SCALP_ONLY_SCORE = 65
 
 # V26.6.1 Protection Authority Manager
 # Only one protection state may be ACTIVE at once. Other detected protections are
@@ -1770,7 +1776,9 @@ def apply_loss_cap_and_profit_lock_v26_6_2(decision):
     decision["breakeven_trigger_points"] = _v26_6_2_usd_to_points(V26_6_2_BE_TRIGGER_USD_001_LOT)
     decision["breakeven_max_residual_risk_usd_001_lot"] = V26_6_2_BE_MAX_RESIDUAL_RISK_USD_001_LOT
     decision["breakeven_max_residual_risk_points"] = _v26_6_2_usd_to_points(V26_6_2_BE_MAX_RESIDUAL_RISK_USD_001_LOT)
-    decision["breakeven_lock_policy"] = "AT +$0.60 MOVE_SL_TO_BREAKEVEN_OR_MAX_RESIDUAL_RISK_MINUS_$0.10"
+    decision["breakeven_second_trigger_usd_001_lot"] = V26_6_2_BE_SECOND_TRIGGER_USD_001_LOT
+    decision["breakeven_second_trigger_points"] = _v26_6_2_usd_to_points(V26_6_2_BE_SECOND_TRIGGER_USD_001_LOT)
+    decision["breakeven_lock_policy"] = "AT +$0.50 MOVE_SL_TO_BREAKEVEN; AT +$0.80 LOCK_SMALL_PROFIT_IF_POSSIBLE"
     decision["lock_profit_trigger_usd_001_lot"] = V26_6_2_LOCK_TRIGGER_USD_001_LOT
     decision["lock_profit_usd_001_lot"] = V26_6_2_LOCK_PROFIT_USD_001_LOT
     decision["lock_profit_trigger_points"] = _v26_6_2_usd_to_points(V26_6_2_LOCK_TRIGGER_USD_001_LOT)
@@ -1784,6 +1792,12 @@ def apply_loss_cap_and_profit_lock_v26_6_2(decision):
             "spread_points_source": spread_points,
         },
         {
+            "trigger_usd_001_lot": V26_6_2_BE_SECOND_TRIGGER_USD_001_LOT,
+            "trigger_points": _v26_6_2_usd_to_points(V26_6_2_BE_SECOND_TRIGGER_USD_001_LOT),
+            "lock": "BREAKEVEN_PLUS_SMALL_PROFIT",
+            "lock_usd_001_lot": V26_6_2_LOCK_PROFIT_USD_001_LOT,
+        },
+        {
             "trigger_usd_001_lot": V26_6_2_LOCK_TRIGGER_USD_001_LOT,
             "trigger_points": _v26_6_2_usd_to_points(V26_6_2_LOCK_TRIGGER_USD_001_LOT),
             "lock_usd_001_lot": V26_6_2_LOCK_PROFIT_USD_001_LOT,
@@ -1791,11 +1805,16 @@ def apply_loss_cap_and_profit_lock_v26_6_2(decision):
         },
     ]
     decision["profit_protection_goal"] = "prevent profitable trades from returning into full loss"
+    decision["profit_protection_triggered"] = bool(
+        safe_float(decision.get("max_floating_profit", decision.get("real_MFE", 0.0)), 0.0) >= V26_6_2_BE_TRIGGER_USD_001_LOT
+    )
     decision["runner_damage_limit_usd_001_lot"] = V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT
     decision["runner_damage_policy"] = "RP_SLOT_2/RUNNER uses same hard loss cap and may not become a -$2.00 to -$3.80 loss container"
     decision["runner_momentum_timeout_sec"] = V26_6_2_RUNNER_MOMENTUM_TIMEOUT_SEC
     decision["runner_momentum_min_prove_sec"] = V26_6_2_RUNNER_MIN_MOMENTUM_PROVE_SEC
     decision["runner_momentum_timeout_policy"] = "If runner has no momentum expansion within 30-45 seconds, disable runner or convert to protected exit mode"
+    decision["runner_requires_primary_protected"] = True
+    decision["runner_activation_rule"] = "Runner is allowed only after scalp/primary leg has BE or small-profit protection active"
     decision["protected_exit_mode_on_runner_timeout"] = True
     return decision
 
@@ -1878,9 +1897,17 @@ def apply_exit_authority_manager_v26_6_4(decision):
     decision["exit_reason"] = decision.get("exit_reason", "")
     decision["realized_profit"] = safe_float(decision.get("realized_profit", 0.0), 0.0)
     decision["realized_R"] = safe_float(decision.get("realized_R", 0.0), 0.0)
+    mfe = safe_float(decision.get("real_MFE", decision.get("max_floating_profit", 0.0)), 0.0)
+    mae = safe_float(decision.get("real_MAE", decision.get("max_adverse_excursion", 0.0)), 0.0)
+    realized = decision["realized_profit"]
+    decision["MFE"] = round(mfe, 3)
+    decision["MAE"] = round(mae, 3)
+    decision["MFE_to_realized_ratio"] = round(mfe / realized, 3) if realized > 0 else 0.0
+    decision["MAE_to_realized_loss_ratio"] = round(abs(mae) / abs(realized), 3) if realized < 0 else 0.0
     decision["leg_aware_profit_protection_ladder"] = _leg_aware_ladder_v26_6_4(leg_type)
     decision["profit_protection_ladder_scope"] = "LEG_A_AND_LEG_B_ONLY; LEG_C_USES_STRUCTURE_MOMENTUM_BB_WALK_PROTECTION"
     decision["no_profit_reversal_policy"] = "If MFE >= +$0.20/0.01 and current profit reverses aggressively, executor must apply the active leg-aware lock before loss reaches -$0.50"
+    decision["green_to_red_prevention_policy"] = "If floating profit reaches +$0.50 to +$0.80 per 0.01 lot, move SL to BE or lock small profit; never allow full SL after meaningful profit"
     decision["hard_loss_cap_owner"] = "EA_EXECUTOR"
     decision["hard_loss_warning_usd_001_lot"] = 0.80
     decision["absolute_emergency_close_usd_001_lot"] = 1.00
@@ -2073,6 +2100,135 @@ def _v26_6_2_trade_memory_session_stats():
     return stats
 
 
+def apply_expectancy_metrics_v26_6_6(decision):
+    """Publish realized expectancy diagnostics from trade memory without changing frequency."""
+    if not isinstance(decision, dict):
+        return decision
+    import csv
+
+    path = _v26_6_2_trade_memory_path()
+    wins = []
+    losses = []
+    if path:
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore", newline="") as f:
+                for row in csv.DictReader(f):
+                    profit = safe_float(row.get("profit", row.get("pnl", row.get("net_profit", 0))), 0.0)
+                    if profit > 0:
+                        wins.append(profit)
+                    elif profit < 0:
+                        losses.append(profit)
+        except Exception as exc:
+            decision["expectancy_metrics_read_error"] = str(exc)
+
+    total = len(wins) + len(losses)
+    gross_win = sum(wins)
+    gross_loss = abs(sum(losses))
+    avg_win = gross_win / len(wins) if wins else 0.0
+    avg_loss = sum(losses) / len(losses) if losses else 0.0
+    decision["expectancy_metrics"] = {
+        "win_rate": round(len(wins) / total, 4) if total else 0.0,
+        "avg_win": round(avg_win, 2),
+        "avg_loss": round(avg_loss, 2),
+        "profit_factor": round(gross_win / gross_loss, 3) if gross_loss > 0 else 0.0,
+        "sample_size": total,
+        "target_profit_factor": 1.20,
+    }
+    decision["win_rate"] = decision["expectancy_metrics"]["win_rate"]
+    decision["avg_win"] = decision["expectancy_metrics"]["avg_win"]
+    decision["avg_loss"] = decision["expectancy_metrics"]["avg_loss"]
+    decision["profit_factor"] = decision["expectancy_metrics"]["profit_factor"]
+    return decision
+
+
+def _v26_6_6_opposite_direction(direction):
+    return "SELL" if direction == "BUY" else "BUY" if direction == "SELL" else "NEUTRAL"
+
+
+def _v26_6_6_shadow_profit(direction, entry, price):
+    if direction == "BUY":
+        return price - entry
+    if direction == "SELL":
+        return entry - price
+    return 0.0
+
+
+def apply_shadow_opposite_audit_v26_6_6(decision):
+    """Create/update a non-traded opposite-direction audit record for every real signal."""
+    if not isinstance(decision, dict):
+        return decision
+
+    bias = str(decision.get("action", decision.get("bias", "NEUTRAL"))).upper()
+    entry = _trade_entry_price(decision)
+    price = safe_float(decision.get("bid", decision.get("price", entry)), entry)
+    now_ts = int(time.time())
+    records = []
+    try:
+        if LOCAL_SHADOW_AUDIT_PATH.exists():
+            raw = json.loads(LOCAL_SHADOW_AUDIT_PATH.read_text(encoding="utf-8"))
+            records = raw if isinstance(raw, list) else []
+    except Exception as exc:
+        decision["shadow_audit_read_error"] = str(exc)
+        records = []
+
+    for rec in records:
+        if rec.get("status") != "OPEN":
+            continue
+        rec_entry = safe_float(rec.get("entry_price", 0), 0.0)
+        real_dir = str(rec.get("real_direction", "NEUTRAL")).upper()
+        shadow_dir = str(rec.get("shadow_direction", "NEUTRAL")).upper()
+        real_p = _v26_6_6_shadow_profit(real_dir, rec_entry, price)
+        shadow_p = _v26_6_6_shadow_profit(shadow_dir, rec_entry, price)
+        rec["real_profit"] = round(real_p, 3)
+        rec["shadow_profit"] = round(shadow_p, 3)
+        rec["real_MFE"] = round(max(safe_float(rec.get("real_MFE", 0), 0), real_p), 3)
+        rec["real_MAE"] = round(min(safe_float(rec.get("real_MAE", 0), 0), real_p), 3)
+        rec["shadow_MFE"] = round(max(safe_float(rec.get("shadow_MFE", 0), 0), shadow_p), 3)
+        rec["shadow_MAE"] = round(min(safe_float(rec.get("shadow_MAE", 0), 0), shadow_p), 3)
+        rec["original_vs_opposite_profit"] = round(real_p - shadow_p, 3)
+        rec["would_opposite_have_won"] = shadow_p > 0
+        rec["would_original_have_won"] = real_p > 0
+        if now_ts - safe_int(rec.get("entry_timestamp", now_ts), now_ts) >= V26_6_6_SHADOW_AUDIT_HORIZON_SEC:
+            rec["status"] = "CLOSED_AUDIT_HORIZON"
+
+    if str(decision.get("decision", "")).upper() == "TRADE" and bias in ("BUY", "SELL") and entry > 0:
+        signal_id = str(decision.get("directional_idea_id") or f"{safe_int(decision.get('market_state_sequence_id', 0), 0)}:{bias}:{round(entry, 3)}")
+        if not any(rec.get("signal_id") == signal_id for rec in records):
+            records.append({
+                "signal_id": signal_id,
+                "entry_timestamp": now_ts,
+                "entry_price": round(entry, 3),
+                "real_direction": bias,
+                "shadow_direction": _v26_6_6_opposite_direction(bias),
+                "real_profit": 0.0,
+                "shadow_profit": 0.0,
+                "real_MFE": 0.0,
+                "real_MAE": 0.0,
+                "shadow_MFE": 0.0,
+                "shadow_MAE": 0.0,
+                "original_vs_opposite_profit": 0.0,
+                "would_opposite_have_won": False,
+                "would_original_have_won": False,
+                "status": "OPEN",
+            })
+
+    open_records = [rec for rec in records if rec.get("status") == "OPEN"]
+    try:
+        LOCAL_SHADOW_AUDIT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        LOCAL_SHADOW_AUDIT_PATH.write_text(json.dumps(records[-500:], indent=2), encoding="utf-8")
+    except Exception as exc:
+        decision["shadow_audit_write_error"] = str(exc)
+
+    latest = open_records[-1] if open_records else {}
+    decision["shadow_opposite_audit_enabled"] = True
+    decision["shadow_audit_path"] = str(LOCAL_SHADOW_AUDIT_PATH)
+    decision["real_direction"] = bias if bias in ("BUY", "SELL") else "NEUTRAL"
+    decision["shadow_direction"] = _v26_6_6_opposite_direction(decision["real_direction"])
+    for key in ("real_profit", "shadow_profit", "real_MFE", "real_MAE", "shadow_MFE", "shadow_MAE", "original_vs_opposite_profit", "would_opposite_have_won", "would_original_have_won"):
+        decision[key] = latest.get(key, 0 if key.startswith(("real_", "shadow_", "original")) else False)
+    return decision
+
+
 def classify_loss_reason_v26_6_2(decision, stats):
     """Classify the latest realized loss using existing telemetry only."""
     row = stats.get("last_loss_row", {}) if isinstance(stats, dict) else {}
@@ -2212,6 +2368,26 @@ def apply_thesis_revalidation_after_loss_v26_6_2(decision, stats, loss_reason):
         decision["wait_reason"] = "same-direction losses invalidated thesis; re-check entry location or evaluate opposite thesis"
         decision["next_trigger"] = "bias/mode/BB/RSI/MACD/location/exhaustion reset or opposite thesis evaluation"
         decision["opposite_thesis_evaluation_required"] = True
+    if (
+        safe_int(stats.get("same_direction_loss_streak", 0), 0) >= V26_6_6_DIRECTION_LOSS_PAUSE_STREAK
+        and bias == str(stats.get("last_loss_direction", "UNKNOWN")).upper()
+    ):
+        decision["directional_loss_pause_active"] = True
+        decision["loss_cluster_direction"] = bias
+        decision["paused_direction"] = bias
+        decision["directional_pause_policy"] = "PAUSE_LOSING_DIRECTION_ONLY_BUY_OR_SELL_OPPOSITE_REMAINS_ALLOWED"
+        decision["directional_pause_release_condition"] = "fresh continuation confirmation, new structural setup, or exhaustion reset"
+        if str(decision.get("decision", "")).upper() == "TRADE":
+            decision["decision"] = "NO_TRADE"
+            decision["entry_allowed"] = False
+            decision["execution_state"] = "WAIT"
+            decision["wait_state"] = "WAIT_ENTRY_WINDOW"
+            decision["wait_reason"] = f"{bias} paused after 3 same-direction losses; opposite thesis remains evaluable"
+            decision["management"] = "NO_TRADE"
+            decision["mgmt"] = "NO_TRADE"
+    else:
+        decision.setdefault("directional_loss_pause_active", False)
+        decision.setdefault("loss_cluster_direction", stats.get("last_loss_direction", "UNKNOWN"))
     return decision
 
 
@@ -2297,6 +2473,52 @@ def apply_late_entry_guard_v26_6(decision):
         decision["risk_fraction"] = round(reduced, 2)
         decision["position_size_multiplier"] = round(reduced, 2)
         decision["late_entry_action"] = "REDUCE_SIZE"
+    return decision
+
+
+def apply_exhaustion_protection_v26_6_6(decision):
+    """Downgrade only clear mature-move exhaustion; do not reduce broad entry frequency."""
+    if not isinstance(decision, dict):
+        return decision
+    bias = str(decision.get("action", decision.get("bias", "NEUTRAL"))).upper()
+    score = max(
+        safe_int(decision.get("late_entry_score", decision.get("late_entry_score_v26_6", 0)), 0),
+        safe_int(decision.get("exhaustion_score", decision.get("trend_exhaustion_score", 0)), 0),
+        safe_int(decision.get("master_gate_score", 0), 0),
+    )
+    expansion = safe_int(decision.get("expansion_candle_count", 0), 0)
+    factors = list(decision.get("late_entry_factors", [])) if isinstance(decision.get("late_entry_factors", []), list) else []
+    mature_move = (
+        expansion >= 3
+        or bool(decision.get("rsi_compression_after_expansion", False))
+        or bool(decision.get("exhausted_macd_expansion", False))
+        or safe_float(decision.get("bb_overextension_ratio", 0.0), 0.0) >= DIST_BB_MID_EXTREME_RATIO
+    )
+    decision["exhaustion_score_at_entry"] = score
+    decision["entry_age_after_move"] = expansion
+    decision["exhaustion_protection_policy"] = "WAIT high exhaustion; otherwise reduce size/disable runner/scalp-only without global no-trade"
+    if str(decision.get("decision", "")).upper() == "TRADE" and bias in ("BUY", "SELL") and score >= V26_6_6_EXHAUSTION_WAIT_SCORE and mature_move:
+        decision["decision"] = "NO_TRADE"
+        decision["entry_allowed"] = False
+        decision["execution_state"] = "WAIT"
+        decision["wait_state"] = "WAIT_ENTRY_WINDOW"
+        decision["wait_reason"] = f"high exhaustion risk score={score}; wait for reset/resumption window"
+        decision["exhaustion_action"] = "WAIT_ENTRY_WINDOW"
+        decision["intended_action"] = bias
+        decision["management"] = "NO_TRADE"
+        decision["mgmt"] = "NO_TRADE"
+        decision["reason"] = (str(decision.get("reason", "")) + " | V26_6_6_EXHAUSTION_WAIT_ENTRY_WINDOW").strip()
+    elif str(decision.get("decision", "")).upper() == "TRADE" and score >= V26_6_6_EXHAUSTION_SCALP_ONLY_SCORE:
+        decision["exhaustion_action"] = "SCALP_ONLY_REDUCED_SIZE_NO_RUNNER"
+        decision["risk_fraction"] = round(min(safe_float(decision.get("risk_fraction", 1.0), 1.0), 0.25), 2)
+        decision["position_size_multiplier"] = decision["risk_fraction"]
+        decision["runner_allowed"] = False
+        decision["runner_disabled"] = True
+        decision["runner_disable_reason"] = f"V26.6.6 exhaustion risk score={score}; factors={'; '.join(map(str, factors[:4]))}"
+        decision["management"] = "SCALP_TP"
+        decision["mgmt"] = "SCALP_TP"
+    else:
+        decision.setdefault("exhaustion_action", "ALLOW")
     return decision
 
 
@@ -4232,8 +4454,10 @@ def write_decision(data):
                 data = apply_v25_3_rsi_soft_penalty_recovery(data)
                 data = apply_final_decision_gate_trace_v25_2(data)
                 data = apply_late_entry_guard_v26_6(data)
+                data = apply_exhaustion_protection_v26_6_6(data)
                 data = apply_expectancy_entry_filters_v26_6_2(data)
                 data = apply_session_loss_governor_v26_6_2(data)
+                data = apply_expectancy_metrics_v26_6_6(data)
                 data = apply_protection_authority_manager_v26_6_1(data)
                 data = apply_execution_timing_layer_v26_6_5(data)
                 data = normalize_decision_schema_v20_2(data)
@@ -4242,6 +4466,8 @@ def write_decision(data):
                 data = apply_early_participation_sizing_v26_6(data)
                 data = apply_expectancy_entry_filters_v26_6_2(data)
                 data = apply_session_loss_governor_v26_6_2(data)
+                data = apply_expectancy_metrics_v26_6_6(data)
+                data = apply_shadow_opposite_audit_v26_6_6(data)
                 data = construct_risk_payload_before_validation(data)
                 data = apply_loss_cap_and_profit_lock_v26_6_2(data)
                 data = apply_exit_authority_manager_v26_6_4(data)
