@@ -206,3 +206,17 @@ Exit authority priority is fixed and non-recursive:
 `EMERGENCY_EXIT -> HARD_LOSS_CAP -> DAILY_GUARD_RISK_COMPRESSION -> FORCE_SCALP_TP -> LEG_A_SCALP_EXIT -> LEG_B_CONFIRMATION_EXIT -> LEG_C_RUNNER_EXIT`.
 
 If `FORCE_SCALP_TP` owns a position, all downstream fields must treat management as `SCALP_TP`; runner/trail management cannot reactivate underneath that owner. Leg A and Leg B use distinct USD-per-0.01-lot ladders, while Leg C preserves runner intent through structure trail, momentum decay, swing protection, and BB-walk continuity. Daily Guard compresses risk and blocks new entries without converting open losing positions into arbitrary panic closes.
+
+## V26.6.5 execution timing flow update
+The final write path now separates directional thesis from executable timing:
+
+`directional ACTION/BIAS`
+-> existing safety and quality scoring
+-> V26 execution confidence
+-> `V26.6.5_EXECUTION_TIMING_LAYER`
+-> `ENTRY_WINDOW_SCORE` / `WAIT_ENTRY_WINDOW` or open entry window
+-> risk payload construction
+-> exit authority / payload validation
+-> executor hard-safety contract.
+
+The timing layer is not a new directional classifier. It reuses existing short-term candle/structure/BB/RSI/MACD/pullback/continuation telemetry. If HTF bias is BUY while short-term state shows bearish impulse, lower-high/lower-low structure, BB walk down, negative MACD expansion, or weak RSI recovery, the payload preserves BUY bias but waits with `WAIT_ENTRY_WINDOW`. SELL is handled by mirrored logic. Entry reopens when short-term phase transitions from `PULLBACK` to `RESUMPTION` / `TREND_EXPANSION` through recovery evidence such as pullback maturity, momentum improvement, continuation quality, and BB-walk ending/aligning.
