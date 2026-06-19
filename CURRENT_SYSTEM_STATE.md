@@ -159,3 +159,10 @@ Participation restoration intentionally comes before scaling. Before increasing 
 - After three consecutive losses in the same direction, only that direction is paused. The opposite thesis remains evaluable, and the paused direction resumes only after fresh continuation confirmation, a new structural setup, or exhaustion reset.
 - Decision payload metrics now include win rate, average win, average loss, profit factor, original-vs-opposite profit, entry age after move, MFE/MAE, MFE-to-realized ratio, MAE-to-realized-loss ratio, loss-cluster direction, exhaustion score at entry, and profit-protection trigger state.
 - V26.6.6 remains prohibited from adding live hedge trading, martingale, averaging losers, legacy executor veto resurrection, or broad entry-frequency reduction.
+
+## V26.6.7 trade autopsy evidence patch
+- Runtime authority advances to `V26.6.7 | trade-autopsy-evidence-patch` as a diagnostic-first layer; it does not change entry rules, signal generation, directional bias logic, executor authority, exit authority, profit-lock behavior, runner behavior, or risk thresholds.
+- Every closed trade in `trade_memory.csv` is converted into a local autopsy record with trade identity, entry context, exit context, performance metrics, shadow audit fields, primary/secondary reason classification, confidence, and evidence fields used.
+- Losing trades are classified into the approved diagnostic buckets: `WRONG_DIRECTION`, `LATE_ENTRY`, `EXHAUSTION_ENTRY`, `COUNTERTREND_ENTRY`, `CHOP_ENTRY`, `BB_MIDDLE_ROTATION`, `PROFIT_NOT_PROTECTED`, `EXIT_TOO_LATE`, `SL_TOO_WIDE`, `RUNNER_FAILED`, `THESIS_DECAY`, `MOMENTUM_FADED`, `EXECUTION_DELAY`, `SPREAD_OR_SLIPPAGE`, or `UNKNOWN`.
+- Winning trades are classified into the approved diagnostic buckets: `CLEAN_TREND_CAPTURE`, `SCALP_CAPTURE`, `RUNNER_CAPTURE`, `PULLBACK_RESUMPTION_SUCCESS`, `PROFIT_LOCK_SUCCESS`, `FAST_EXIT_SUCCESS`, `SHADOW_AVOIDED`, or `OTHER_WIN`.
+- Daily autopsy files are written under `logs/trade_autopsy/` as `trade_autopsy_YYYYMMDD.csv` and `trade_autopsy_summary_YYYYMMDD.json`; summaries rank loss buckets by total capital damage before any future strategy patch is attempted.
