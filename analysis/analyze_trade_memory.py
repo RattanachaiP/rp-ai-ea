@@ -3,6 +3,8 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+from trade_autopsy_engine import generate_autopsies
+
 MEMORY_FILE = Path(
     r"C:\Users\trader\AppData\Roaming\MetaQuotes\Terminal\Common\Files\RP_AI_EA\trade_memory.csv"
 )
@@ -221,6 +223,18 @@ def main():
     print("\n=== ENTRY TYPE METRICS ===\n")
     for entry_type, stats in sorted(by_entry.items()):
         print_stats(f"ENTRY TYPE: {entry_type}", stats)
+
+    autopsy = generate_autopsies(memory_file=memory_file)
+    if autopsy.get("available"):
+        print("\n=== TRADE AUTOPSY ROOT CAUSE RANKING ===\n")
+        print(f"Autopsy output directory: {autopsy['output_dir']}")
+        for day, summary in sorted(autopsy["summaries"].items()):
+            print(f"{day}: trades={summary['total_trades']} expectancy={summary['expectancy']:.2f} profit_factor={summary['profit_factor']}")
+            for index, item in enumerate(summary["root_cause_ranking_by_capital_damage"], 1):
+                print(f"  {index}. {item['bucket']} = {item['damage']:.2f}")
+    else:
+        print("\n=== TRADE AUTOPSY ROOT CAUSE RANKING ===\n")
+        print(f"Autopsy unavailable: {autopsy.get('reason', 'unknown')}")
 
     print("\n=== DECISION GUIDE ===\n")
     for entry_type, stats in sorted(by_entry.items()):

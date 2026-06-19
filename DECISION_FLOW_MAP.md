@@ -247,3 +247,13 @@ The final write path now adds diagnostic and protective expectancy controls with
 -> executor authority contract.
 
 The shadow audit answers whether loss clusters are caused by wrong direction or by poor timing/exit management. It is telemetry only and cannot place opposite live trades.
+
+## V26.6.7 trade autopsy evidence flow update
+Closed-trade analytics now run after execution and do not feed back into live entry or exit authority:
+
+`closed RP trade in trade_memory.csv`
+-> `TRADE AUTOPSY ENGINE`
+-> one CSV row per closed trade with identity, entry context, exit context, MFE/MAE, realized R, profit give-back, shadow-opposite audit, and evidence fields
+-> daily JSON summary with win/loss distribution, expectancy, MFE capture, MAE containment, shadow-opposite result, and root-cause ranking by capital damage.
+
+The autopsy engine is evidence-only. It cannot publish live trade decisions, cannot place opposite trades, cannot reduce entry frequency, cannot add indicators, and cannot change executor or exit authority. Its only purpose is to identify which loss bucket is causing the largest capital damage after 100-300 closed trades.
