@@ -21,3 +21,11 @@ If either file is missing or malformed enough that a value cannot be found, the 
 ## Executor behavior
 
 When `InpManageOpenTrades=true`, the EA consumes the loaded runtime values for hard-loss close, breakeven SL movement, and trailing SL movement on open positions for the attached symbol.
+
+## V27.2 Interactive Editor
+
+V27.2 expands the chart panel from a profile loader into a post-entry interactive editor. The panel keeps the AI boundary intact: it does not expose direction, bias, signal, entry timing, market classification, or AI decision controls.
+
+Runtime controls are displayed in three columns and can be adjusted with on-chart `+` / `-` buttons, then applied immediately with **Apply Runtime**. **Save JSON** persists the current in-memory profile to `trade_management_dashboard.json` and `dashboard_profiles/<ActiveProfile>.json`; **Reload JSON** reloads the active JSON profile without recompiling.
+
+Visible sections include Profile, Risk, Breakeven, Trailing, Profit Lock, Runner, Time Exit, Partial Close, status telemetry, active exit authority owner, effective management mode, and open-position ticket/profit/protection rows.
