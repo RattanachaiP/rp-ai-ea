@@ -1,0 +1,17 @@
+{
+  "active_profile": "Aggressive",
+  "risk": {
+    "hard_loss_cap_usd_001_lot": 1.2,
+    "max_floating_loss_usd_001_lot": 1.0,
+    "dynamic_risk_multiplier": 1.15
+  },
+  "breakeven": {
+    "enable": true,
+    "trigger_usd_001_lot": 0.7,
+    "be_lock_distance_usd_001_lot": 0.0
+  },
+  "runner": {
+    "enable_runner": true,
+    "runner_timeout_seconds": 60
+  }
+}

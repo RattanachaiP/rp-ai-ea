@@ -1,0 +1,6 @@
+{
+  "schema_version": "V27_TRADE_MANAGEMENT_DASHBOARD_SCHEMA_1",
+  "active_profile": "Balanced",
+  "enabled": true,
+  "description": "Runtime post-entry trade management dashboard. Change active_profile or values here without recompiling the AI decision engine."
+}

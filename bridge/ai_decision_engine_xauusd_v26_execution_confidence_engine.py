@@ -4,6 +4,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from trade_management_dashboard import load_trade_management_dashboard
+
 # V25 Pullback Fallback Mode
 # V25 RP TIME SYNC STANDARD V1
 # ============================================================
@@ -48,8 +50,8 @@ OUTPUT_PATH = BASE_PATH / "decision.json"
 
 
 RUNTIME_BRANCH = "codex-dev"
-ARCH_VERSION = "V26.6.6"
-BUILD_TAG = "expectancy-diagnostic-exhaustion-protection-patch"
+ARCH_VERSION = "V27"
+BUILD_TAG = "trade-management-dashboard-architecture"
 RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
 
 # V26 Execution Confidence Engine
@@ -187,11 +189,11 @@ V26_6_2_EXPECTANCY_TARGET_PROFIT_FACTOR = 1.30
 V26_6_4_EXIT_AUTHORITY_PRIORITY = (
     "EMERGENCY_EXIT",
     "HARD_LOSS_CAP",
-    "DAILY_GUARD_RISK_COMPRESSION",
-    "FORCE_SCALP_TP",
-    "LEG_A_SCALP_EXIT",
-    "LEG_B_CONFIRMATION_EXIT",
-    "LEG_C_RUNNER_EXIT",
+    "PROFIT_LOCK",
+    "BREAKEVEN",
+    "TRAILING",
+    "RUNNER",
+    "TIME_EXIT",
 )
 TRADE_MEMORY_PATH = BASE_PATH / "trade_memory.csv"
 LOCAL_TRADE_MEMORY_PATH = Path(__file__).resolve().parents[1] / "analysis" / "trade_memory.csv"
@@ -1738,6 +1740,63 @@ def _v26_6_2_usd_to_points(usd_value):
     return round(safe_float(usd_value, 0.0) / V26_6_2_USD_PER_PRICE_UNIT_001_LOT, 3)
 
 
+
+def _dashboard_v27():
+    return load_trade_management_dashboard(Path(__file__).resolve().parents[1])
+
+
+def _dashboard_section_v27(dashboard, section):
+    value = dashboard.get(section, {}) if isinstance(dashboard, dict) else {}
+    return value if isinstance(value, dict) else {}
+
+
+def apply_trade_management_dashboard_v27(decision):
+    """Attach runtime post-entry dashboard configuration without touching AI entry logic."""
+    if not isinstance(decision, dict):
+        return decision
+
+    dashboard = _dashboard_v27()
+    risk = _dashboard_section_v27(dashboard, "risk")
+    breakeven = _dashboard_section_v27(dashboard, "breakeven")
+    trailing = _dashboard_section_v27(dashboard, "trailing")
+    locks = _dashboard_section_v27(dashboard, "profit_locks")
+    runner = _dashboard_section_v27(dashboard, "runner")
+    time_exits = _dashboard_section_v27(dashboard, "time_exits")
+    partials = _dashboard_section_v27(dashboard, "partial_exits")
+
+    decision["trade_management_dashboard"] = "V27_RUNTIME_CONFIG_ACTIVE"
+    decision["trade_management_dashboard_enabled"] = bool(dashboard.get("enabled", True))
+    decision["trade_management_dashboard_schema"] = dashboard.get("schema_version", "")
+    decision["dashboard_active_profile"] = dashboard.get("active_profile", "Balanced")
+    decision["dashboard_load_sources"] = dashboard.get("load_sources", [])
+    decision["dashboard_load_warnings"] = dashboard.get("load_warnings", [])
+    decision["dashboard_fallback_defaults_used"] = bool(dashboard.get("fallback_defaults_used", False))
+    decision["dashboard_runtime_config_contract"] = "post-entry management only; AI direction/bias/entry/classification unchanged"
+
+    hard_cap = safe_float(risk.get("hard_loss_cap_usd_001_lot", V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT), V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT)
+    floating_cap = safe_float(risk.get("max_floating_loss_usd_001_lot", V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT), V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT)
+    decision["dashboard_risk"] = risk
+    decision["dashboard_breakeven"] = breakeven
+    decision["dashboard_trailing"] = trailing
+    decision["dashboard_profit_locks"] = locks
+    decision["dashboard_runner"] = runner
+    decision["dashboard_time_exits"] = time_exits
+    decision["dashboard_partial_exits"] = partials
+    decision["dynamic_risk_multiplier"] = safe_float(risk.get("dynamic_risk_multiplier", decision.get("dynamic_risk_multiplier", 1.0)), 1.0)
+    decision["max_realized_loss_usd_001_lot"] = hard_cap
+    decision["floating_force_exit_usd_001_lot"] = floating_cap
+    decision["hard_loss_cap_usd_001_lot"] = hard_cap
+    decision["breakeven_trigger_usd_001_lot"] = safe_float(breakeven.get("trigger_usd_001_lot", V26_6_2_BE_TRIGGER_USD_001_LOT), V26_6_2_BE_TRIGGER_USD_001_LOT)
+    decision["breakeven_delay_seconds"] = safe_int(breakeven.get("delay_seconds", 0), 0)
+    decision["breakeven_lock_distance_usd_001_lot"] = safe_float(breakeven.get("be_lock_distance_usd_001_lot", 0.0), 0.0)
+    decision["runner_enabled_by_dashboard"] = bool(runner.get("enable_runner", True))
+    decision["runner_momentum_timeout_sec"] = safe_int(runner.get("runner_timeout_seconds", V26_6_2_RUNNER_MOMENTUM_TIMEOUT_SEC), V26_6_2_RUNNER_MOMENTUM_TIMEOUT_SEC)
+    decision["runner_exit_mode"] = runner.get("runner_exit_mode", "PROTECTED_EXIT_ON_TIMEOUT_OR_MOMENTUM_DECAY")
+    decision["time_exit_policy"] = time_exits
+    decision["partial_exit_policy"] = partials
+    decision["exit_authority_priority"] = dashboard.get("exit_authority_priority", list(V26_6_4_EXIT_AUTHORITY_PRIORITY))
+    return decision
+
 def apply_loss_cap_and_profit_lock_v26_6_2(decision):
     """Compress SL to the $1.20/0.01-lot cap and publish V26.6.3 exit controls."""
     if not isinstance(decision, dict):
@@ -1765,8 +1824,8 @@ def apply_loss_cap_and_profit_lock_v26_6_2(decision):
     decision["profit_loss_asymmetry_guard"] = "ACTIVE"
     decision["reference_lot"] = 0.01
     decision["usd_per_price_unit_001_lot"] = V26_6_2_USD_PER_PRICE_UNIT_001_LOT
-    decision["max_realized_loss_usd_001_lot"] = V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT
-    decision["floating_force_exit_usd_001_lot"] = V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT
+    decision["max_realized_loss_usd_001_lot"] = decision.get("max_realized_loss_usd_001_lot", V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT)
+    decision["floating_force_exit_usd_001_lot"] = decision.get("floating_force_exit_usd_001_lot", V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT)
     decision["floating_force_exit_policy"] = "FORCE_EXIT_WHEN_FLOATING_LOSS_APPROACHES_RISK_CAP"
     decision["hard_loss_cap_policy"] = "V26.6.3: standard 0.01 XAUUSD slot may not realize losses below -$1.20; executor must force-close at floating threshold"
     decision["early_damage_cut_usd_001_lot"] = V26_6_2_EARLY_DAMAGE_CUT_USD_001_LOT
@@ -1864,19 +1923,31 @@ def apply_exit_authority_manager_v26_6_4(decision):
     force_scalp = _force_scalp_tp_active_v26_6_4(decision)
     daily_guard = bool(decision.get("drawdown_caution_mode", False) or decision.get("session_stop_active", False) or decision.get("daily_guard_active", False))
 
-    owner = "LEG_C_RUNNER_EXIT" if leg_type == "LEG_C" else "LEG_B_CONFIRMATION_EXIT" if leg_type == "LEG_B" else "LEG_A_SCALP_EXIT"
+    owner = "RUNNER" if leg_type == "LEG_C" else "TRAILING" if effective in ("HOLD_TRAIL", "TREND_RUNNER") else "BREAKEVEN"
     if force_scalp:
-        owner = "FORCE_SCALP_TP"
+        owner = "PROFIT_LOCK"
         effective = "SCALP_TP"
-    if daily_guard:
-        owner = "DAILY_GUARD_RISK_COMPRESSION"
+    if safe_float(decision.get("profit_lock_level", 0.0), 0.0) > 0:
+        owner = "PROFIT_LOCK"
+    if bool(decision.get("breakeven_triggered", False) or decision.get("profit_protection_triggered", False)):
+        owner = "BREAKEVEN"
+    if bool(decision.get("trailing_stop_active", False) or decision.get("structure_trail_active", False)):
+        owner = "TRAILING"
+    if bool(decision.get("runner_timeout_triggered", False) or decision.get("runner_momentum_decay_triggered", False)):
+        owner = "RUNNER"
+    if bool(decision.get("time_exit_triggered", False) or decision.get("session_exit_triggered", False) or decision.get("position_aging_exit_triggered", False)):
+        owner = "TIME_EXIT"
+    if daily_guard and owner not in ("EMERGENCY_EXIT", "HARD_LOSS_CAP"):
+        decision["daily_guard_risk_compression_active"] = True
     if bool(decision.get("hard_loss_cap_triggered", False)):
         owner = "HARD_LOSS_CAP"
     if bool(decision.get("emergency_exit_triggered", False)):
         owner = "EMERGENCY_EXIT"
 
-    decision["exit_authority_manager"] = "V26.6.4_SINGLE_OWNER"
-    decision["exit_authority_priority"] = list(V26_6_4_EXIT_AUTHORITY_PRIORITY)
+    decision = apply_trade_management_dashboard_v27(decision)
+
+    decision["exit_authority_manager"] = "V27_DASHBOARD_SINGLE_OWNER"
+    decision["exit_authority_priority"] = decision.get("exit_authority_priority", list(V26_6_4_EXIT_AUTHORITY_PRIORITY))
     decision["leg_type"] = leg_type
     decision["original_management_mode"] = original
     decision["effective_management_mode"] = effective

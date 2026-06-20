@@ -257,3 +257,24 @@ Closed-trade analytics now run after execution and do not feed back into live en
 -> daily JSON summary with win/loss distribution, expectancy, MFE capture, MAE containment, shadow-opposite result, and root-cause ranking by capital damage.
 
 The autopsy engine is evidence-only. It cannot publish live trade decisions, cannot place opposite trades, cannot reduce entry frequency, cannot add indicators, and cannot change executor or exit authority. Its only purpose is to identify which loss bucket is causing the largest capital damage after 100-300 closed trades.
+
+## V27 trade management dashboard flow update
+The runtime is now split into independent subsystems:
+
+`AI Decision Engine`
+-> direction / bias / entry timing / market mode / position classification / initial risk
+-> `POSITION CREATED`
+-> `Trade Management Dashboard runtime profile load`
+-> dashboard-configured SL, breakeven, trailing, profit-lock, runner, time-exit, partial-exit parameters
+-> `Exit Authority Manager`
+-> single effective exit owner
+-> broker / executor.
+
+Dashboard profile loading order:
+1. Load embedded backward-compatible defaults.
+2. Load `trade_management_dashboard.json` if present.
+3. Resolve `active_profile`.
+4. Overlay `dashboard_profiles/<active_profile>.json` if present.
+5. Publish `trade_management_dashboard`, `dashboard_active_profile`, schema version, and source/fallback metadata to `decision.json`.
+
+No V27 dashboard profile may mutate AI direction, bias, entry timing, signal generation, or market classification.

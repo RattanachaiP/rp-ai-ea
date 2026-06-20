@@ -166,3 +166,10 @@ Participation restoration intentionally comes before scaling. Before increasing 
 - Losing trades are classified into the approved diagnostic buckets: `WRONG_DIRECTION`, `LATE_ENTRY`, `EXHAUSTION_ENTRY`, `COUNTERTREND_ENTRY`, `CHOP_ENTRY`, `BB_MIDDLE_ROTATION`, `PROFIT_NOT_PROTECTED`, `EXIT_TOO_LATE`, `SL_TOO_WIDE`, `RUNNER_FAILED`, `THESIS_DECAY`, `MOMENTUM_FADED`, `EXECUTION_DELAY`, `SPREAD_OR_SLIPPAGE`, or `UNKNOWN`.
 - Winning trades are classified into the approved diagnostic buckets: `CLEAN_TREND_CAPTURE`, `SCALP_CAPTURE`, `RUNNER_CAPTURE`, `PULLBACK_RESUMPTION_SUCCESS`, `PROFIT_LOCK_SUCCESS`, `FAST_EXIT_SUCCESS`, `SHADOW_AVOIDED`, or `OTHER_WIN`.
 - Daily autopsy files are written under `logs/trade_autopsy/` as `trade_autopsy_YYYYMMDD.csv` and `trade_autopsy_summary_YYYYMMDD.json`; summaries rank loss buckets by total capital damage before any future strategy patch is attempted.
+
+## V27 trade management dashboard architecture
+- Runtime authority advances to `V27 | trade-management-dashboard-architecture` without changing AI direction, bias, entry, signal generation, or market classification logic.
+- The system is split into Subsystem A (`AI Decision Engine`) for thinking/entry payload publication and Subsystem B (`Trade Management Dashboard`) for post-entry open-position management.
+- Trade management parameters are loaded at runtime from `trade_management_dashboard.json` and optional `dashboard_profiles/<Profile>.json` files, allowing Conservative, Balanced, Aggressive, London Session, News Session, Scalp, and Trend profile switching without AI recompilation.
+- Every post-entry exit decision remains routed through the Exit Authority Manager with exactly one effective owner.
+- Backward compatibility is mandatory: missing or malformed dashboard files fall back to embedded V26.6-compatible defaults and publish fallback telemetry.

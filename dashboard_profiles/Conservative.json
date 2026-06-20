@@ -1,0 +1,17 @@
+{
+  "active_profile": "Conservative",
+  "risk": {
+    "hard_loss_cap_usd_001_lot": 0.8,
+    "max_floating_loss_usd_001_lot": 0.65,
+    "dynamic_risk_multiplier": 0.75
+  },
+  "breakeven": {
+    "enable": true,
+    "trigger_usd_001_lot": 0.35,
+    "be_lock_distance_usd_001_lot": 0.02
+  },
+  "runner": {
+    "enable_runner": false,
+    "runner_timeout_seconds": 30
+  }
+}
