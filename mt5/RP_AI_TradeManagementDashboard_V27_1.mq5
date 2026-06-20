@@ -3,8 +3,8 @@
 //| On-chart MT5 dashboard for post-entry trade management only.      |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "27.10"
-#property description "V27.1 Trade Management Dashboard - post-entry management only"
+#property version   "27.20"
+#property description "V27.2 Interactive Trade Management Dashboard Editor - post-entry management only"
 
 #include <Trade/Trade.mqh>
 
@@ -24,26 +24,38 @@ struct DashboardConfig
 {
    string active_profile;
    bool enabled;
+   double initial_sl_usd_001_lot;
    double hard_loss_cap_usd_001_lot;
    double max_floating_loss_usd_001_lot;
+   bool emergency_close;
    bool breakeven_enable;
    double breakeven_trigger_usd_001_lot;
    double breakeven_offset_usd_001_lot;
+   bool runner_be;
    bool trailing_enable;
    double trailing_start_usd_001_lot;
    double trailing_distance_usd_001_lot;
    double trailing_step_usd_001_lot;
+   bool atr_trail_enable;
    double lock1_trigger;
    double lock1_lock;
    double lock2_trigger;
    double lock2_lock;
    double lock3_trigger;
    double lock3_lock;
+   double minimum_locked_profit_usd_001_lot;
    bool runner_enable;
    int runner_timeout_seconds;
+   string runner_trail;
+   double runner_sl_usd_001_lot;
+   bool momentum_confirmation;
+   bool time_exit_enable;
    int maximum_seconds;
+   int maximum_bars;
    bool partial_enable;
    int partial_level_1_percent;
+   int partial_level_2_percent;
+   int remaining_runner_percent;
    string load_status;
    bool fallback_defaults_used;
 };
@@ -57,23 +69,35 @@ void ApplyBackwardCompatibleDefaults(DashboardConfig &cfg)
 {
    cfg.active_profile = InpDefaultProfile;
    cfg.enabled = true;
+   cfg.initial_sl_usd_001_lot = 1.00;
+   cfg.emergency_close = true;
    cfg.hard_loss_cap_usd_001_lot = 1.00;
    cfg.max_floating_loss_usd_001_lot = 0.80;
    cfg.breakeven_enable = true;
    cfg.breakeven_trigger_usd_001_lot = 0.50;
    cfg.breakeven_offset_usd_001_lot = 0.00;
+   cfg.runner_be = true;
    cfg.trailing_enable = true;
    cfg.trailing_start_usd_001_lot = 0.80;
    cfg.trailing_distance_usd_001_lot = 0.30;
    cfg.trailing_step_usd_001_lot = 0.10;
+   cfg.atr_trail_enable = false;
    cfg.lock1_trigger = 0.50; cfg.lock1_lock = 0.00;
    cfg.lock2_trigger = 0.80; cfg.lock2_lock = 0.10;
    cfg.lock3_trigger = 1.20; cfg.lock3_lock = 0.40;
+   cfg.minimum_locked_profit_usd_001_lot = 0.05;
    cfg.runner_enable = true;
    cfg.runner_timeout_seconds = 45;
+   cfg.runner_trail = "STRUCTURE_MOMENTUM_BB_WALK";
+   cfg.runner_sl_usd_001_lot = 1.00;
+   cfg.momentum_confirmation = true;
+   cfg.time_exit_enable = false;
    cfg.maximum_seconds = 0;
+   cfg.maximum_bars = 0;
    cfg.partial_enable = false;
    cfg.partial_level_1_percent = 0;
+   cfg.partial_level_2_percent = 0;
+   cfg.remaining_runner_percent = 100;
    cfg.load_status = "embedded V26.6-compatible defaults";
    cfg.fallback_defaults_used = true;
 }
@@ -144,26 +168,84 @@ bool JsonBool(const string json, const string key, const bool fallback)
    return fallback;
 }
 
+
+double ClampDouble(const double value, const double lo, const double hi)
+{
+   if(value < lo) return lo;
+   if(value > hi) return hi;
+   return value;
+}
+
+int ClampInt(const int value, const int lo, const int hi)
+{
+   if(value < lo) return lo;
+   if(value > hi) return hi;
+   return value;
+}
+
+void ValidateConfig(DashboardConfig &cfg)
+{
+   cfg.initial_sl_usd_001_lot = ClampDouble(cfg.initial_sl_usd_001_lot, 0.01, 100.0);
+   cfg.hard_loss_cap_usd_001_lot = ClampDouble(cfg.hard_loss_cap_usd_001_lot, 0.01, 100.0);
+   cfg.max_floating_loss_usd_001_lot = ClampDouble(cfg.max_floating_loss_usd_001_lot, 0.01, 100.0);
+   cfg.breakeven_trigger_usd_001_lot = ClampDouble(cfg.breakeven_trigger_usd_001_lot, 0.0, 100.0);
+   cfg.breakeven_offset_usd_001_lot = ClampDouble(cfg.breakeven_offset_usd_001_lot, -10.0, 100.0);
+   cfg.trailing_start_usd_001_lot = ClampDouble(cfg.trailing_start_usd_001_lot, 0.0, 100.0);
+   cfg.trailing_distance_usd_001_lot = ClampDouble(cfg.trailing_distance_usd_001_lot, 0.01, 100.0);
+   cfg.trailing_step_usd_001_lot = ClampDouble(cfg.trailing_step_usd_001_lot, 0.01, 100.0);
+   cfg.lock1_trigger = ClampDouble(cfg.lock1_trigger, 0.0, 100.0);
+   cfg.lock1_lock = ClampDouble(cfg.lock1_lock, -10.0, 100.0);
+   cfg.lock2_trigger = ClampDouble(cfg.lock2_trigger, 0.0, 100.0);
+   cfg.lock2_lock = ClampDouble(cfg.lock2_lock, -10.0, 100.0);
+   cfg.lock3_trigger = ClampDouble(cfg.lock3_trigger, 0.0, 100.0);
+   cfg.lock3_lock = ClampDouble(cfg.lock3_lock, -10.0, 100.0);
+   cfg.minimum_locked_profit_usd_001_lot = ClampDouble(cfg.minimum_locked_profit_usd_001_lot, 0.0, 100.0);
+   cfg.runner_timeout_seconds = ClampInt(cfg.runner_timeout_seconds, 0, 86400);
+   cfg.runner_sl_usd_001_lot = ClampDouble(cfg.runner_sl_usd_001_lot, 0.01, 100.0);
+   cfg.maximum_seconds = ClampInt(cfg.maximum_seconds, 0, 86400);
+   cfg.maximum_bars = ClampInt(cfg.maximum_bars, 0, 10000);
+   cfg.partial_level_1_percent = ClampInt(cfg.partial_level_1_percent, 0, 100);
+   cfg.partial_level_2_percent = ClampInt(cfg.partial_level_2_percent, 0, 100);
+   cfg.remaining_runner_percent = ClampInt(cfg.remaining_runner_percent, 0, 100);
+}
+
 void OverlayJson(DashboardConfig &cfg, const string json)
 {
    cfg.active_profile = JsonString(json, "active_profile", cfg.active_profile);
    cfg.enabled = JsonBool(json, "enabled", cfg.enabled);
+   cfg.initial_sl_usd_001_lot = JsonNumber(json, "initial_sl_usd_001_lot", cfg.initial_sl_usd_001_lot);
    cfg.hard_loss_cap_usd_001_lot = JsonNumber(json, "hard_loss_cap_usd_001_lot", cfg.hard_loss_cap_usd_001_lot);
    cfg.max_floating_loss_usd_001_lot = JsonNumber(json, "max_floating_loss_usd_001_lot", cfg.max_floating_loss_usd_001_lot);
+   cfg.emergency_close = JsonBool(json, "emergency_close", cfg.emergency_close);
    cfg.breakeven_enable = JsonBool(json, "enable", cfg.breakeven_enable);
    cfg.breakeven_trigger_usd_001_lot = JsonNumber(json, "trigger_usd_001_lot", cfg.breakeven_trigger_usd_001_lot);
    cfg.breakeven_offset_usd_001_lot = JsonNumber(json, "offset_usd_001_lot", cfg.breakeven_offset_usd_001_lot);
+   cfg.runner_be = JsonBool(json, "runner_be", cfg.runner_be);
    cfg.trailing_enable = JsonBool(json, "dynamic_trail", cfg.trailing_enable);
    cfg.trailing_start_usd_001_lot = JsonNumber(json, "start_usd_001_lot", cfg.trailing_start_usd_001_lot);
    cfg.trailing_distance_usd_001_lot = JsonNumber(json, "distance_usd_001_lot", cfg.trailing_distance_usd_001_lot);
    cfg.trailing_step_usd_001_lot = JsonNumber(json, "step_usd_001_lot", cfg.trailing_step_usd_001_lot);
+   cfg.atr_trail_enable = JsonBool(json, "atr_trail", cfg.atr_trail_enable);
    cfg.lock1_trigger = JsonNumber(json, "trigger", cfg.lock1_trigger);
    cfg.lock1_lock = JsonNumber(json, "lock", cfg.lock1_lock);
+   cfg.lock2_trigger = JsonNumber(json, "lock2_trigger", cfg.lock2_trigger);
+   cfg.lock2_lock = JsonNumber(json, "lock2_lock", cfg.lock2_lock);
+   cfg.lock3_trigger = JsonNumber(json, "lock3_trigger", cfg.lock3_trigger);
+   cfg.lock3_lock = JsonNumber(json, "lock3_lock", cfg.lock3_lock);
+   cfg.minimum_locked_profit_usd_001_lot = JsonNumber(json, "minimum_locked_profit_usd_001_lot", cfg.minimum_locked_profit_usd_001_lot);
    cfg.runner_enable = JsonBool(json, "enable_runner", cfg.runner_enable);
    cfg.runner_timeout_seconds = (int)JsonNumber(json, "runner_timeout_seconds", cfg.runner_timeout_seconds);
+   cfg.runner_sl_usd_001_lot = JsonNumber(json, "runner_sl_usd_001_lot", cfg.runner_sl_usd_001_lot);
+   cfg.runner_trail = JsonString(json, "runner_trail", cfg.runner_trail);
+   cfg.momentum_confirmation = JsonBool(json, "momentum_confirmation", cfg.momentum_confirmation);
+   cfg.time_exit_enable = JsonBool(json, "time_exit_enable", cfg.time_exit_enable);
    cfg.maximum_seconds = (int)JsonNumber(json, "maximum_seconds", cfg.maximum_seconds);
+   cfg.maximum_bars = (int)JsonNumber(json, "maximum_bars", cfg.maximum_bars);
    cfg.partial_enable = JsonBool(json, "partial_exits_enable", cfg.partial_enable);
    cfg.partial_level_1_percent = (int)JsonNumber(json, "partial_level_1_percent", cfg.partial_level_1_percent);
+   cfg.partial_level_2_percent = (int)JsonNumber(json, "partial_level_2_percent", cfg.partial_level_2_percent);
+   cfg.remaining_runner_percent = (int)JsonNumber(json, "remaining_runner_percent", cfg.remaining_runner_percent);
+   ValidateConfig(cfg);
 }
 
 bool LoadDashboardProfile()
@@ -190,12 +272,27 @@ bool LoadDashboardProfile()
 
 string DashboardJson()
 {
-   return StringFormat("{\n  \"schema_version\": \"%s\",\n  \"active_profile\": \"%s\",\n  \"enabled\": %s,\n  \"risk\": {\"hard_loss_cap_usd_001_lot\": %.2f, \"max_floating_loss_usd_001_lot\": %.2f},\n  \"breakeven\": {\"enable\": %s, \"trigger_usd_001_lot\": %.2f, \"offset_usd_001_lot\": %.2f},\n  \"trailing\": {\"enable\": %s, \"start_usd_001_lot\": %.2f, \"distance_usd_001_lot\": %.2f, \"step_usd_001_lot\": %.2f},\n  \"runner\": {\"enable_runner\": %s, \"runner_timeout_seconds\": %d},\n  \"time_exits\": {\"maximum_seconds\": %d}\n}\n",
+   ValidateConfig(g_cfg);
+   return StringFormat("{\n"
+                       "  \"schema_version\": \"%s\",\n"
+                       "  \"active_profile\": \"%s\",\n"
+                       "  \"enabled\": %s,\n"
+                       "  \"risk\": {\"initial_sl_usd_001_lot\": %.2f, \"hard_loss_cap_usd_001_lot\": %.2f, \"max_floating_loss_usd_001_lot\": %.2f, \"emergency_close\": %s},\n"
+                       "  \"breakeven\": {\"enable\": %s, \"trigger_usd_001_lot\": %.2f, \"offset_usd_001_lot\": %.2f, \"runner_be\": %s},\n"
+                       "  \"trailing\": {\"enable\": %s, \"start_usd_001_lot\": %.2f, \"distance_usd_001_lot\": %.2f, \"step_usd_001_lot\": %.2f, \"atr_trail\": %s, \"dynamic_trail\": %s},\n"
+                       "  \"profit_locks\": {\"lock_level_1_usd_001_lot\": {\"trigger\": %.2f, \"lock\": %.2f}, \"lock2_trigger\": %.2f, \"lock2_lock\": %.2f, \"lock3_trigger\": %.2f, \"lock3_lock\": %.2f, \"minimum_locked_profit_usd_001_lot\": %.2f},\n"
+                       "  \"runner\": {\"enable_runner\": %s, \"runner_timeout_seconds\": %d, \"runner_trail\": \"%s\", \"runner_sl_usd_001_lot\": %.2f, \"momentum_confirmation\": %s},\n"
+                       "  \"time_exits\": {\"time_exit_enable\": %s, \"maximum_seconds\": %d, \"maximum_bars\": %d},\n"
+                       "  \"partial_exits\": {\"enable\": %s, \"partial_level_1_percent\": %d, \"partial_level_2_percent\": %d, \"remaining_runner_percent\": %d}\n"
+                       "}\n",
                        RP_DASH_SCHEMA, g_cfg.active_profile, g_cfg.enabled ? "true" : "false",
-                       g_cfg.hard_loss_cap_usd_001_lot, g_cfg.max_floating_loss_usd_001_lot,
-                       g_cfg.breakeven_enable ? "true" : "false", g_cfg.breakeven_trigger_usd_001_lot, g_cfg.breakeven_offset_usd_001_lot,
-                       g_cfg.trailing_enable ? "true" : "false", g_cfg.trailing_start_usd_001_lot, g_cfg.trailing_distance_usd_001_lot, g_cfg.trailing_step_usd_001_lot,
-                       g_cfg.runner_enable ? "true" : "false", g_cfg.runner_timeout_seconds, g_cfg.maximum_seconds);
+                       g_cfg.initial_sl_usd_001_lot, g_cfg.hard_loss_cap_usd_001_lot, g_cfg.max_floating_loss_usd_001_lot, g_cfg.emergency_close ? "true" : "false",
+                       g_cfg.breakeven_enable ? "true" : "false", g_cfg.breakeven_trigger_usd_001_lot, g_cfg.breakeven_offset_usd_001_lot, g_cfg.runner_be ? "true" : "false",
+                       g_cfg.trailing_enable ? "true" : "false", g_cfg.trailing_start_usd_001_lot, g_cfg.trailing_distance_usd_001_lot, g_cfg.trailing_step_usd_001_lot, g_cfg.atr_trail_enable ? "true" : "false", g_cfg.trailing_enable ? "true" : "false",
+                       g_cfg.lock1_trigger, g_cfg.lock1_lock, g_cfg.lock2_trigger, g_cfg.lock2_lock, g_cfg.lock3_trigger, g_cfg.lock3_lock, g_cfg.minimum_locked_profit_usd_001_lot,
+                       g_cfg.runner_enable ? "true" : "false", g_cfg.runner_timeout_seconds, g_cfg.runner_trail, g_cfg.runner_sl_usd_001_lot, g_cfg.momentum_confirmation ? "true" : "false",
+                       g_cfg.time_exit_enable ? "true" : "false", g_cfg.maximum_seconds, g_cfg.maximum_bars,
+                       g_cfg.partial_enable ? "true" : "false", g_cfg.partial_level_1_percent, g_cfg.partial_level_2_percent, g_cfg.remaining_runner_percent);
 }
 
 void SaveDashboardProfile()
@@ -213,7 +310,7 @@ void CreateButton(const string name, const string text, const int x, const int y
    ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
    ObjectSetInteger(0, name, OBJPROP_XSIZE, w);
-   ObjectSetInteger(0, name, OBJPROP_YSIZE, 22);
+   ObjectSetInteger(0, name, OBJPROP_YSIZE, 20);
    ObjectSetString(0, name, OBJPROP_TEXT, text);
 }
 
@@ -223,31 +320,146 @@ void CreateLabel(const string name, const int x, const int y)
    ObjectSetInteger(0, name, OBJPROP_CORNER, InpChartCorner);
    ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
-   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 9);
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 8);
    ObjectSetInteger(0, name, OBJPROP_COLOR, clrWhite);
+}
+
+string BoolText(const bool value) { return value ? "ON" : "OFF"; }
+
+void DrawControl(const string id, const string label, const string value, const int x, const int y)
+{
+   CreateLabel(RP_PREFIX + "LBL_" + id, x, y + 3);
+   ObjectSetString(0, RP_PREFIX + "LBL_" + id, OBJPROP_TEXT, label + ": " + value);
+   CreateButton(RP_PREFIX + "MINUS_" + id, "-", x + 178, y, 24);
+   CreateButton(RP_PREFIX + "PLUS_" + id, "+", x + 204, y, 24);
 }
 
 void DrawDashboard()
 {
+   ObjectsDeleteAll(0, RP_PREFIX);
    CreateLabel(RP_PREFIX + "TITLE", InpX, InpY);
-   CreateButton(RP_PREFIX + "SAVE", "Save Profile JSON", InpX, InpY + 22, 130);
-   CreateButton(RP_PREFIX + "LOAD", "Load/Reload JSON", InpX + 136, InpY + 22, 130);
-   CreateButton(RP_PREFIX + "TOGGLE", g_cfg.enabled ? "Disable TM" : "Enable TM", InpX + 272, InpY + 22, 90);
-   CreateLabel(RP_PREFIX + "BODY", InpX, InpY + 52);
+   CreateButton(RP_PREFIX + "APPLY", "Apply Runtime", InpX, InpY + 22, 112);
+   CreateButton(RP_PREFIX + "SAVE", "Save JSON", InpX + 116, InpY + 22, 88);
+   CreateButton(RP_PREFIX + "LOAD", "Reload JSON", InpX + 208, InpY + 22, 96);
+   CreateButton(RP_PREFIX + "RESET", "Reset Default", InpX + 308, InpY + 22, 100);
+   CreateButton(RP_PREFIX + "PROFILE", "Cycle Profile", InpX + 412, InpY + 22, 104);
+   CreateButton(RP_PREFIX + "TOGGLE", g_cfg.enabled ? "Disable TM" : "Enable TM", InpX + 520, InpY + 22, 90);
+
+   int y = InpY + 50;
+   DrawControl("INITIAL_SL", "Risk Initial SL", DoubleToString(g_cfg.initial_sl_usd_001_lot, 2), InpX, y); y += 22;
+   DrawControl("HARD_CAP", "Risk Hard Loss Cap", DoubleToString(g_cfg.hard_loss_cap_usd_001_lot, 2), InpX, y); y += 22;
+   DrawControl("FLOAT_CAP", "Risk Max Floating Loss", DoubleToString(g_cfg.max_floating_loss_usd_001_lot, 2), InpX, y); y += 22;
+   DrawControl("BE_ENABLE", "BE Enable", BoolText(g_cfg.breakeven_enable), InpX, y); y += 22;
+   DrawControl("BE_TRIGGER", "BE Trigger", DoubleToString(g_cfg.breakeven_trigger_usd_001_lot, 2), InpX, y); y += 22;
+   DrawControl("BE_OFFSET", "BE Offset", DoubleToString(g_cfg.breakeven_offset_usd_001_lot, 2), InpX, y); y += 22;
+   DrawControl("RUNNER_BE", "Runner BE", BoolText(g_cfg.runner_be), InpX, y); y += 22;
+
+   y = InpY + 50;
+   int x2 = InpX + 250;
+   DrawControl("TRAIL_ENABLE", "Trail Enable", BoolText(g_cfg.trailing_enable), x2, y); y += 22;
+   DrawControl("TRAIL_START", "Trail Start", DoubleToString(g_cfg.trailing_start_usd_001_lot, 2), x2, y); y += 22;
+   DrawControl("TRAIL_DIST", "Trail Distance", DoubleToString(g_cfg.trailing_distance_usd_001_lot, 2), x2, y); y += 22;
+   DrawControl("TRAIL_STEP", "Trail Step", DoubleToString(g_cfg.trailing_step_usd_001_lot, 2), x2, y); y += 22;
+   DrawControl("ATR_TRAIL", "ATR Trail Enable", BoolText(g_cfg.atr_trail_enable), x2, y); y += 22;
+   DrawControl("LOCK1", "Profit Lock L1", DoubleToString(g_cfg.lock1_trigger, 2) + "/" + DoubleToString(g_cfg.lock1_lock, 2), x2, y); y += 22;
+   DrawControl("LOCK2", "Profit Lock L2", DoubleToString(g_cfg.lock2_trigger, 2) + "/" + DoubleToString(g_cfg.lock2_lock, 2), x2, y); y += 22;
+   DrawControl("LOCK3", "Profit Lock L3", DoubleToString(g_cfg.lock3_trigger, 2) + "/" + DoubleToString(g_cfg.lock3_lock, 2), x2, y); y += 22;
+   DrawControl("MIN_LOCK", "Minimum Locked Profit", DoubleToString(g_cfg.minimum_locked_profit_usd_001_lot, 2), x2, y); y += 22;
+
+   y = InpY + 50;
+   int x3 = InpX + 500;
+   DrawControl("RUNNER_ENABLE", "Runner Enable", BoolText(g_cfg.runner_enable), x3, y); y += 22;
+   DrawControl("RUNNER_TIMEOUT", "Runner Timeout", IntegerToString(g_cfg.runner_timeout_seconds), x3, y); y += 22;
+   DrawControl("RUNNER_SL", "Runner SL", DoubleToString(g_cfg.runner_sl_usd_001_lot, 2), x3, y); y += 22;
+   DrawControl("MOMENTUM", "Momentum Confirm", BoolText(g_cfg.momentum_confirmation), x3, y); y += 22;
+   DrawControl("TIME_ENABLE", "Time Exit Enable", BoolText(g_cfg.time_exit_enable), x3, y); y += 22;
+   DrawControl("MAX_SECONDS", "Time Max Seconds", IntegerToString(g_cfg.maximum_seconds), x3, y); y += 22;
+   DrawControl("MAX_BARS", "Time Max Bars", IntegerToString(g_cfg.maximum_bars), x3, y); y += 22;
+   DrawControl("PARTIAL_ENABLE", "Partial Enable", BoolText(g_cfg.partial_enable), x3, y); y += 22;
+   DrawControl("PARTIAL1", "Partial Level 1", IntegerToString(g_cfg.partial_level_1_percent) + "%", x3, y); y += 22;
+   DrawControl("PARTIAL2", "Partial Level 2", IntegerToString(g_cfg.partial_level_2_percent) + "%", x3, y); y += 22;
+   DrawControl("REMAIN_RUNNER", "Remaining Runner %", IntegerToString(g_cfg.remaining_runner_percent) + "%", x3, y); y += 22;
+
+   CreateLabel(RP_PREFIX + "BODY", InpX, InpY + 292);
+   CreateLabel(RP_PREFIX + "POSITIONS", InpX, InpY + 372);
    UpdateDashboardText();
+}
+
+string CurrentProfitLockLevel()
+{
+   return StringFormat("L1 %.2f/%.2f | L2 %.2f/%.2f | L3 %.2f/%.2f", g_cfg.lock1_trigger, g_cfg.lock1_lock, g_cfg.lock2_trigger, g_cfg.lock2_lock, g_cfg.lock3_trigger, g_cfg.lock3_lock);
 }
 
 void UpdateDashboardText()
 {
-   ObjectSetString(0, RP_PREFIX + "TITLE", OBJPROP_TEXT, "V27.1 Trade Management Dashboard (NO AI direction/entry controls)");
+   ObjectSetString(0, RP_PREFIX + "TITLE", OBJPROP_TEXT, "V27.2 Interactive Trade Management Dashboard Editor (POST-ENTRY ONLY; no AI direction/entry controls)");
+   string json_status = g_cfg.fallback_defaults_used ? "FALLBACK_EMBEDDED_DEFAULTS" : "JSON_PROFILE_LOADED";
    ObjectSetString(0, RP_PREFIX + "BODY", OBJPROP_TEXT,
-                   StringFormat("Profile=%s | Enabled=%s | Load=%s | Fallback=%s\nHardCap=$%.2f/0.01 | BE=%s @ $%.2f | Trail=%s start $%.2f dist $%.2f\nExecutor runtime values active: %s | Last reload: %s",
-                                g_cfg.active_profile, g_cfg.enabled ? "true" : "false", g_cfg.load_status,
-                                g_cfg.fallback_defaults_used ? "true" : "false", g_cfg.hard_loss_cap_usd_001_lot,
-                                g_cfg.breakeven_enable ? "on" : "off", g_cfg.breakeven_trigger_usd_001_lot,
-                                g_cfg.trailing_enable ? "on" : "off", g_cfg.trailing_start_usd_001_lot,
-                                g_cfg.trailing_distance_usd_001_lot, InpManageOpenTrades ? "yes" : "display only",
-                                TimeToString(g_last_load, TIME_DATE | TIME_SECONDS)));
+                   StringFormat("Profile: %s | JSON Status: %s | Last Reload: %s | TM: %s | Status: %s\nActive Exit Authority Owner: %s | Effective Management Mode: %s\nCurrent BE Trigger: %.2f | Trail Distance: %.2f | Hard Loss Cap: %.2f | Profit Lock: %s\nExecutor consumes this runtime profile through Exit Authority priority: EMERGENCY > HARD_LOSS > PROFIT_LOCK > BE > TRAIL > RUNNER > TIME",
+                                g_cfg.active_profile, json_status, TimeToString(g_last_load, TIME_DATE | TIME_SECONDS),
+                                g_cfg.enabled ? "ENABLED" : "DISABLED", g_status,
+                                "Exit Authority Manager (single-owner priority)", g_cfg.runner_enable ? "RUNNER/TRAIL/LOCK" : "SCALP_PROTECTION",
+                                g_cfg.breakeven_trigger_usd_001_lot, g_cfg.trailing_distance_usd_001_lot, g_cfg.hard_loss_cap_usd_001_lot, CurrentProfitLockLevel()));
+
+   string pos = "Open positions (ticket dir lot profit MFE mode owner state profile):\n";
+   for(int i = PositionsTotal() - 1; i >= 0; --i)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(!PositionSelectByTicket(ticket) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      long type = PositionGetInteger(POSITION_TYPE);
+      double volume = PositionGetDouble(POSITION_VOLUME);
+      double profit = PositionGetDouble(POSITION_PROFIT);
+      string owner = "NONE";
+      if(profit <= -g_cfg.hard_loss_cap_usd_001_lot * (volume / 0.01)) owner = "HARD_LOSS_CAP";
+      else if(profit >= g_cfg.lock1_trigger * (volume / 0.01)) owner = "PROFIT_LOCK";
+      else if(g_cfg.breakeven_enable && profit >= g_cfg.breakeven_trigger_usd_001_lot * (volume / 0.01)) owner = "BREAKEVEN";
+      else if(g_cfg.trailing_enable && profit >= g_cfg.trailing_start_usd_001_lot * (volume / 0.01)) owner = "TRAILING";
+      else if(g_cfg.runner_enable) owner = "RUNNER";
+      pos += StringFormat("%I64u %s %.2f %.2f %.2f %s %s %s %s\n", ticket, type == POSITION_TYPE_BUY ? "BUY" : "SELL", volume, profit, profit, g_cfg.runner_enable ? "RUNNER/TRAIL" : "PROTECT", owner, g_cfg.enabled ? "ACTIVE" : "DISABLED", g_cfg.active_profile);
+   }
+   ObjectSetString(0, RP_PREFIX + "POSITIONS", OBJPROP_TEXT, pos);
+}
+
+void AdjustControl(const string id, const int dir)
+{
+   double step = 0.05;
+   if(id == "INITIAL_SL") g_cfg.initial_sl_usd_001_lot += dir * step;
+   else if(id == "HARD_CAP") g_cfg.hard_loss_cap_usd_001_lot += dir * step;
+   else if(id == "FLOAT_CAP") g_cfg.max_floating_loss_usd_001_lot += dir * step;
+   else if(id == "BE_ENABLE") g_cfg.breakeven_enable = !g_cfg.breakeven_enable;
+   else if(id == "BE_TRIGGER") g_cfg.breakeven_trigger_usd_001_lot += dir * step;
+   else if(id == "BE_OFFSET") g_cfg.breakeven_offset_usd_001_lot += dir * step;
+   else if(id == "RUNNER_BE") g_cfg.runner_be = !g_cfg.runner_be;
+   else if(id == "TRAIL_ENABLE") g_cfg.trailing_enable = !g_cfg.trailing_enable;
+   else if(id == "TRAIL_START") g_cfg.trailing_start_usd_001_lot += dir * step;
+   else if(id == "TRAIL_DIST") g_cfg.trailing_distance_usd_001_lot += dir * step;
+   else if(id == "TRAIL_STEP") g_cfg.trailing_step_usd_001_lot += dir * step;
+   else if(id == "ATR_TRAIL") g_cfg.atr_trail_enable = !g_cfg.atr_trail_enable;
+   else if(id == "LOCK1") { g_cfg.lock1_trigger += dir * step; g_cfg.lock1_lock += dir * step; }
+   else if(id == "LOCK2") { g_cfg.lock2_trigger += dir * step; g_cfg.lock2_lock += dir * step; }
+   else if(id == "LOCK3") { g_cfg.lock3_trigger += dir * step; g_cfg.lock3_lock += dir * step; }
+   else if(id == "MIN_LOCK") g_cfg.minimum_locked_profit_usd_001_lot += dir * step;
+   else if(id == "RUNNER_ENABLE") g_cfg.runner_enable = !g_cfg.runner_enable;
+   else if(id == "RUNNER_TIMEOUT") g_cfg.runner_timeout_seconds += dir * 5;
+   else if(id == "RUNNER_SL") g_cfg.runner_sl_usd_001_lot += dir * step;
+   else if(id == "MOMENTUM") g_cfg.momentum_confirmation = !g_cfg.momentum_confirmation;
+   else if(id == "TIME_ENABLE") g_cfg.time_exit_enable = !g_cfg.time_exit_enable;
+   else if(id == "MAX_SECONDS") g_cfg.maximum_seconds += dir * 30;
+   else if(id == "MAX_BARS") g_cfg.maximum_bars += dir;
+   else if(id == "PARTIAL_ENABLE") g_cfg.partial_enable = !g_cfg.partial_enable;
+   else if(id == "PARTIAL1") g_cfg.partial_level_1_percent += dir * 5;
+   else if(id == "PARTIAL2") g_cfg.partial_level_2_percent += dir * 5;
+   else if(id == "REMAIN_RUNNER") g_cfg.remaining_runner_percent += dir * 5;
+   ValidateConfig(g_cfg);
+   g_status = "edited in-memory - click Apply and/or Save JSON";
+}
+
+void CycleProfile()
+{
+   if(g_cfg.active_profile == "Balanced") g_cfg.active_profile = "Conservative";
+   else if(g_cfg.active_profile == "Conservative") g_cfg.active_profile = "Aggressive";
+   else g_cfg.active_profile = "Balanced";
+   g_status = "profile selected in-memory - click Reload JSON to load file or Save JSON to create it";
 }
 
 double MoneyToPriceDistance(const double money_001_lot, const double volume)
@@ -283,6 +495,17 @@ void ManageOpenPositions()
       }
 
       double candidate_sl = sl;
+      double scale = volume / 0.01;
+      double lock_money = -999999.0;
+      if(profit >= g_cfg.lock3_trigger * scale) lock_money = MathMax(lock_money, g_cfg.lock3_lock);
+      else if(profit >= g_cfg.lock2_trigger * scale) lock_money = MathMax(lock_money, g_cfg.lock2_lock);
+      else if(profit >= g_cfg.lock1_trigger * scale) lock_money = MathMax(lock_money, g_cfg.lock1_lock);
+      if(lock_money > -999998.0)
+      {
+         lock_money = MathMax(lock_money, g_cfg.minimum_locked_profit_usd_001_lot);
+         double lock_dist = MoneyToPriceDistance(lock_money, volume);
+         candidate_sl = (type == POSITION_TYPE_BUY) ? open + lock_dist : open - lock_dist;
+      }
       if(g_cfg.breakeven_enable && profit >= g_cfg.breakeven_trigger_usd_001_lot * (volume / 0.01))
       {
          double be_dist = MoneyToPriceDistance(g_cfg.breakeven_offset_usd_001_lot, volume);
@@ -316,7 +539,6 @@ void OnDeinit(const int reason)
 
 void OnTimer()
 {
-   LoadDashboardProfile();
    ManageOpenPositions();
    UpdateDashboardText();
 }
@@ -330,8 +552,13 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
 {
    if(id != CHARTEVENT_OBJECT_CLICK) return;
    if(sparam == RP_PREFIX + "SAVE") SaveDashboardProfile();
-   if(sparam == RP_PREFIX + "LOAD") { LoadDashboardProfile(); g_status = "reloaded json without recompiling"; }
-   if(sparam == RP_PREFIX + "TOGGLE") g_cfg.enabled = !g_cfg.enabled;
+   else if(sparam == RP_PREFIX + "LOAD") { LoadDashboardProfile(); g_status = "reloaded json without recompiling"; }
+   else if(sparam == RP_PREFIX + "APPLY") { ValidateConfig(g_cfg); g_status = "applied runtime values immediately"; ManageOpenPositions(); }
+   else if(sparam == RP_PREFIX + "RESET") { ApplyBackwardCompatibleDefaults(g_cfg); ValidateConfig(g_cfg); g_status = "reset to embedded defaults in-memory"; }
+   else if(sparam == RP_PREFIX + "PROFILE") CycleProfile();
+   else if(sparam == RP_PREFIX + "TOGGLE") { g_cfg.enabled = !g_cfg.enabled; g_status = g_cfg.enabled ? "trade management enabled" : "trade management disabled"; }
+   else if(StringFind(sparam, RP_PREFIX + "PLUS_") == 0) AdjustControl(StringSubstr(sparam, StringLen(RP_PREFIX + "PLUS_")), 1);
+   else if(StringFind(sparam, RP_PREFIX + "MINUS_") == 0) AdjustControl(StringSubstr(sparam, StringLen(RP_PREFIX + "MINUS_")), -1);
    DrawDashboard();
 }
 //+------------------------------------------------------------------+
