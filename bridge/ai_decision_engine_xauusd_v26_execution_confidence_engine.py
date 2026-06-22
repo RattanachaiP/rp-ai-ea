@@ -1761,6 +1761,7 @@ def apply_trade_management_dashboard_v27(decision):
     trailing = _dashboard_section_v27(dashboard, "trailing")
     locks = _dashboard_section_v27(dashboard, "profit_locks")
     runner = _dashboard_section_v27(dashboard, "runner")
+    fixed_take_profit = _dashboard_section_v27(dashboard, "fixed_take_profit")
     time_exits = _dashboard_section_v27(dashboard, "time_exits")
     partials = _dashboard_section_v27(dashboard, "partial_exits")
 
@@ -1780,6 +1781,7 @@ def apply_trade_management_dashboard_v27(decision):
     decision["dashboard_trailing"] = trailing
     decision["dashboard_profit_locks"] = locks
     decision["dashboard_runner"] = runner
+    decision["dashboard_fixed_take_profit"] = fixed_take_profit
     decision["dashboard_time_exits"] = time_exits
     decision["dashboard_partial_exits"] = partials
     decision["dynamic_risk_multiplier"] = safe_float(risk.get("dynamic_risk_multiplier", decision.get("dynamic_risk_multiplier", 1.0)), 1.0)
@@ -1789,6 +1791,8 @@ def apply_trade_management_dashboard_v27(decision):
     decision["breakeven_trigger_usd_001_lot"] = safe_float(breakeven.get("trigger_usd_001_lot", V26_6_2_BE_TRIGGER_USD_001_LOT), V26_6_2_BE_TRIGGER_USD_001_LOT)
     decision["breakeven_delay_seconds"] = safe_int(breakeven.get("delay_seconds", 0), 0)
     decision["breakeven_lock_distance_usd_001_lot"] = safe_float(breakeven.get("be_lock_distance_usd_001_lot", 0.0), 0.0)
+    decision["fixed_take_profit_enabled_by_dashboard"] = bool(fixed_take_profit.get("enable", False))
+    decision["fixed_take_profit_close_usd_001_lot"] = safe_float(fixed_take_profit.get("close_profit_usd_001_lot", 1.0), 1.0)
     decision["runner_enabled_by_dashboard"] = bool(runner.get("enable_runner", True))
     decision["runner_momentum_timeout_sec"] = safe_int(runner.get("runner_timeout_seconds", V26_6_2_RUNNER_MOMENTUM_TIMEOUT_SEC), V26_6_2_RUNNER_MOMENTUM_TIMEOUT_SEC)
     decision["runner_exit_mode"] = runner.get("runner_exit_mode", "PROTECTED_EXIT_ON_TIMEOUT_OR_MOMENTUM_DECAY")

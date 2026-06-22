@@ -1,0 +1,84 @@
+{
+  "active_profile": "TP_ONLY_1USD_TEST",
+  "description": "TP-only validation profile: keep AI entry unchanged, disable BE/trailing/dynamic SL/profit-lock/runner management, and close immediately at +$1.00 per 0.01 lot while retaining emergency catastrophic protection.",
+  "risk": {
+    "initial_sl_usd_001_lot": 1.0,
+    "dynamic_sl_enabled": false,
+    "atr_sl_enabled": false,
+    "emergency_sl_usd_001_lot": 1.0,
+    "max_floating_loss_usd_001_lot": 1.0,
+    "hard_loss_cap_usd_001_lot": 1.0,
+    "emergency_close": true,
+    "dynamic_risk_multiplier": 1.0
+  },
+  "breakeven": {
+    "enable": false,
+    "trigger_usd_001_lot": 999.0,
+    "offset_usd_001_lot": 0.0,
+    "runner_be": false,
+    "delay_seconds": 0,
+    "be_lock_distance_usd_001_lot": 0.0
+  },
+  "trailing": {
+    "enable": false,
+    "start_usd_001_lot": 999.0,
+    "distance_usd_001_lot": 999.0,
+    "step_usd_001_lot": 999.0,
+    "atr_trail": false,
+    "dynamic_trail": false,
+    "structure_trail": false
+  },
+  "profit_locks": {
+    "enable": false,
+    "lock_level_1_usd_001_lot": {
+      "trigger": 999.0,
+      "lock": 0.0
+    },
+    "lock_level_2_usd_001_lot": {
+      "trigger": 999.0,
+      "lock": 0.0
+    },
+    "lock_level_3_usd_001_lot": {
+      "trigger": 999.0,
+      "lock": 0.0
+    },
+    "runner_lock_usd_001_lot": {
+      "trigger": 999.0,
+      "lock": 0.0
+    },
+    "minimum_locked_profit_usd_001_lot": 0.0
+  },
+  "fixed_take_profit": {
+    "enable": true,
+    "close_profit_usd_001_lot": 1.0,
+    "close_mode": "IMMEDIATE_MARKET_CLOSE",
+    "fixed_take_profit_enable": true
+  },
+  "runner": {
+    "enable_runner": false,
+    "runner_timeout_seconds": 0,
+    "momentum_confirmation": false,
+    "runner_trail": "DISABLED_TP_ONLY_TEST",
+    "runner_sl_usd_001_lot": 1.0,
+    "runner_exit_mode": "DISABLED"
+  },
+  "time_exits": {
+    "maximum_seconds": 0,
+    "maximum_bars": 0,
+    "session_exit": false,
+    "news_exit": false,
+    "position_aging_exit": false
+  },
+  "partial_exits": {
+    "enable": false,
+    "partial_level_1_percent": 0,
+    "partial_level_2_percent": 0,
+    "partial_level_3_percent": 0,
+    "remaining_runner_percent": 0
+  },
+  "exit_authority_priority": [
+    "EMERGENCY_EXIT",
+    "HARD_LOSS_CAP",
+    "FIXED_TAKE_PROFIT"
+  ]
+}

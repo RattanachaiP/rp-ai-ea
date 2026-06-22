@@ -52,6 +52,11 @@ DEFAULT_DASHBOARD: Dict[str, Any] = {
         "runner_lock_usd_001_lot": {"trigger": 1.50, "lock": 0.60},
         "minimum_locked_profit_usd_001_lot": 0.05,
     },
+    "fixed_take_profit": {
+        "enable": False,
+        "close_profit_usd_001_lot": 1.00,
+        "close_mode": "IMMEDIATE_MARKET_CLOSE",
+    },
     "runner": {
         "enable_runner": True,
         "runner_timeout_seconds": 45,

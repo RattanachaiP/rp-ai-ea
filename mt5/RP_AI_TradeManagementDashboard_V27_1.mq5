@@ -44,6 +44,8 @@ struct DashboardConfig
    double lock3_trigger;
    double lock3_lock;
    double minimum_locked_profit_usd_001_lot;
+   bool fixed_take_profit_enable;
+   double fixed_take_profit_close_usd_001_lot;
    bool runner_enable;
    int runner_timeout_seconds;
    string runner_trail;
@@ -86,6 +88,8 @@ void ApplyBackwardCompatibleDefaults(DashboardConfig &cfg)
    cfg.lock2_trigger = 0.80; cfg.lock2_lock = 0.10;
    cfg.lock3_trigger = 1.20; cfg.lock3_lock = 0.40;
    cfg.minimum_locked_profit_usd_001_lot = 0.05;
+   cfg.fixed_take_profit_enable = false;
+   cfg.fixed_take_profit_close_usd_001_lot = 1.00;
    cfg.runner_enable = true;
    cfg.runner_timeout_seconds = 45;
    cfg.runner_trail = "STRUCTURE_MOMENTUM_BB_WALK";
@@ -200,6 +204,7 @@ void ValidateConfig(DashboardConfig &cfg)
    cfg.lock3_trigger = ClampDouble(cfg.lock3_trigger, 0.0, 100.0);
    cfg.lock3_lock = ClampDouble(cfg.lock3_lock, -10.0, 100.0);
    cfg.minimum_locked_profit_usd_001_lot = ClampDouble(cfg.minimum_locked_profit_usd_001_lot, 0.0, 100.0);
+   cfg.fixed_take_profit_close_usd_001_lot = ClampDouble(cfg.fixed_take_profit_close_usd_001_lot, 0.01, 100.0);
    cfg.runner_timeout_seconds = ClampInt(cfg.runner_timeout_seconds, 0, 86400);
    cfg.runner_sl_usd_001_lot = ClampDouble(cfg.runner_sl_usd_001_lot, 0.01, 100.0);
    cfg.maximum_seconds = ClampInt(cfg.maximum_seconds, 0, 86400);
@@ -233,6 +238,8 @@ void OverlayJson(DashboardConfig &cfg, const string json)
    cfg.lock3_trigger = JsonNumber(json, "lock3_trigger", cfg.lock3_trigger);
    cfg.lock3_lock = JsonNumber(json, "lock3_lock", cfg.lock3_lock);
    cfg.minimum_locked_profit_usd_001_lot = JsonNumber(json, "minimum_locked_profit_usd_001_lot", cfg.minimum_locked_profit_usd_001_lot);
+   cfg.fixed_take_profit_enable = JsonBool(json, "fixed_take_profit_enable", cfg.fixed_take_profit_enable);
+   cfg.fixed_take_profit_close_usd_001_lot = JsonNumber(json, "close_profit_usd_001_lot", cfg.fixed_take_profit_close_usd_001_lot);
    cfg.runner_enable = JsonBool(json, "enable_runner", cfg.runner_enable);
    cfg.runner_timeout_seconds = (int)JsonNumber(json, "runner_timeout_seconds", cfg.runner_timeout_seconds);
    cfg.runner_sl_usd_001_lot = JsonNumber(json, "runner_sl_usd_001_lot", cfg.runner_sl_usd_001_lot);
@@ -281,6 +288,7 @@ string DashboardJson()
                        "  \"breakeven\": {\"enable\": %s, \"trigger_usd_001_lot\": %.2f, \"offset_usd_001_lot\": %.2f, \"runner_be\": %s},\n"
                        "  \"trailing\": {\"enable\": %s, \"start_usd_001_lot\": %.2f, \"distance_usd_001_lot\": %.2f, \"step_usd_001_lot\": %.2f, \"atr_trail\": %s, \"dynamic_trail\": %s},\n"
                        "  \"profit_locks\": {\"lock_level_1_usd_001_lot\": {\"trigger\": %.2f, \"lock\": %.2f}, \"lock2_trigger\": %.2f, \"lock2_lock\": %.2f, \"lock3_trigger\": %.2f, \"lock3_lock\": %.2f, \"minimum_locked_profit_usd_001_lot\": %.2f},\n"
+                       "  \"fixed_take_profit\": {\"fixed_take_profit_enable\": %s, \"close_profit_usd_001_lot\": %.2f, \"close_mode\": \"IMMEDIATE_MARKET_CLOSE\"},\n"
                        "  \"runner\": {\"enable_runner\": %s, \"runner_timeout_seconds\": %d, \"runner_trail\": \"%s\", \"runner_sl_usd_001_lot\": %.2f, \"momentum_confirmation\": %s},\n"
                        "  \"time_exits\": {\"time_exit_enable\": %s, \"maximum_seconds\": %d, \"maximum_bars\": %d},\n"
                        "  \"partial_exits\": {\"enable\": %s, \"partial_level_1_percent\": %d, \"partial_level_2_percent\": %d, \"remaining_runner_percent\": %d}\n"
@@ -290,6 +298,7 @@ string DashboardJson()
                        g_cfg.breakeven_enable ? "true" : "false", g_cfg.breakeven_trigger_usd_001_lot, g_cfg.breakeven_offset_usd_001_lot, g_cfg.runner_be ? "true" : "false",
                        g_cfg.trailing_enable ? "true" : "false", g_cfg.trailing_start_usd_001_lot, g_cfg.trailing_distance_usd_001_lot, g_cfg.trailing_step_usd_001_lot, g_cfg.atr_trail_enable ? "true" : "false", g_cfg.trailing_enable ? "true" : "false",
                        g_cfg.lock1_trigger, g_cfg.lock1_lock, g_cfg.lock2_trigger, g_cfg.lock2_lock, g_cfg.lock3_trigger, g_cfg.lock3_lock, g_cfg.minimum_locked_profit_usd_001_lot,
+                       g_cfg.fixed_take_profit_enable ? "true" : "false", g_cfg.fixed_take_profit_close_usd_001_lot,
                        g_cfg.runner_enable ? "true" : "false", g_cfg.runner_timeout_seconds, g_cfg.runner_trail, g_cfg.runner_sl_usd_001_lot, g_cfg.momentum_confirmation ? "true" : "false",
                        g_cfg.time_exit_enable ? "true" : "false", g_cfg.maximum_seconds, g_cfg.maximum_bars,
                        g_cfg.partial_enable ? "true" : "false", g_cfg.partial_level_1_percent, g_cfg.partial_level_2_percent, g_cfg.remaining_runner_percent);
@@ -364,6 +373,7 @@ void DrawDashboard()
    DrawControl("LOCK1", "Profit Lock L1", DoubleToString(g_cfg.lock1_trigger, 2) + "/" + DoubleToString(g_cfg.lock1_lock, 2), x2, y); y += 22;
    DrawControl("LOCK2", "Profit Lock L2", DoubleToString(g_cfg.lock2_trigger, 2) + "/" + DoubleToString(g_cfg.lock2_lock, 2), x2, y); y += 22;
    DrawControl("LOCK3", "Profit Lock L3", DoubleToString(g_cfg.lock3_trigger, 2) + "/" + DoubleToString(g_cfg.lock3_lock, 2), x2, y); y += 22;
+   DrawControl("FIXED_TP", "Fixed TP Close", BoolText(g_cfg.fixed_take_profit_enable) + " @ " + DoubleToString(g_cfg.fixed_take_profit_close_usd_001_lot, 2), x2, y); y += 22;
    DrawControl("MIN_LOCK", "Minimum Locked Profit", DoubleToString(g_cfg.minimum_locked_profit_usd_001_lot, 2), x2, y); y += 22;
 
    y = InpY + 50;
@@ -413,6 +423,7 @@ void UpdateDashboardText()
       if(profit <= -g_cfg.hard_loss_cap_usd_001_lot * (volume / 0.01)) owner = "HARD_LOSS_CAP";
       else if(profit >= g_cfg.lock1_trigger * (volume / 0.01)) owner = "PROFIT_LOCK";
       else if(g_cfg.breakeven_enable && profit >= g_cfg.breakeven_trigger_usd_001_lot * (volume / 0.01)) owner = "BREAKEVEN";
+      else if(g_cfg.fixed_take_profit_enable && profit >= g_cfg.fixed_take_profit_close_usd_001_lot * (volume / 0.01)) owner = "FIXED_TAKE_PROFIT";
       else if(g_cfg.trailing_enable && profit >= g_cfg.trailing_start_usd_001_lot * (volume / 0.01)) owner = "TRAILING";
       else if(g_cfg.runner_enable) owner = "RUNNER";
       pos += StringFormat("%I64u %s %.2f %.2f %.2f %s %s %s %s\n", ticket, type == POSITION_TYPE_BUY ? "BUY" : "SELL", volume, profit, profit, g_cfg.runner_enable ? "RUNNER/TRAIL" : "PROTECT", owner, g_cfg.enabled ? "ACTIVE" : "DISABLED", g_cfg.active_profile);
@@ -489,6 +500,12 @@ void ManageOpenPositions()
       double price = (type == POSITION_TYPE_BUY) ? bid : ask;
 
       if(profit <= -g_cfg.hard_loss_cap_usd_001_lot * (volume / 0.01))
+      {
+         g_trade.PositionClose(ticket);
+         continue;
+      }
+
+      if(g_cfg.fixed_take_profit_enable && profit >= g_cfg.fixed_take_profit_close_usd_001_lot * (volume / 0.01))
       {
          g_trade.PositionClose(ticket);
          continue;
