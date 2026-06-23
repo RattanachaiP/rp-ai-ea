@@ -1796,7 +1796,22 @@ def apply_trade_management_dashboard_v27(decision):
     decision["max_realized_loss_usd_001_lot"] = hard_cap
     decision["floating_force_exit_usd_001_lot"] = floating_cap
     decision["hard_loss_cap_usd_001_lot"] = hard_cap
-    decision["initial_sl_usd_001_lot"] = safe_float(risk.get("initial_sl_usd_001_lot", 1.0), 1.0)
+    tp_only_profile = str(dashboard.get("active_profile", "")).upper() == "TP_ONLY_1USD_TEST"
+    decision["tp_only_profile_active"] = tp_only_profile
+    if tp_only_profile:
+        decision["tp_only_profile_log"] = "TP_ONLY_PROFILE_ACTIVE"
+        decision["ordersend_sl_suppression"] = "ORDERSEND_SL_SUPPRESSED_BY_PROFILE"
+        risk["initial_sl_usd_001_lot"] = 0.0
+        risk["dynamic_sl_enabled"] = False
+        risk["atr_sl_enabled"] = False
+        be_enabled = False
+        trailing_enabled = False
+        profit_lock_enabled = False
+        runner_enabled = False
+        fixed_take_profit["enable"] = True
+        fixed_take_profit["close_profit_usd_001_lot"] = 1.0
+
+    decision["initial_sl_usd_001_lot"] = 0.0 if tp_only_profile else safe_float(risk.get("initial_sl_usd_001_lot", 1.0), 1.0)
     decision["breakeven_enabled_by_dashboard"] = be_enabled
     decision["breakeven_trigger_usd_001_lot"] = safe_float(breakeven.get("trigger_usd_001_lot", 0.0), 0.0) if be_enabled else 0.0
     decision["breakeven_delay_seconds"] = safe_int(breakeven.get("delay_seconds", 0), 0) if be_enabled else 0
@@ -4343,6 +4358,13 @@ def construct_risk_payload_before_validation(decision):
         return decision
 
     decision = apply_trade_management_dashboard_v27(decision)
+    tp_only_profile = bool(decision.get("tp_only_profile_active", False))
+    if tp_only_profile:
+        decision["sl"] = 0
+        decision["stop_loss"] = 0
+        decision["initial_order_send_sl_tp_source"] = "TP_ONLY_1USD_TEST: OrderSend SL suppressed; dashboard owns +1.00 USD per 0.01 lot market close"
+        decision["risk_payload_construction"] = "TP_ONLY_PROFILE_SL_SUPPRESSED"
+        decision["risk_payload_construction_reason"] = "TP_ONLY_PROFILE_ACTIVE; ORDERSEND_SL_SUPPRESSED_BY_PROFILE"
     mode = str(decision.get("market_mode", decision.get("mode", "TRANSITION"))).upper()
     dashboard_initial_sl_usd = safe_float(decision.get("initial_sl_usd_001_lot", 0.0), 0.0)
     if dashboard_initial_sl_usd > 0:
@@ -4351,24 +4373,31 @@ def construct_risk_payload_before_validation(decision):
         decision["initial_order_send_sl_tp_source"] = "DASHBOARD_RISK_INITIAL_SL; TP remains AI setup unless fixed_take_profit dashboard close is enabled"
     else:
         sl_points, tp_points = risk_points_for_mode(mode)
-        decision["initial_order_send_sl_tp_source"] = "AI_INITIAL_RISK_ONLY; dashboard initial_sl unavailable; no hidden post-entry override"
+        if not tp_only_profile:
+            decision["initial_order_send_sl_tp_source"] = "AI_INITIAL_RISK_ONLY; dashboard initial_sl unavailable; no hidden post-entry override"
     entry_price = _trade_entry_price(decision)
     sl = safe_float(decision.get("sl", decision.get("stop_loss", 0)), 0.0)
     tp = safe_float(decision.get("tp", decision.get("tp1", 0)), 0.0)
     built = []
 
     if entry_price > 0:
-        if sl <= 0:
+        if sl <= 0 and not tp_only_profile:
             sl = entry_price - sl_points if bias == "BUY" else entry_price + sl_points
             built.append("SL")
-        if tp <= 0:
+        if tp <= 0 and not tp_only_profile:
             tp = entry_price + tp_points if bias == "BUY" else entry_price - tp_points
             built.append("TP")
 
-    if sl > 0:
+    if tp_only_profile:
+        decision["sl"] = 0
+        decision["stop_loss"] = 0
+    elif sl > 0:
         decision["sl"] = round(sl, 3)
         decision["stop_loss"] = round(sl, 3)
-    if tp > 0:
+    if tp_only_profile:
+        decision["tp"] = 0
+        decision["tp1"] = 0
+    elif tp > 0:
         decision["tp"] = round(tp, 3)
         decision["tp1"] = round(tp, 3)
 
@@ -4376,7 +4405,10 @@ def construct_risk_payload_before_validation(decision):
         decision.setdefault("entry_price", round(entry_price, 3))
         decision.setdefault("price", round(entry_price, 3))
 
-    if built:
+    if tp_only_profile:
+        decision["risk_payload_construction"] = "TP_ONLY_PROFILE_SL_TP_SUPPRESSED"
+        decision["risk_payload_construction_reason"] = "TP_ONLY_PROFILE_ACTIVE; ORDERSEND_SL_SUPPRESSED_BY_PROFILE; fixed TP uses dashboard market close"
+    elif built:
         decision["risk_payload_construction"] = "BUILT_BEFORE_VALIDATION"
         decision["risk_payload_construction_reason"] = f"intent={bias}; mode={mode}; built={','.join(built)}; entry={entry_price:.3f}"
     else:
@@ -4384,7 +4416,7 @@ def construct_risk_payload_before_validation(decision):
         if sl <= 0 or tp <= 0:
             decision["risk_payload_construction_reason"] = "missing positive entry_price/bid for SL/TP construction"
 
-    if sl > 0 and tp > 0:
+    if tp_only_profile or (sl > 0 and tp > 0):
         decision["risk_payload_valid_after_construction"] = True
         decision["payload_valid"] = True
         if str(decision.get("management", "")).upper() in ("", "NO_TRADE"):

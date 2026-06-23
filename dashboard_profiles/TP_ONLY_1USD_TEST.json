@@ -2,7 +2,7 @@
   "active_profile": "TP_ONLY_1USD_TEST",
   "description": "TP-only validation profile: keep AI entry unchanged, disable BE/trailing/dynamic SL/profit-lock/runner management, and close immediately at +$1.00 per 0.01 lot while retaining emergency catastrophic protection.",
   "risk": {
-    "initial_sl_usd_001_lot": 1.0,
+    "initial_sl_usd_001_lot": 0.0,
     "dynamic_sl_enabled": false,
     "atr_sl_enabled": false,
     "emergency_sl_usd_001_lot": 1.0,
@@ -59,7 +59,7 @@
     "runner_timeout_seconds": 0,
     "momentum_confirmation": false,
     "runner_trail": "DISABLED_TP_ONLY_TEST",
-    "runner_sl_usd_001_lot": 1.0,
+    "runner_sl_usd_001_lot": 0.0,
     "runner_exit_mode": "DISABLED"
   },
   "time_exits": {
