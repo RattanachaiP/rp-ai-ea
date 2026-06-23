@@ -163,14 +163,8 @@ V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT = 1.00
 V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT = 0.80
 V26_6_2_USD_PER_PRICE_UNIT_001_LOT = 1.00
 V26_6_2_MAX_SL_POINTS = round(V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT / V26_6_2_USD_PER_PRICE_UNIT_001_LOT, 3)
-V26_6_2_BE_TRIGGER_USD_001_LOT = 0.50
-V26_6_2_BE_SECOND_TRIGGER_USD_001_LOT = 0.80
-V26_6_2_BE_MAX_RESIDUAL_RISK_USD_001_LOT = 0.00
+# V26 post-entry BE / SL / profit-lock / runner constants are not defined; V27 dashboard owns them.
 V26_6_2_EARLY_DAMAGE_CUT_USD_001_LOT = 0.80
-V26_6_2_LOCK_TRIGGER_USD_001_LOT = 0.80
-V26_6_2_LOCK_PROFIT_USD_001_LOT = 0.10
-V26_6_2_RUNNER_MOMENTUM_TIMEOUT_SEC = 45
-V26_6_2_RUNNER_MIN_MOMENTUM_PROVE_SEC = 30
 V26_6_2_MIN_SCORE_GAP = 3
 V26_6_2_TRANSITION_NORMAL_MIN_GAP = 4
 V26_6_2_STRONG_MIDDLE_BUY_RSI = 58.0
@@ -1772,7 +1766,21 @@ def apply_trade_management_dashboard_v27(decision):
     decision["dashboard_load_sources"] = dashboard.get("load_sources", [])
     decision["dashboard_load_warnings"] = dashboard.get("load_warnings", [])
     decision["dashboard_fallback_defaults_used"] = bool(dashboard.get("fallback_defaults_used", False))
-    decision["dashboard_runtime_config_contract"] = "post-entry management only; AI direction/bias/entry/classification unchanged"
+    decision["dashboard_runtime_config_contract"] = "SINGLE_SOURCE_OF_TRUTH: dashboard owns every post-entry SL/close control; AI owns direction and may only consume dashboard initial OrderSend risk"
+    decision["initial_order_send_sl_tp_source"] = "DASHBOARD_RISK_INITIAL_SL_AND_OPTIONAL_TP; no hidden AI post-entry override"
+
+    be_enabled = bool(breakeven.get("enable", False))
+    trailing_enabled = bool(trailing.get("enable", trailing.get("dynamic_trail", False)))
+    profit_lock_enabled = bool(locks.get("enable", False))
+    runner_enabled = bool(runner.get("enable_runner", False))
+    partial_enabled = bool(partials.get("enable", False))
+    time_exit_enabled = bool(
+        safe_int(time_exits.get("maximum_seconds", 0), 0) > 0
+        or safe_int(time_exits.get("maximum_bars", 0), 0) > 0
+        or bool(time_exits.get("session_exit", False))
+        or bool(time_exits.get("news_exit", False))
+        or bool(time_exits.get("position_aging_exit", False))
+    )
 
     hard_cap = safe_float(risk.get("hard_loss_cap_usd_001_lot", V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT), V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT)
     floating_cap = safe_float(risk.get("max_floating_loss_usd_001_lot", V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT), V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT)
@@ -1788,97 +1796,104 @@ def apply_trade_management_dashboard_v27(decision):
     decision["max_realized_loss_usd_001_lot"] = hard_cap
     decision["floating_force_exit_usd_001_lot"] = floating_cap
     decision["hard_loss_cap_usd_001_lot"] = hard_cap
-    decision["breakeven_trigger_usd_001_lot"] = safe_float(breakeven.get("trigger_usd_001_lot", V26_6_2_BE_TRIGGER_USD_001_LOT), V26_6_2_BE_TRIGGER_USD_001_LOT)
-    decision["breakeven_delay_seconds"] = safe_int(breakeven.get("delay_seconds", 0), 0)
-    decision["breakeven_lock_distance_usd_001_lot"] = safe_float(breakeven.get("be_lock_distance_usd_001_lot", 0.0), 0.0)
+    decision["initial_sl_usd_001_lot"] = safe_float(risk.get("initial_sl_usd_001_lot", 1.0), 1.0)
+    decision["breakeven_enabled_by_dashboard"] = be_enabled
+    decision["breakeven_trigger_usd_001_lot"] = safe_float(breakeven.get("trigger_usd_001_lot", 0.0), 0.0) if be_enabled else 0.0
+    decision["breakeven_delay_seconds"] = safe_int(breakeven.get("delay_seconds", 0), 0) if be_enabled else 0
+    decision["breakeven_lock_distance_usd_001_lot"] = safe_float(breakeven.get("be_lock_distance_usd_001_lot", 0.0), 0.0) if be_enabled else 0.0
+    decision["trailing_enabled_by_dashboard"] = trailing_enabled
+    decision["profit_lock_enabled_by_dashboard"] = profit_lock_enabled
     decision["fixed_take_profit_enabled_by_dashboard"] = bool(fixed_take_profit.get("enable", False))
     decision["fixed_take_profit_close_usd_001_lot"] = safe_float(fixed_take_profit.get("close_profit_usd_001_lot", 1.0), 1.0)
-    decision["runner_enabled_by_dashboard"] = bool(runner.get("enable_runner", True))
-    decision["runner_momentum_timeout_sec"] = safe_int(runner.get("runner_timeout_seconds", V26_6_2_RUNNER_MOMENTUM_TIMEOUT_SEC), V26_6_2_RUNNER_MOMENTUM_TIMEOUT_SEC)
-    decision["runner_exit_mode"] = runner.get("runner_exit_mode", "PROTECTED_EXIT_ON_TIMEOUT_OR_MOMENTUM_DECAY")
-    decision["time_exit_policy"] = time_exits
-    decision["partial_exit_policy"] = partials
+    decision["runner_enabled_by_dashboard"] = runner_enabled
+    decision["runner_momentum_timeout_sec"] = safe_int(runner.get("runner_timeout_seconds", 0), 0) if runner_enabled else 0
+    decision["runner_exit_mode"] = runner.get("runner_exit_mode", "DISABLED_BY_DASHBOARD") if runner_enabled else "DISABLED_BY_DASHBOARD"
+    decision["time_exit_enabled_by_dashboard"] = time_exit_enabled
+    decision["partial_exit_enabled_by_dashboard"] = partial_enabled
+    decision["time_exit_policy"] = time_exits if time_exit_enabled else {"enabled": False, "status": "DISABLED_BY_DASHBOARD"}
+    decision["partial_exit_policy"] = partials if partial_enabled else {"enabled": False, "status": "DISABLED_BY_DASHBOARD"}
     decision["exit_authority_priority"] = dashboard.get("exit_authority_priority", list(V26_6_4_EXIT_AUTHORITY_PRIORITY))
+    decision["dashboard_single_source_of_truth_status"] = "DASHBOARD_SINGLE_SOURCE_OF_TRUTH_PASS"
     return decision
 
 def apply_loss_cap_and_profit_lock_v26_6_2(decision):
-    """Compress SL to the $1.20/0.01-lot cap and publish V26.6.3 exit controls."""
+    """Publish post-entry controls only from the V27 dashboard runtime config.
+
+    V26 hardcoded BE/profit-lock/runner constants are intentionally not used here.
+    Initial SL remains defined before OrderSend from the dashboard risk section;
+    after entry, SL/close modules must honor the dashboard enable flags.
+    """
     if not isinstance(decision, dict):
         return decision
 
-    bias = str(decision.get("action", decision.get("bias", ""))).upper()
-    if str(decision.get("decision", "")).upper() != "TRADE" or bias not in ("BUY", "SELL"):
+    decision = apply_trade_management_dashboard_v27(decision)
+    if str(decision.get("decision", "")).upper() != "TRADE":
         decision.setdefault("profit_loss_asymmetry_guard", "NOT_ACTIVE")
         return decision
 
-    entry = _trade_entry_price(decision)
-    sl = safe_float(decision.get("sl", decision.get("stop_loss", 0)), 0.0)
-    if entry > 0:
-        desired_sl = entry - V26_6_2_MAX_SL_POINTS if bias == "BUY" else entry + V26_6_2_MAX_SL_POINTS
-        if sl <= 0 or abs(entry - sl) > V26_6_2_MAX_SL_POINTS:
-            sl = desired_sl
-            decision["sl"] = round(sl, 3)
-            decision["stop_loss"] = round(sl, 3)
-            decision["sl_compression_applied"] = True
-            decision["sl_compression_reason"] = f"V26.6.2 max realized loss cap ${V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT:.2f} per 0.01 lot"
-        else:
-            decision["sl_compression_applied"] = False
+    be_enabled = bool(decision.get("breakeven_enabled_by_dashboard", False))
+    trailing_enabled = bool(decision.get("trailing_enabled_by_dashboard", False))
+    profit_lock_enabled = bool(decision.get("profit_lock_enabled_by_dashboard", False))
+    runner_enabled = bool(decision.get("runner_enabled_by_dashboard", False))
 
-    spread_points = safe_float(decision.get("spread_points", decision.get("spread", 0)), 0.0)
-    decision["profit_loss_asymmetry_guard"] = "ACTIVE"
+    decision["profit_loss_asymmetry_guard"] = "DASHBOARD_OWNED"
     decision["reference_lot"] = 0.01
     decision["usd_per_price_unit_001_lot"] = V26_6_2_USD_PER_PRICE_UNIT_001_LOT
-    decision["max_realized_loss_usd_001_lot"] = decision.get("max_realized_loss_usd_001_lot", V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT)
-    decision["floating_force_exit_usd_001_lot"] = decision.get("floating_force_exit_usd_001_lot", V26_6_2_FLOATING_FORCE_EXIT_USD_001_LOT)
-    decision["floating_force_exit_policy"] = "FORCE_EXIT_WHEN_FLOATING_LOSS_APPROACHES_RISK_CAP"
-    decision["hard_loss_cap_policy"] = "V26.6.3: standard 0.01 XAUUSD slot may not realize losses below -$1.20; executor must force-close at floating threshold"
-    decision["early_damage_cut_usd_001_lot"] = V26_6_2_EARLY_DAMAGE_CUT_USD_001_LOT
-    decision["early_damage_cut_points"] = _v26_6_2_usd_to_points(V26_6_2_EARLY_DAMAGE_CUT_USD_001_LOT)
-    decision["early_damage_cut_condition"] = "IF floating loss <= -0.80 before max favorable excursion reaches +0.60, force close immediately"
-    decision["breakeven_trigger_usd_001_lot"] = V26_6_2_BE_TRIGGER_USD_001_LOT
-    decision["breakeven_trigger_points"] = _v26_6_2_usd_to_points(V26_6_2_BE_TRIGGER_USD_001_LOT)
-    decision["breakeven_max_residual_risk_usd_001_lot"] = V26_6_2_BE_MAX_RESIDUAL_RISK_USD_001_LOT
-    decision["breakeven_max_residual_risk_points"] = _v26_6_2_usd_to_points(V26_6_2_BE_MAX_RESIDUAL_RISK_USD_001_LOT)
-    decision["breakeven_second_trigger_usd_001_lot"] = V26_6_2_BE_SECOND_TRIGGER_USD_001_LOT
-    decision["breakeven_second_trigger_points"] = _v26_6_2_usd_to_points(V26_6_2_BE_SECOND_TRIGGER_USD_001_LOT)
-    decision["breakeven_lock_policy"] = "AT +$0.50 MOVE_SL_TO_BREAKEVEN; AT +$0.80 LOCK_SMALL_PROFIT_IF_POSSIBLE"
-    decision["lock_profit_trigger_usd_001_lot"] = V26_6_2_LOCK_TRIGGER_USD_001_LOT
-    decision["lock_profit_usd_001_lot"] = V26_6_2_LOCK_PROFIT_USD_001_LOT
-    decision["lock_profit_trigger_points"] = _v26_6_2_usd_to_points(V26_6_2_LOCK_TRIGGER_USD_001_LOT)
-    decision["lock_profit_points"] = _v26_6_2_usd_to_points(V26_6_2_LOCK_PROFIT_USD_001_LOT)
-    decision["profit_protection_ladder"] = [
-        {
-            "trigger_usd_001_lot": V26_6_2_BE_TRIGGER_USD_001_LOT,
-            "trigger_points": _v26_6_2_usd_to_points(V26_6_2_BE_TRIGGER_USD_001_LOT),
-            "lock": "BREAKEVEN_OR_MAX_MINUS_0_10",
-            "max_residual_risk_usd_001_lot": V26_6_2_BE_MAX_RESIDUAL_RISK_USD_001_LOT,
-            "spread_points_source": spread_points,
-        },
-        {
-            "trigger_usd_001_lot": V26_6_2_BE_SECOND_TRIGGER_USD_001_LOT,
-            "trigger_points": _v26_6_2_usd_to_points(V26_6_2_BE_SECOND_TRIGGER_USD_001_LOT),
-            "lock": "BREAKEVEN_PLUS_SMALL_PROFIT",
-            "lock_usd_001_lot": V26_6_2_LOCK_PROFIT_USD_001_LOT,
-        },
-        {
-            "trigger_usd_001_lot": V26_6_2_LOCK_TRIGGER_USD_001_LOT,
-            "trigger_points": _v26_6_2_usd_to_points(V26_6_2_LOCK_TRIGGER_USD_001_LOT),
-            "lock_usd_001_lot": V26_6_2_LOCK_PROFIT_USD_001_LOT,
-            "lock_points": _v26_6_2_usd_to_points(V26_6_2_LOCK_PROFIT_USD_001_LOT),
-        },
-    ]
-    decision["profit_protection_goal"] = "prevent profitable trades from returning into full loss"
-    decision["profit_protection_triggered"] = bool(
-        safe_float(decision.get("max_floating_profit", decision.get("real_MFE", 0.0)), 0.0) >= V26_6_2_BE_TRIGGER_USD_001_LOT
-    )
-    decision["runner_damage_limit_usd_001_lot"] = V26_6_2_MAX_REALIZED_LOSS_USD_001_LOT
-    decision["runner_damage_policy"] = "RP_SLOT_2/RUNNER uses same hard loss cap and may not become a -$2.00 to -$3.80 loss container"
-    decision["runner_momentum_timeout_sec"] = V26_6_2_RUNNER_MOMENTUM_TIMEOUT_SEC
-    decision["runner_momentum_min_prove_sec"] = V26_6_2_RUNNER_MIN_MOMENTUM_PROVE_SEC
-    decision["runner_momentum_timeout_policy"] = "If runner has no momentum expansion within 30-45 seconds, disable runner or convert to protected exit mode"
-    decision["runner_requires_primary_protected"] = True
-    decision["runner_activation_rule"] = "Runner is allowed only after scalp/primary leg has BE or small-profit protection active"
-    decision["protected_exit_mode_on_runner_timeout"] = True
+    decision["floating_force_exit_policy"] = "DASHBOARD_RISK_CONFIG_ONLY"
+    decision["hard_loss_cap_policy"] = "DASHBOARD_RISK_CONFIG_ONLY"
+    decision["sl_compression_applied"] = False
+    decision["sl_compression_reason"] = "DISABLED: no AI-side V26 post-entry SL override; dashboard initial_sl_usd_001_lot defines OrderSend SL"
+
+    if not be_enabled:
+        decision["breakeven_trigger_usd_001_lot"] = 0.0
+        decision["breakeven_trigger_points"] = 0.0
+        decision["breakeven_lock_policy"] = "DISABLED_BY_DASHBOARD"
+        decision["breakeven_triggered"] = False
+    else:
+        be_trigger = safe_float(decision.get("breakeven_trigger_usd_001_lot", 0.0), 0.0)
+        decision["breakeven_trigger_points"] = _v26_6_2_usd_to_points(be_trigger)
+        decision["breakeven_lock_policy"] = "DASHBOARD_RUNTIME_CONFIG"
+
+    if not profit_lock_enabled:
+        decision["lock_profit_trigger_usd_001_lot"] = 0.0
+        decision["lock_profit_usd_001_lot"] = 0.0
+        decision["lock_profit_trigger_points"] = 0.0
+        decision["lock_profit_points"] = 0.0
+        decision["profit_protection_ladder"] = []
+        decision["profit_protection_triggered"] = False
+        decision["profit_protection_goal"] = "DISABLED_BY_DASHBOARD"
+    else:
+        locks = decision.get("dashboard_profit_locks", {}) if isinstance(decision.get("dashboard_profit_locks", {}), dict) else {}
+        ladder = []
+        for key in ("lock_level_1_usd_001_lot", "lock_level_2_usd_001_lot", "lock_level_3_usd_001_lot", "runner_lock_usd_001_lot"):
+            level = locks.get(key, {}) if isinstance(locks.get(key, {}), dict) else {}
+            trigger = safe_float(level.get("trigger", 0.0), 0.0)
+            lock = safe_float(level.get("lock", 0.0), 0.0)
+            if trigger > 0:
+                ladder.append({"trigger_usd_001_lot": trigger, "trigger_points": _v26_6_2_usd_to_points(trigger), "lock_usd_001_lot": lock, "lock_points": _v26_6_2_usd_to_points(lock)})
+        decision["profit_protection_ladder"] = ladder
+        decision["profit_protection_goal"] = "DASHBOARD_RUNTIME_CONFIG"
+        decision["profit_protection_triggered"] = bool(
+            ladder and safe_float(decision.get("max_floating_profit", decision.get("real_MFE", 0.0)), 0.0) >= safe_float(ladder[0].get("trigger_usd_001_lot", 0.0), 0.0)
+        )
+
+    if not trailing_enabled:
+        decision["trailing_stop_active"] = False
+        decision["structure_trail_active"] = False
+        decision["trailing_policy"] = "DISABLED_BY_DASHBOARD"
+
+    if not runner_enabled:
+        decision["runner_timeout_triggered"] = False
+        decision["runner_momentum_decay_triggered"] = False
+        decision["runner_momentum_timeout_sec"] = 0
+        decision["runner_timeout_policy"] = "DISABLED_BY_DASHBOARD"
+        decision["protected_exit_mode_on_runner_timeout"] = False
+        decision["runner_activation_rule"] = "DISABLED_BY_DASHBOARD"
+    else:
+        decision["runner_timeout_policy"] = "DASHBOARD_RUNTIME_CONFIG"
+        decision["protected_exit_mode_on_runner_timeout"] = True
+
+    decision["dashboard_single_source_of_truth_status"] = "DASHBOARD_SINGLE_SOURCE_OF_TRUTH_PASS"
     return decision
 
 
@@ -1979,17 +1994,17 @@ def apply_exit_authority_manager_v26_6_4(decision):
     decision["MAE"] = round(mae, 3)
     decision["MFE_to_realized_ratio"] = round(mfe / realized, 3) if realized > 0 else 0.0
     decision["MAE_to_realized_loss_ratio"] = round(abs(mae) / abs(realized), 3) if realized < 0 else 0.0
-    decision["leg_aware_profit_protection_ladder"] = _leg_aware_ladder_v26_6_4(leg_type)
-    decision["profit_protection_ladder_scope"] = "LEG_A_AND_LEG_B_ONLY; LEG_C_USES_STRUCTURE_MOMENTUM_BB_WALK_PROTECTION"
-    decision["no_profit_reversal_policy"] = "If MFE >= +$0.20/0.01 and current profit reverses aggressively, executor must apply the active leg-aware lock before loss reaches -$0.50"
-    decision["green_to_red_prevention_policy"] = "If floating profit reaches +$0.50 to +$0.80 per 0.01 lot, move SL to BE or lock small profit; never allow full SL after meaningful profit"
-    decision["hard_loss_cap_owner"] = "EA_EXECUTOR"
-    decision["hard_loss_warning_usd_001_lot"] = 0.80
-    decision["absolute_emergency_close_usd_001_lot"] = 1.00
-    decision["runner_max_loss_usd_001_lot"] = 1.00
-    decision["runner_timeout_policy"] = "30-45 seconds elapsed AND weak momentum expansion, OR 3 consecutive weak momentum cycles"
-    decision["runner_momentum_evidence"] = ["MACDHist weakening", "BB walk failure", "ATR/price expansion failure", "structure failure", "failed continuation follow-through"]
-    decision["daily_guard_open_position_policy"] = "No new entries while active; profitable open RP positions move SL to BE or lock +$0.05; losing positions use hard loss cap/risk compression, not automatic -$0.30 panic close"
+    decision["leg_aware_profit_protection_ladder"] = decision.get("profit_protection_ladder", []) if decision.get("profit_lock_enabled_by_dashboard", False) else []
+    decision["profit_protection_ladder_scope"] = "DASHBOARD_RUNTIME_CONFIG" if decision.get("profit_lock_enabled_by_dashboard", False) else "DISABLED_BY_DASHBOARD"
+    decision["no_profit_reversal_policy"] = "DASHBOARD_RUNTIME_CONFIG" if decision.get("profit_lock_enabled_by_dashboard", False) else "DISABLED_BY_DASHBOARD"
+    decision["green_to_red_prevention_policy"] = "DASHBOARD_RUNTIME_CONFIG" if decision.get("breakeven_enabled_by_dashboard", False) or decision.get("profit_lock_enabled_by_dashboard", False) else "DISABLED_BY_DASHBOARD"
+    decision["hard_loss_cap_owner"] = "DASHBOARD_RUNTIME_CONFIG"
+    decision["hard_loss_warning_usd_001_lot"] = safe_float(decision.get("floating_force_exit_usd_001_lot", 0.0), 0.0)
+    decision["absolute_emergency_close_usd_001_lot"] = safe_float(decision.get("hard_loss_cap_usd_001_lot", 0.0), 0.0)
+    decision["runner_max_loss_usd_001_lot"] = safe_float(decision.get("hard_loss_cap_usd_001_lot", 0.0), 0.0) if decision.get("runner_enabled_by_dashboard", False) else 0.0
+    decision["runner_timeout_policy"] = "DASHBOARD_RUNTIME_CONFIG" if decision.get("runner_enabled_by_dashboard", False) else "DISABLED_BY_DASHBOARD"
+    decision["runner_momentum_evidence"] = ["DASHBOARD_RUNTIME_CONFIG"] if decision.get("runner_enabled_by_dashboard", False) else []
+    decision["daily_guard_open_position_policy"] = "No new entries while active; open-position BE/profit-lock/trailing actions remain disabled unless the dashboard enables the corresponding module"
     decision["expectancy_targets"] = {"average_loss_usd_001_lot": "-0.80_to_-1.00", "average_win_usd_001_lot": ">=+1.20", "profit_factor": ">1.20", "loss_below_minus_2": "approach_zero"}
     return decision
 
@@ -4327,8 +4342,16 @@ def construct_risk_payload_before_validation(decision):
         decision["risk_payload_construction_reason"] = hard_reason
         return decision
 
+    decision = apply_trade_management_dashboard_v27(decision)
     mode = str(decision.get("market_mode", decision.get("mode", "TRANSITION"))).upper()
-    sl_points, tp_points = risk_points_for_mode(mode)
+    dashboard_initial_sl_usd = safe_float(decision.get("initial_sl_usd_001_lot", 0.0), 0.0)
+    if dashboard_initial_sl_usd > 0:
+        sl_points = _v26_6_2_usd_to_points(dashboard_initial_sl_usd)
+        _, tp_points = risk_points_for_mode(mode)
+        decision["initial_order_send_sl_tp_source"] = "DASHBOARD_RISK_INITIAL_SL; TP remains AI setup unless fixed_take_profit dashboard close is enabled"
+    else:
+        sl_points, tp_points = risk_points_for_mode(mode)
+        decision["initial_order_send_sl_tp_source"] = "AI_INITIAL_RISK_ONLY; dashboard initial_sl unavailable; no hidden post-entry override"
     entry_price = _trade_entry_price(decision)
     sl = safe_float(decision.get("sl", decision.get("stop_loss", 0)), 0.0)
     tp = safe_float(decision.get("tp", decision.get("tp1", 0)), 0.0)
@@ -4592,6 +4615,7 @@ def write_decision(data):
                     "| compat_quality", data.get("analysis_quality"),
                 )
 
+            print(data.get("dashboard_single_source_of_truth_status", "DASHBOARD_BYPASS_DETECTED"))
             print(
                 "DECISION WRITTEN:", data.get("decision", ""),
                 "|", data.get("entry_type", ""),
