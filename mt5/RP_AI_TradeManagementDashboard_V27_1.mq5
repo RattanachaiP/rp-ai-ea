@@ -108,6 +108,31 @@ void ApplyBackwardCompatibleDefaults(DashboardConfig &cfg)
    cfg.fallback_defaults_used = true;
 }
 
+bool IsTpOnlyProfileActive()
+{
+   return g_cfg.active_profile == "TP_ONLY_1USD_TEST";
+}
+
+void EnforceTpOnlyProfileRuntime()
+{
+   if(!IsTpOnlyProfileActive()) return;
+   g_cfg.initial_sl_usd_001_lot = 0.0;
+   g_cfg.breakeven_enable = false;
+   g_cfg.runner_be = false;
+   g_cfg.trailing_enable = false;
+   g_cfg.atr_trail_enable = false;
+   g_cfg.profit_lock_enable = false;
+   g_cfg.fixed_take_profit_enable = true;
+   g_cfg.fixed_take_profit_close_usd_001_lot = 1.00;
+   g_cfg.runner_enable = false;
+   g_cfg.runner_timeout_seconds = 0;
+   g_cfg.runner_trail = "DISABLED_TP_ONLY_TEST";
+   g_cfg.runner_sl_usd_001_lot = 0.0;
+   g_cfg.momentum_confirmation = false;
+   Print("TP_ONLY_PROFILE_ACTIVE");
+   Print("ORDERSEND_SL_SUPPRESSED_BY_PROFILE");
+}
+
 string ReadCommonFile(const string file_name)
 {
    int handle = FileOpen(file_name, FILE_READ | FILE_TXT | FILE_COMMON | FILE_ANSI);
@@ -231,12 +256,13 @@ void ValidateConfig(DashboardConfig &cfg)
    cfg.minimum_locked_profit_usd_001_lot = ClampDouble(cfg.minimum_locked_profit_usd_001_lot, 0.0, 100.0);
    cfg.fixed_take_profit_close_usd_001_lot = ClampDouble(cfg.fixed_take_profit_close_usd_001_lot, 0.01, 100.0);
    cfg.runner_timeout_seconds = ClampInt(cfg.runner_timeout_seconds, 0, 86400);
-   cfg.runner_sl_usd_001_lot = ClampDouble(cfg.runner_sl_usd_001_lot, 0.01, 100.0);
+   cfg.runner_sl_usd_001_lot = ClampDouble(cfg.runner_sl_usd_001_lot, 0.0, 100.0);
    cfg.maximum_seconds = ClampInt(cfg.maximum_seconds, 0, 86400);
    cfg.maximum_bars = ClampInt(cfg.maximum_bars, 0, 10000);
    cfg.partial_level_1_percent = ClampInt(cfg.partial_level_1_percent, 0, 100);
    cfg.partial_level_2_percent = ClampInt(cfg.partial_level_2_percent, 0, 100);
    cfg.remaining_runner_percent = ClampInt(cfg.remaining_runner_percent, 0, 100);
+   EnforceTpOnlyProfileRuntime();
 }
 
 void OverlayJson(DashboardConfig &cfg, const string json)
@@ -572,7 +598,14 @@ void ManageOpenPositions()
             candidate_sl = trail_sl;
       }
       if(candidate_sl != sl && candidate_sl > 0.0)
+      {
+         if(IsTpOnlyProfileActive())
+         {
+            Print("POSITIONMODIFY_BLOCKED_BY_TP_ONLY_PROFILE");
+            continue;
+         }
          g_trade.PositionModify(ticket, NormalizeDouble(candidate_sl, _Digits), tp);
+      }
    }
 }
 
