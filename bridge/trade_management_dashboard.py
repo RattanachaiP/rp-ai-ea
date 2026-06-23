@@ -46,6 +46,7 @@ DEFAULT_DASHBOARD: Dict[str, Any] = {
         "structure_trail": True,
     },
     "profit_locks": {
+        "enable": True,
         "lock_level_1_usd_001_lot": {"trigger": 0.50, "lock": 0.00},
         "lock_level_2_usd_001_lot": {"trigger": 0.80, "lock": 0.10},
         "lock_level_3_usd_001_lot": {"trigger": 1.20, "lock": 0.40},

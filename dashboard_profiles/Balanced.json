@@ -11,8 +11,18 @@
     "be_lock_distance_usd_001_lot": 0.0
   },
   "profit_locks": {
-    "lock_level_1_usd_001_lot": {"trigger": 0.5, "lock": 0.0},
-    "lock_level_2_usd_001_lot": {"trigger": 0.8, "lock": 0.1},
-    "lock_level_3_usd_001_lot": {"trigger": 1.2, "lock": 0.4}
+    "lock_level_1_usd_001_lot": {
+      "trigger": 0.5,
+      "lock": 0.0
+    },
+    "lock_level_2_usd_001_lot": {
+      "trigger": 0.8,
+      "lock": 0.1
+    },
+    "lock_level_3_usd_001_lot": {
+      "trigger": 1.2,
+      "lock": 0.4
+    },
+    "enable": true
   }
 }
