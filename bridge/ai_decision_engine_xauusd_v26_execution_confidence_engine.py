@@ -1391,13 +1391,35 @@ def add_confidence_penalty(decision, penalty, reason):
     if not isinstance(decision, dict):
         return decision
     penalty = max(0, safe_int(penalty, 0))
+    reason_text = str(reason)
+    sources = decision.get("penalty_sources", [])
+    if not isinstance(sources, list):
+        sources = []
+    if any(str(item.get("reason", "")) == reason_text and bool(item.get("effective", False)) for item in sources if isinstance(item, dict)):
+        sources.append({
+            "module": "CONFIDENCE_PENALTY_CONSOLIDATOR",
+            "penalty": 0,
+            "reason": reason_text,
+            "effective": False,
+            "duplicate_of": "existing_effective_penalty",
+        })
+        decision["penalty_sources"] = sources
+        decision["duplicate_veto_consolidation"] = "ACTIVE"
+        return decision
     existing = safe_int(decision.get("confidence_penalty_total", 0), 0)
     decision["confidence_penalty_total"] = existing + penalty
     penalties = decision.get("confidence_penalties", [])
     if not isinstance(penalties, list):
         penalties = [str(penalties)] if penalties else []
-    penalties.append(f"-{penalty}: {reason}")
+    penalties.append(f"-{penalty}: {reason_text}")
     decision["confidence_penalties"] = penalties
+    sources.append({
+        "module": "CONFIDENCE_PENALTY_CONSOLIDATOR",
+        "penalty": penalty,
+        "reason": reason_text,
+        "effective": True,
+    })
+    decision["penalty_sources"] = sources
     base_confidence = safe_int(decision.get("confidence", 65), 65)
     decision["confidence"] = max(0, base_confidence - penalty)
     decision["legacy_veto_converted_to_penalty"] = True
@@ -2025,6 +2047,23 @@ def apply_exit_authority_manager_v26_6_4(decision):
 
 
 def _v26_6_2_block_trade(decision, block_code, reason):
+    telemetry = decision.setdefault("duplicate_veto_telemetry", [])
+    if not isinstance(telemetry, list):
+        telemetry = []
+        decision["duplicate_veto_telemetry"] = telemetry
+    existing_owner = str(decision.get("final_veto_owner", "") or "")
+    existing_code = str(decision.get("effective_veto_code", decision.get("final_gate_block_reason_class", "")) or "")
+    if existing_owner and existing_code == str(block_code):
+        telemetry.append({
+            "module": "V26_6_2_EXPECTANCY_ENTRY_FILTER",
+            "code": block_code,
+            "reason": reason,
+            "effective": False,
+            "duplicate_of": existing_owner,
+        })
+        decision["duplicate_veto_consolidation"] = "ACTIVE"
+        return decision
+
     bias = str(decision.get("action", decision.get("bias", decision.get("intended_action", "NEUTRAL")))).upper()
     if bias not in ("BUY", "SELL"):
         bias = "NEUTRAL"
@@ -2037,6 +2076,16 @@ def _v26_6_2_block_trade(decision, block_code, reason):
     decision["expectancy_emergency_block"] = block_code
     decision["expectancy_emergency_reason"] = reason
     decision["final_gate_block_reason_class"] = block_code
+    decision["effective_veto_code"] = block_code
+    decision["final_veto_owner"] = "V26_6_2_EXPECTANCY_ENTRY_FILTER"
+    decision["duplicate_veto_consolidation"] = "ACTIVE"
+    telemetry.append({
+        "module": "V26_6_2_EXPECTANCY_ENTRY_FILTER",
+        "code": block_code,
+        "reason": reason,
+        "effective": True,
+        "duplicate_of": "",
+    })
     decision["reason"] = (str(decision.get("reason", "")) + " | " + reason).strip()
     return decision
 
@@ -4315,6 +4364,12 @@ def ensure_ea_v17_compat_fields(data):
     data.setdefault("exhaustion_state", data.get("trend_exhaustion", "NOT_EVALUATED"))
     data.setdefault("protection_state", data.get("active_protection_state", "NOT_EVALUATED"))
     data.setdefault("final_veto_reason", "")
+    data.setdefault("final_veto_owner", "")
+    data.setdefault("effective_veto_code", "")
+    data.setdefault("duplicate_veto_consolidation", "NOT_EVALUATED")
+    data.setdefault("duplicate_veto_telemetry", [])
+    data.setdefault("score_decomposition", {})
+    data.setdefault("score_gap_audit", "")
 
 
     if "_market_state_path" in data:
@@ -4465,10 +4520,30 @@ def attach_no_trade_explainability(decision):
         _append_no_trade_reason(reasons, "PROTECTION_BLOCK", decision.get("active_protection_reason", protection_state), "PROTECTION", "PROTECTION_AUTHORITY", 45)
 
     deduped = {}
+    duplicate_veto_telemetry = decision.setdefault("duplicate_veto_telemetry", [])
+    if not isinstance(duplicate_veto_telemetry, list):
+        duplicate_veto_telemetry = []
+        decision["duplicate_veto_telemetry"] = duplicate_veto_telemetry
     for item in reasons:
-        key = (item["code"], item["detail"])
+        key = item["code"]
         if key not in deduped or item["priority"] < deduped[key]["priority"]:
+            if key in deduped:
+                duplicate_veto_telemetry.append({
+                    "module": item["blocking_module"],
+                    "code": item["code"],
+                    "reason": item["detail"],
+                    "effective": False,
+                    "duplicate_of": deduped[key]["blocking_module"],
+                })
             deduped[key] = item
+        else:
+            duplicate_veto_telemetry.append({
+                "module": item["blocking_module"],
+                "code": item["code"],
+                "reason": item["detail"],
+                "effective": False,
+                "duplicate_of": deduped[key]["blocking_module"],
+            })
     ordered = sorted(deduped.values(), key=lambda item: item["priority"])
     primary = ordered[0] if ordered else {
         "code": "FINAL_VETO",
@@ -4484,6 +4559,9 @@ def attach_no_trade_explainability(decision):
     ]
     decision["blocked_stage"] = primary["blocked_stage"]
     decision["blocking_module"] = primary["blocking_module"]
+    decision["final_veto_owner"] = str(decision.get("final_veto_owner", "") or primary["blocking_module"])
+    decision["effective_veto_code"] = str(decision.get("effective_veto_code", "") or primary["code"])
+    decision["duplicate_veto_consolidation"] = "ACTIVE"
     decision["confidence_score"] = safe_float(decision.get("confidence", decision.get("execution_confidence_score", 0)), 0.0)
     decision["score_gap"] = score_gap
     decision["required_score_gap"] = required_gap
@@ -4495,6 +4573,7 @@ def attach_no_trade_explainability(decision):
     decision["exhaustion_state"] = exhaustion_state or "NOT_EVALUATED"
     decision["protection_state"] = protection_state or "NOT_EVALUATED"
     decision["final_veto_reason"] = reason_text
+    decision = attach_score_decomposition(decision)
     return decision
 
 
@@ -4963,6 +5042,11 @@ def write_decision(data):
                 data = apply_executor_authority_contract_v26_6_1(data)
                 data = enforce_risk_payload_invariant_before_publication(data)
                 data = attach_no_trade_explainability(data)
+                data = attach_score_decomposition(data)
+                if str(data.get("decision", "")).upper() == "TRADE":
+                    data["final_veto_owner"] = "NONE"
+                    data["effective_veto_code"] = "NONE"
+                    data["final_veto_reason"] = ""
                 data["runtime_branch"] = RUNTIME_BRANCH
                 data["arch_version"] = ARCH_VERSION
                 data["build_tag"] = BUILD_TAG
@@ -5381,6 +5465,13 @@ def apply_nova_brain_or_block(decision, market_mode, bb_state, bb_extreme, rsi, 
             softened["confidence_modifier"] = "WEAK_MOMENTUM_CONFIDENCE_PENALTY"
             base_confidence = safe_int(softened.get("confidence", 65), 65)
             softened["confidence_penalty"] = WEAK_MOMENTUM_CONFIDENCE_PENALTY
+            softened["penalty_sources"] = list(softened.get("penalty_sources", [])) if isinstance(softened.get("penalty_sources", []), list) else []
+            softened["penalty_sources"].append({
+                "module": "NOVA_WEAK_MOMENTUM_GOVERNANCE",
+                "penalty": WEAK_MOMENTUM_CONFIDENCE_PENALTY,
+                "reason": nova_reason,
+                "effective": True,
+            })
             softened["confidence"] = max(0, base_confidence - WEAK_MOMENTUM_CONFIDENCE_PENALTY)
             softened["participation_restoration_rule"] = "weak momentum is a confidence penalty, not a hard veto"
             softened["weak_momentum_reform"] = "PENALTY_ONLY_V26_6"
@@ -5461,6 +5552,58 @@ def get_scores(data):
     buy_score = safe_int(data.get("buyScore") or data.get("buy_score") or data.get("buy") or 0)
     sell_score = safe_int(data.get("sellScore") or data.get("sell_score") or data.get("sell") or 0)
     return buy_score, sell_score
+
+
+def build_score_decomposition(data, decision=None):
+    """Telemetry: expose why score_gap is what it is without changing scoring."""
+    source = decision if isinstance(decision, dict) else data
+    buy_score = safe_int(source.get("buy_score", source.get("buyScore", 0)), 0)
+    sell_score = safe_int(source.get("sell_score", source.get("sellScore", 0)), 0)
+    if isinstance(data, dict):
+        buy_score = safe_int(source.get("buy_score", source.get("buyScore", data.get("buy_score", data.get("buyScore", buy_score)))), buy_score)
+        sell_score = safe_int(source.get("sell_score", source.get("sellScore", data.get("sell_score", data.get("sellScore", sell_score)))), sell_score)
+    score_gap = abs(buy_score - sell_score)
+    dominant_side = "BUY" if buy_score > sell_score else "SELL" if sell_score > buy_score else "FLAT"
+    score_inputs = []
+    if isinstance(data, dict):
+        for key in sorted(data.keys()):
+            lowered = str(key).lower()
+            if lowered in ("buyscore", "sellscore", "buy_score", "sell_score", "score_gap"):
+                continue
+            if "score" in lowered:
+                value = data.get(key)
+                if isinstance(value, (int, float, str)):
+                    score_inputs.append({"module": key, "value": value, "source": "market_state"})
+    return {
+        "buy_score": buy_score,
+        "sell_score": sell_score,
+        "score_gap": score_gap,
+        "dominant_side": dominant_side,
+        "score_contributions_by_module": [
+            {"module": "market_state_buy_score", "side": "BUY", "contribution": buy_score},
+            {"module": "market_state_sell_score", "side": "SELL", "contribution": sell_score},
+        ],
+        "additional_score_inputs": score_inputs,
+        "raw_score_source": {
+            "buyScore": safe_int(data.get("buyScore", 0), 0) if isinstance(data, dict) else buy_score,
+            "sellScore": safe_int(data.get("sellScore", 0), 0) if isinstance(data, dict) else sell_score,
+            "buy_score": safe_int(data.get("buy_score", 0), 0) if isinstance(data, dict) else buy_score,
+            "sell_score": safe_int(data.get("sell_score", 0), 0) if isinstance(data, dict) else sell_score,
+        },
+        "gap_formula": "abs(buy_score - sell_score)",
+        "gap_audit": f"score_gap={score_gap} from buy_score={buy_score}, sell_score={sell_score}",
+    }
+
+
+def attach_score_decomposition(decision, data=None):
+    if not isinstance(decision, dict):
+        return decision
+    source = data if isinstance(data, dict) else decision
+    decomposition = build_score_decomposition(source, decision)
+    decision["score_decomposition"] = decomposition
+    decision["score_gap_audit"] = decomposition["gap_audit"]
+    decision["score_gap_source"] = "SCORE_DECOMPOSITION"
+    return decision
 
 
 def classify_bb_state(bid, ma50, bb_upper, bb_middle, bb_lower, rsi, macd_hist, buy_score, sell_score):
