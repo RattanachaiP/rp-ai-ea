@@ -131,6 +131,54 @@ class EmergencyGap2ParticipationTests(unittest.TestCase):
         self.assertEqual(trace["schema_trade_cautious_compatible"], "NOT_NEEDED")
         self.assertEqual(trace["downstream_trade_cautious_recognized"], "NOT_NEEDED")
 
+    def test_cooldown_wait_entry_window_gap2_trend_bypass_creates_cautious_trade(self):
+        payload = self.base_trade()
+        payload.update({
+            "candle_trend": "UP",
+            "structure_trend": "HH_HL",
+            "bb_state": "WALK_UP",
+            "rsi": 65.0,
+            "macd_hist": 0.4,
+            "open_positions": 0,
+            "max_open_positions": 1,
+        })
+
+        result = engine.apply_execution_timing_layer_v26_6_5(payload)
+
+        self.assertEqual(result["decision"], "TRADE")
+        self.assertEqual(result["execution_state"], "EXECUTE_CAUTIOUS")
+        self.assertEqual(result["execution_mode"], "CAUTIOUS")
+        self.assertEqual(result["participation_size_factor"], 0.25)
+        self.assertFalse(result["runner_enabled"])
+        self.assertFalse(result["pyramid_enabled"])
+        self.assertFalse(result["continuation_add_enabled"])
+        self.assertTrue(result["COOLDOWN_GATE_BYPASS_APPROVED"])
+        self.assertFalse(result["COOLDOWN_GATE_BYPASS_REJECTED"])
+        self.assertTrue(result["WAIT_ENTRY_WINDOW_CONVERTED_TO_EXECUTE_CAUTIOUS"])
+        self.assertEqual(result["entry_window_validation"], "WAIT_ENTRY_WINDOW_CONVERTED_TO_EXECUTE_CAUTIOUS")
+        self.assertEqual(result["final_veto_owner"], "NONE")
+        self.assertEqual(result["effective_veto_code"], "NONE")
+
+    def test_cooldown_wait_entry_window_bypass_rejects_strong_opposite_macd(self):
+        payload = self.base_trade()
+        payload.update({
+            "candle_trend": "UP",
+            "structure_trend": "HH_HL",
+            "bb_state": "WALK_UP",
+            "rsi": 65.0,
+            "macd_hist": 1.3,
+            "open_positions": 0,
+            "max_open_positions": 1,
+        })
+
+        result = engine.apply_execution_timing_layer_v26_6_5(payload)
+
+        self.assertEqual(result["decision"], "NO_TRADE")
+        self.assertEqual(result["wait_state"], "WAIT_ENTRY_WINDOW")
+        self.assertTrue(result["COOLDOWN_GATE_BYPASS_REJECTED"])
+        self.assertEqual(result["COOLDOWN_GATE_BYPASS_CHECK"], "REJECTED")
+        self.assertIn("STRONG_OPPOSITE_MACD", result["cooldown_gate_bypass_supporting_vetoes"])
+
 
 if __name__ == "__main__":
     unittest.main()
