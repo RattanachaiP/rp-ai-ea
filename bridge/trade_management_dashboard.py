@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any, Dict, Mapping
 
 SCHEMA_VERSION = "V27_TRADE_MANAGEMENT_DASHBOARD_SCHEMA_1"
+PRODUCTION_PROFILE_FALLBACK_ORDER = ("Balanced", "Conservative", "Aggressive")
+VALIDATION_ONLY_PROFILES = {"TP_ONLY_1USD_TEST"}
 
 DEFAULT_DASHBOARD: Dict[str, Any] = {
     "schema_version": SCHEMA_VERSION,
@@ -130,6 +132,18 @@ def load_trade_management_dashboard(repo_root: Path | None = None) -> Dict[str, 
         warnings.append(f"dashboard_load_failed:{type(exc).__name__}")
 
     active_profile = str(config.get("active_profile") or "Balanced")
+    if active_profile.upper() in VALIDATION_ONLY_PROFILES:
+        warnings.extend([
+            "TP_ONLY_PROFILE_DETECTED",
+            "TP_ONLY_PRODUCTION_BLOCK",
+            "AUTO_FALLBACK_TO_BALANCED",
+        ])
+        print("TP_ONLY_PROFILE_DETECTED")
+        print("TP_ONLY_PRODUCTION_BLOCK")
+        print("AUTO_FALLBACK_TO_BALANCED")
+        active_profile = PRODUCTION_PROFILE_FALLBACK_ORDER[0]
+        config["active_profile"] = active_profile
+
     profile_path = paths["profiles"] / f"{active_profile}.json"
     try:
         if profile_path.exists():

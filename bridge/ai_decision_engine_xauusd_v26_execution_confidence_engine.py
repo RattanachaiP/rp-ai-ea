@@ -1964,6 +1964,7 @@ def apply_trade_management_dashboard_v27(decision):
     decision["hard_loss_cap_usd_001_lot"] = hard_cap
     tp_only_profile = str(dashboard.get("active_profile", "")).upper() == "TP_ONLY_1USD_TEST"
     decision["tp_only_profile_active"] = tp_only_profile
+    decision["active_profile"] = dashboard.get("active_profile", "Balanced")
     if tp_only_profile:
         decision["tp_only_profile_log"] = "TP_ONLY_PROFILE_ACTIVE"
         decision["ordersend_sl_suppression"] = "ORDERSEND_SL_SUPPRESSED_BY_PROFILE"
@@ -1986,6 +1987,8 @@ def apply_trade_management_dashboard_v27(decision):
     decision["profit_lock_enabled_by_dashboard"] = profit_lock_enabled
     decision["fixed_take_profit_enabled_by_dashboard"] = bool(fixed_take_profit.get("enable", False))
     decision["fixed_take_profit_close_usd_001_lot"] = safe_float(fixed_take_profit.get("close_profit_usd_001_lot", 1.0), 1.0)
+    decision["broker_sl_required"] = not tp_only_profile
+    decision["broker_tp_required"] = not tp_only_profile
     decision["runner_enabled_by_dashboard"] = runner_enabled
     decision["runner_momentum_timeout_sec"] = safe_int(runner.get("runner_timeout_seconds", 0), 0) if runner_enabled else 0
     decision["runner_exit_mode"] = runner.get("runner_exit_mode", "DISABLED_BY_DASHBOARD") if runner_enabled else "DISABLED_BY_DASHBOARD"
