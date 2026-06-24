@@ -1,0 +1,15 @@
+{
+  "schema_version": "V28_DASHBOARD_CONTRACT_1",
+  "trade_enabled": true,
+  "active_profile": "Balanced",
+  "management_mode": "DASHBOARD_MANAGED",
+  "fixed_tp": {"enabled": false, "points": 100.0},
+  "broker_sl": {"enabled": true, "points": 100.0},
+  "breakeven": {"enabled": true, "trigger_points": 50.0, "offset_points": 0.0},
+  "trailing": {"enabled": true, "start_points": 80.0, "distance_points": 30.0, "step_points": 10.0},
+  "profit_lock": {"enabled": true, "levels": [{"trigger_points": 80.0, "lock_points": 10.0}]},
+  "runner": {"enabled": true, "timeout_seconds": 45},
+  "emergency": {"close_all": false, "entries_disabled": false},
+  "time_exit": {"enabled": false, "maximum_seconds": 0},
+  "partial_close": {"enabled": false, "levels": []}
+}
