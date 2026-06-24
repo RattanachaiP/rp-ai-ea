@@ -4772,17 +4772,48 @@ def validate_final_decision_payload(data):
         broker_sl_required = _protection_bool(data.get("broker_sl_required", active_profile != "TP_ONLY_1USD_TEST"))
         broker_tp_required = _protection_bool(data.get("broker_tp_required", True))
         dashboard_tp_required = _protection_bool(data.get("dashboard_tp_required", broker_tp_required))
+        profile_contract_status = str(data.get("profile_sl_suppression_check", "PROFILE_SL_SUPPRESSION_UNKNOWN")).upper().strip()
         skip_broker_sl_validation = _tp_only_sl_suppression_approved(data) or (not broker_sl_required and active_profile == "TP_ONLY_1USD_TEST")
+        profile_contract_status = str(data.get("profile_sl_suppression_check", profile_contract_status)).upper().strip()
         skip_broker_tp_validation = (
             dashboard_exit_mode in ("MARKET_CLOSE", "IMMEDIATE_MARKET_CLOSE")
             or not dashboard_tp_required
         )
 
+        print(
+            "EXECUTOR_SL_VALIDATION_CONTRACT",
+            f"decision={decision}",
+            f"payload_valid={data.get('payload_valid')}",
+            f"sl={sl}",
+            f"broker_sl_required={broker_sl_required}",
+            f"active_profile={active_profile}",
+            f"profile_contract_status={profile_contract_status}",
+        )
+
         exception_reasons = []
+        if broker_sl_required:
+            print("EXECUTOR_SL_REQUIRED_TRUE", f"active_profile={active_profile}", f"sl={sl}")
+
         if sl <= 0 and skip_broker_sl_validation:
             exception_reasons.append("broker_sl_validation_skipped")
+            print(
+                "EXECUTOR_SL_SUPPRESSION_APPROVED",
+                f"reason=broker_sl_required_false_and_profile_contract_approved",
+                f"broker_sl_required={broker_sl_required}",
+                f"active_profile={active_profile}",
+                f"payload_valid={data.get('payload_valid')}",
+                f"profile_contract_status={profile_contract_status}",
+            )
         elif sl <= 0:
             errors.append(f"sl_invalid={sl}")
+            print(
+                "EXECUTOR_SL_SUPPRESSION_REJECTED",
+                f"reason=sl_zero_requires_broker_sl_or_unapproved_contract",
+                f"broker_sl_required={broker_sl_required}",
+                f"active_profile={active_profile}",
+                f"payload_valid={data.get('payload_valid')}",
+                f"profile_contract_status={profile_contract_status}",
+            )
 
         if tp <= 0 and skip_broker_tp_validation:
             exception_reasons.append("broker_tp_validation_skipped")
