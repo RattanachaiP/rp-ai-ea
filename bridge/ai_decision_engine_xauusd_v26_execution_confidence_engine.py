@@ -3646,6 +3646,82 @@ def compute_execution_timing_layer_v26_6_5(decision):
     }
 
 
+
+def _cooldown_gate_bypass_reject(decision, reason, supporting_vetoes=None):
+    decision["COOLDOWN_GATE_BYPASS_CHECK"] = "REJECTED"
+    decision["COOLDOWN_GATE_BYPASS_REJECTED"] = True
+    decision["COOLDOWN_GATE_BYPASS_REJECTED_REASON"] = reason
+    decision["COOLDOWN_GATE_BYPASS_APPROVED"] = False
+    if supporting_vetoes:
+        decision["cooldown_gate_bypass_supporting_vetoes"] = list(supporting_vetoes)
+    return False
+
+
+def _cooldown_gate_wait_entry_window_bypass_allowed(decision, bias, action, score_gap, mode, macd_hist):
+    """Narrow emergency bypass: aligned TREND gap>=2 may create a cautious candidate instead of terminal WAIT_ENTRY_WINDOW."""
+    decision["COOLDOWN_GATE_BYPASS_CHECK"] = "CHECKING"
+
+    if action not in ("BUY", "SELL") or bias != action:
+        return _cooldown_gate_bypass_reject(decision, "bias/action not aligned", ["BIAS_ACTION_MISMATCH"])
+    if mode != "TREND":
+        return _cooldown_gate_bypass_reject(decision, f"mode={mode} is not TREND", ["NOT_TREND"])
+    if score_gap < 2:
+        return _cooldown_gate_bypass_reject(decision, f"score_gap={score_gap} < 2", ["INSUFFICIENT_SCORE_GAP"])
+
+    hard_block, hard_reason = _v26_has_hard_block(decision)
+    if hard_block:
+        return _cooldown_gate_bypass_reject(decision, f"hard safety block: {hard_reason}", [hard_reason])
+    if not bool(decision.get("market_state_fresh", True)):
+        return _cooldown_gate_bypass_reject(decision, "market_state not fresh", ["MARKET_STATE_STALE"])
+
+    trend_exhaustion_score = safe_int(decision.get("trend_exhaustion_score", 0), 0)
+    exhaustion_score = safe_int(decision.get("exhaustion_score", decision.get("exhaustion_risk", 0)), 0)
+    late_score = safe_int(decision.get("late_entry_score", 0), 0)
+    if trend_exhaustion_score >= TREND_EXHAUSTION_BLOCK_LEVEL or exhaustion_score >= EXHAUSTION_BLOCK_SCORE or late_score >= LATE_ENTRY_BLOCK_SCORE:
+        return _cooldown_gate_bypass_reject(decision, "severe exhaustion or late-entry risk", ["SEVERE_EXHAUSTION"])
+
+    if (action == "BUY" and macd_hist <= -EMERGENCY_GAP2_STRONG_OPPOSITE_MACD) or (action == "SELL" and macd_hist >= EMERGENCY_GAP2_STRONG_OPPOSITE_MACD):
+        return _cooldown_gate_bypass_reject(decision, "MACD strongly opposite beyond emergency threshold", ["STRONG_OPPOSITE_MACD"])
+
+    open_positions = safe_int(decision.get("open_positions", decision.get("current_open_positions", 0)), 0)
+    max_open_positions = safe_int(decision.get("max_open_positions", 1), 1)
+    if bool(decision.get("open_position_violation", False)) or open_positions >= max_open_positions:
+        return _cooldown_gate_bypass_reject(decision, "open-position violation", ["OPEN_POSITION_LIMIT"])
+
+    decision["COOLDOWN_GATE_BYPASS_CHECK"] = "APPROVED"
+    decision["COOLDOWN_GATE_BYPASS_APPROVED"] = True
+    decision["COOLDOWN_GATE_BYPASS_REJECTED"] = False
+    return True
+
+
+def _apply_cooldown_gate_wait_entry_window_bypass(decision, bias):
+    decision["decision"] = "TRADE"
+    decision["allowed"] = True
+    decision["entry_allowed"] = True
+    decision["execution_state"] = "EXECUTE_CAUTIOUS"
+    decision["execution_mode"] = "CAUTIOUS"
+    decision["decision_output_state"] = "TRADE"
+    decision["participation_type"] = "CAUTIOUS"
+    decision["participation_size_factor"] = EMERGENCY_GAP2_PARTICIPATION_SIZE_FACTOR
+    decision["risk_fraction"] = EMERGENCY_GAP2_PARTICIPATION_SIZE_FACTOR
+    decision["position_size_multiplier"] = EMERGENCY_GAP2_PARTICIPATION_SIZE_FACTOR
+    decision["runner_enabled"] = False
+    decision["pyramid_enabled"] = False
+    decision["continuation_add_enabled"] = False
+    decision["no_pyramid"] = True
+    decision["runner_default"] = "DISABLED_FOR_COOLDOWN_GATE_BYPASS"
+    decision["wait_state"] = "BYPASSED_WAIT_ENTRY_WINDOW"
+    decision["entry_window_validation"] = "WAIT_ENTRY_WINDOW_CONVERTED_TO_EXECUTE_CAUTIOUS"
+    decision["WAIT_ENTRY_WINDOW_CONVERTED_TO_EXECUTE_CAUTIOUS"] = True
+    decision["final_veto_owner"] = "NONE"
+    decision["effective_veto_code"] = "NONE"
+    decision["management"] = "SCALP_TP"
+    decision["mgmt"] = "SCALP_TP"
+    decision["bias"] = bias
+    decision["action"] = bias
+    decision["reason"] = (str(decision.get("reason", "")).strip() + " | WAIT_ENTRY_WINDOW_CONVERTED_TO_EXECUTE_CAUTIOUS").strip()
+    return decision
+
 def apply_execution_timing_layer_v26_6_5(decision):
     if not isinstance(decision, dict):
         return decision
@@ -3668,6 +3744,12 @@ def apply_execution_timing_layer_v26_6_5(decision):
     hard_block, _hard_reason = _v26_has_hard_block(decision)
     is_trade = str(decision.get("decision", "")).upper() == "TRADE"
     if is_trade and not hard_block and not fields["execution_window_open"]:
+        action = str(decision.get("action", decision.get("intended_action", bias))).upper()
+        mode = str(decision.get("market_mode", decision.get("mode", "TRANSITION"))).upper()
+        score_gap = safe_int(decision.get("score_gap", 0), 0)
+        macd_hist = safe_float(decision.get("macd_hist", 0.0), 0.0)
+        if _cooldown_gate_wait_entry_window_bypass_allowed(decision, bias, action, score_gap, mode, macd_hist):
+            return _apply_cooldown_gate_wait_entry_window_bypass(decision, bias)
         decision["decision"] = "NO_TRADE"
         decision["entry_allowed"] = False
         decision["allowed"] = False
