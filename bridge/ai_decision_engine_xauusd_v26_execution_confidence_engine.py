@@ -4488,10 +4488,56 @@ def validate_final_decision_payload(data):
         data["tp"] = tp
         data["stop_loss"] = round(sl, 3) if sl > 0 else 0
         data["tp1"] = round(tp, 3) if tp > 0 else 0
-        if sl <= 0:
+
+        active_profile = str(data.get("active_profile", data.get("dashboard_active_profile", ""))).upper().strip()
+        dashboard_exit_mode = str(
+            data.get(
+                "dashboard_exit_mode",
+                data.get("fixed_take_profit_close_mode", data.get("dashboard_fixed_take_profit_close_mode", ""))
+            )
+        ).upper().strip()
+        fixed_take_profit = data.get("dashboard_fixed_take_profit", {})
+        if isinstance(fixed_take_profit, dict) and not dashboard_exit_mode:
+            dashboard_exit_mode = str(fixed_take_profit.get("close_mode", "")).upper().strip()
+
+        broker_sl_required = _protection_bool(data.get("broker_sl_required", active_profile != "TP_ONLY_1USD_TEST"))
+        broker_tp_required = _protection_bool(data.get("broker_tp_required", True))
+        dashboard_tp_required = _protection_bool(data.get("dashboard_tp_required", broker_tp_required))
+        skip_broker_sl_validation = active_profile == "TP_ONLY_1USD_TEST" or not broker_sl_required
+        skip_broker_tp_validation = (
+            dashboard_exit_mode in ("MARKET_CLOSE", "IMMEDIATE_MARKET_CLOSE")
+            or not dashboard_tp_required
+        )
+
+        exception_reasons = []
+        if sl <= 0 and skip_broker_sl_validation:
+            exception_reasons.append("broker_sl_validation_skipped")
+        elif sl <= 0:
             errors.append(f"sl_invalid={sl}")
-        if tp <= 0:
+
+        if tp <= 0 and skip_broker_tp_validation:
+            exception_reasons.append("broker_tp_validation_skipped")
+        elif tp <= 0:
             errors.append(f"tp_invalid={tp}")
+
+        if exception_reasons:
+            data["payload_validation_profile_exception"] = "PAYLOAD_VALIDATION_PROFILE_EXCEPTION"
+            data["payload_validation_exception_active_profile"] = active_profile
+            data["payload_validation_exception_broker_sl_required"] = broker_sl_required
+            data["payload_validation_exception_broker_tp_required"] = broker_tp_required
+            data["payload_validation_exception_dashboard_exit_mode"] = dashboard_exit_mode
+            data["payload_validation_exception_reason"] = ";".join(exception_reasons)
+            print(
+                "PAYLOAD_VALIDATION_PROFILE_EXCEPTION:"
+                f" active_profile={active_profile}"
+                f" broker_sl_required={broker_sl_required}"
+                f" broker_tp_required={broker_tp_required}"
+                f" dashboard_exit_mode={dashboard_exit_mode}"
+                f" validation_exception_reason={data['payload_validation_exception_reason']}"
+            )
+            if active_profile == "TP_ONLY_1USD_TEST":
+                data["tp_only_validation_exception_applied"] = True
+                print("TP_ONLY_VALIDATION_EXCEPTION_APPLIED")
 
     if errors:
         if decision == "TRADE" and any(e.startswith("sl_invalid=") or e.startswith("tp_invalid=") for e in errors):
