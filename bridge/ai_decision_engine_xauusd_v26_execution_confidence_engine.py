@@ -174,6 +174,8 @@ V26_6_2_LOSS_CLUSTER_DIAGNOSTIC_SECONDS = 30 * 60
 V26_6_2_DAILY_DRAWDOWN_CAUTION_USD = -5.00
 V26_6_2_CATASTROPHIC_DAILY_STOP_USD = -5.00
 V26_6_2_ADAPTIVE_SIZE_DOWN_FRACTION = 0.25
+EMERGENCY_GAP2_PARTICIPATION_SIZE_FACTOR = 0.25
+EMERGENCY_GAP2_STRONG_OPPOSITE_MACD = 1.20
 V26_6_2_DRAWDOWN_CAUTION_MIN_ENTRY_SCORE = 62
 V26_6_3_EXTREME_CAUTION_LOSS_STREAK = 3
 V26_6_3_EXTREME_CAUTION_LOSS_CAP_USD_001_LOT = 1.00
@@ -2098,6 +2100,96 @@ def _v26_6_2_strong_middle_confirmation(bias, rsi, macd_hist):
     return False
 
 
+def _emergency_gap2_reject(decision, reason, supporting_vetoes=None):
+    decision["EMERGENCY_GAP2_PARTICIPATION_CHECK"] = "REJECTED"
+    decision["EMERGENCY_GAP2_REJECTED"] = True
+    decision["EMERGENCY_GAP2_REJECTED_REASON"] = reason
+    decision["EMERGENCY_GAP2_APPROVED"] = False
+    decision["supporting_vetoes"] = list(supporting_vetoes or [])
+    return False
+
+
+def _emergency_gap2_payload_can_construct_valid_risk(decision):
+    bias = str(decision.get("action", decision.get("bias", ""))).upper()
+    entry = _trade_entry_price(decision)
+    if bias not in ("BUY", "SELL") or entry <= 0:
+        return False, "missing BUY/SELL bias or positive entry price"
+    if bool(decision.get("tp_only_profile_active", False)) and not _tp_only_sl_suppression_approved(decision):
+        return False, "invalid TP-only profile contract"
+    return True, "risk payload can be constructed"
+
+
+def _emergency_gap2_participation_allowed(decision, bias, action, score_gap, mode, bb_state, rsi, macd_hist, bid, bb_upper, bb_middle, bb_lower):
+    """Narrow V26.6.2 emergency exception: gap=2 may execute cautious only when all hard safety remains clear."""
+    supporting_vetoes = []
+    decision["EMERGENCY_GAP2_PARTICIPATION_CHECK"] = "CHECKING"
+    decision["original_veto"] = "V26_6_2_WEAK_GAP_NO_TRADE"
+    decision["participation_size_factor"] = EMERGENCY_GAP2_PARTICIPATION_SIZE_FACTOR
+
+    if action not in ("BUY", "SELL") or bias != action:
+        return _emergency_gap2_reject(decision, "bias/action not aligned", ["BIAS_ACTION_MISMATCH"])
+    if score_gap != 2:
+        return _emergency_gap2_reject(decision, f"score_gap={score_gap} is not emergency gap=2", ["NOT_GAP2"])
+
+    hard_block, hard_reason = _v26_has_hard_block(decision)
+    if hard_block:
+        return _emergency_gap2_reject(decision, f"hard safety block: {hard_reason}", [hard_reason])
+    if not bool(decision.get("market_state_fresh", True)):
+        return _emergency_gap2_reject(decision, "market_state not fresh", ["MARKET_STATE_STALE"])
+    decision_age = safe_float(decision.get("decision_age_sec", decision.get("decision_file_age_sec", 0.0)), 0.0)
+    if decision_age > TEMP_DECISION_STALE_TARGET_SEC:
+        return _emergency_gap2_reject(decision, f"decision freshness invalid age={decision_age}", ["DECISION_STALE"])
+
+    risk_ok, risk_reason = _emergency_gap2_payload_can_construct_valid_risk(decision)
+    if not risk_ok:
+        return _emergency_gap2_reject(decision, risk_reason, ["INVALID_RISK_PAYLOAD_CONSTRUCTION"])
+
+    if bool(decision.get("duplicate_order", False) or decision.get("duplicate_order_protection", False)):
+        return _emergency_gap2_reject(decision, "duplicate order protection active", ["DUPLICATE_ORDER"])
+    if bool(decision.get("daily_catastrophic_risk", False) or decision.get("catastrophic_risk", False) or decision.get("catastrophic_risk_state", False)):
+        return _emergency_gap2_reject(decision, "daily catastrophic risk active", ["CATASTROPHIC_RISK"])
+
+    trend_exhaustion_score = safe_int(decision.get("trend_exhaustion_score", 0), 0)
+    exhaustion_score = safe_int(decision.get("exhaustion_score", decision.get("exhaustion_risk", 0)), 0)
+    late_score = safe_int(decision.get("late_entry_score", 0), 0)
+    if trend_exhaustion_score >= TREND_EXHAUSTION_BLOCK_LEVEL or exhaustion_score >= EXHAUSTION_BLOCK_SCORE or late_score >= LATE_ENTRY_BLOCK_SCORE:
+        return _emergency_gap2_reject(decision, "severe exhaustion or late-entry risk", ["SEVERE_EXHAUSTION"])
+
+    buy_score = safe_int(decision.get("buy_score", decision.get("buyScore", 0)), 0)
+    sell_score = safe_int(decision.get("sell_score", decision.get("sellScore", 0)), 0)
+    if not ((action == "BUY" and buy_score > sell_score) or (action == "SELL" and sell_score > buy_score)):
+        return _emergency_gap2_reject(decision, "directional dominance missing", ["NO_DIRECTIONAL_DOMINANCE"])
+
+    near_middle = bb_state == "NORMAL" and bid > 0 and is_near_bb_middle(bid, bb_upper, bb_middle, bb_lower)
+    if near_middle and not _v26_6_2_strong_middle_confirmation(action, rsi, macd_hist):
+        return _emergency_gap2_reject(decision, "BB middle chop without RSI/MACD confirmation", ["BB_MIDDLE_CHOP"])
+    if (action == "BUY" and macd_hist <= -EMERGENCY_GAP2_STRONG_OPPOSITE_MACD) or (action == "SELL" and macd_hist >= EMERGENCY_GAP2_STRONG_OPPOSITE_MACD):
+        return _emergency_gap2_reject(decision, "MACD strongly opposite beyond emergency threshold", ["STRONG_OPPOSITE_MACD"])
+
+    decision["EMERGENCY_GAP2_PARTICIPATION_CHECK"] = "APPROVED"
+    decision["EMERGENCY_GAP2_APPROVED"] = True
+    decision["EMERGENCY_GAP2_REJECTED"] = False
+    decision["TRADE_CAUTIOUS_FROM_WEAK_GAP"] = True
+    decision["participation_size_factor"] = EMERGENCY_GAP2_PARTICIPATION_SIZE_FACTOR
+    decision["risk_fraction"] = EMERGENCY_GAP2_PARTICIPATION_SIZE_FACTOR
+    decision["position_size_multiplier"] = EMERGENCY_GAP2_PARTICIPATION_SIZE_FACTOR
+    decision["minimum_lot_fallback_allowed"] = True
+    decision["no_pyramid"] = True
+    decision["runner_enabled"] = False
+    decision["runner_default"] = "DISABLED_FOR_EMERGENCY_GAP2"
+    decision["execution_state"] = "EXECUTE_CAUTIOUS"
+    decision["decision_output_state"] = "TRADE_CAUTIOUS"
+    decision["management"] = "SCALP_TP"
+    decision["mgmt"] = "SCALP_TP"
+    decision["expectancy_emergency_block"] = "NONE"
+    decision["effective_veto_code"] = "NONE"
+    decision["final_veto_owner"] = "NONE"
+    decision["supporting_vetoes"] = supporting_vetoes
+    decision["emergency_gap2_reason"] = "TRADE_CAUTIOUS_FROM_WEAK_GAP: bias/action aligned, gap=2, hard safety clear, payload risk constructible"
+    decision["reason"] = (str(decision.get("reason", "")).strip() + " | TRADE_CAUTIOUS_FROM_WEAK_GAP").strip()
+    return True
+
+
 def apply_expectancy_entry_filters_v26_6_2(decision):
     """Emergency expectancy filters: no weak gaps, stricter transition-normal, no BB-mid chop."""
     if not isinstance(decision, dict):
@@ -2105,7 +2197,8 @@ def apply_expectancy_entry_filters_v26_6_2(decision):
     if str(decision.get("decision", "")).upper() != "TRADE":
         return decision
 
-    bias = str(decision.get("action", decision.get("bias", "NEUTRAL"))).upper()
+    action = str(decision.get("action", decision.get("intended_action", "NEUTRAL"))).upper()
+    bias = str(decision.get("bias", action)).upper()
     mode = str(decision.get("market_mode", decision.get("mode", "TRANSITION"))).upper()
     bb_state = str(decision.get("bb_state", decision.get("bb", "NORMAL"))).upper()
     score_gap = safe_int(decision.get("score_gap", 0), 0)
@@ -2121,6 +2214,10 @@ def apply_expectancy_entry_filters_v26_6_2(decision):
     decision["transition_normal_minimum_score_gap"] = V26_6_2_TRANSITION_NORMAL_MIN_GAP
 
     if score_gap < V26_6_2_MIN_SCORE_GAP:
+        if _emergency_gap2_participation_allowed(
+            decision, bias, action, score_gap, mode, bb_state, rsi, macd_hist, bid, bb_upper, bb_middle, bb_lower
+        ):
+            return decision
         return _v26_6_2_block_trade(
             decision,
             "V26_6_2_WEAK_GAP_NO_TRADE",
