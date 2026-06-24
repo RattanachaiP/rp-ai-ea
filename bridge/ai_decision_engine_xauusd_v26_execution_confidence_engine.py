@@ -348,6 +348,150 @@ VALID_BIASES = {"BUY", "SELL", "NEUTRAL"}
 VALID_MANAGEMENT = {"SCALP_TP", "HOLD_TRAIL", "TREND_RUNNER", "NO_TRADE", "NORMAL"}
 VALID_ACTIONS = {"BUY", "SELL", "WAIT", "NO_TRADE", "NEUTRAL"}
 VALID_EXECUTION_STATES = {"EXECUTE_AGGRESSIVE", "EXECUTE_NORMAL", "EXECUTE_CAUTIOUS", "WAIT", "NO_TRADE"}
+
+
+FINAL_TRACE_PASS = "PASS"
+FINAL_TRACE_FAIL = "FAIL"
+FINAL_TRACE_SKIPPED = "SKIPPED"
+FINAL_TRACE_NA = "NOT_APPLICABLE"
+FINAL_TRACE_OVERRIDDEN = "OVERRIDDEN"
+FINAL_TRACE_RECOVERED = "RECOVERED"
+FINAL_TRACE_EXECUTABLE_STATES = {"TRADE", "TRADE_CAUTIOUS", "EXECUTE_CAUTIOUS", "EXECUTE_NORMAL", "EXECUTE_AGGRESSIVE"}
+
+
+def _final_trace_decision_state(decision):
+    if not isinstance(decision, dict):
+        return "INVALID_PAYLOAD"
+    published = str(decision.get("decision", "")).upper()
+    output = str(decision.get("decision_output_state", "")).upper()
+    execution = str(decision.get("execution_state", "")).upper()
+    if published == "TRADE":
+        if output in ("TRADE_CAUTIOUS", "EXECUTE_CAUTIOUS") or execution == "EXECUTE_CAUTIOUS":
+            return "TRADE_CAUTIOUS"
+        return "TRADE"
+    if output:
+        return output
+    if published:
+        return published
+    return execution or "UNKNOWN"
+
+
+def _final_trace_is_executable_state(decision):
+    if not isinstance(decision, dict):
+        return False
+    published = str(decision.get("decision", "")).upper()
+    execution = str(decision.get("execution_state", "")).upper()
+    output = str(decision.get("decision_output_state", "")).upper()
+    return published == "TRADE" or execution in FINAL_TRACE_EXECUTABLE_STATES or output in FINAL_TRACE_EXECUTABLE_STATES
+
+
+def initialize_final_decision_trace(decision):
+    """Initialize observability-only final gate trace before late publication gates run."""
+    if not isinstance(decision, dict):
+        return decision
+    buy_score = safe_int(decision.get("buy_score", decision.get("buyScore", 0)), 0)
+    sell_score = safe_int(decision.get("sell_score", decision.get("sellScore", 0)), 0)
+    dominant = "BUY" if buy_score > sell_score else "SELL" if sell_score > buy_score else "TIE"
+    trace = {
+        "action": str(decision.get("action", decision.get("intended_action", "UNKNOWN"))).upper(),
+        "bias": str(decision.get("bias", "UNKNOWN")).upper(),
+        "mode": str(decision.get("market_mode", decision.get("mode", "UNKNOWN"))).upper(),
+        "bb_state": str(decision.get("bb_state", decision.get("bb", "UNKNOWN"))).upper(),
+        "buy_score": buy_score,
+        "sell_score": sell_score,
+        "score_gap": abs(buy_score - sell_score),
+        "dominant_direction": dominant,
+        "initial_decision": _final_trace_decision_state(decision),
+        "emergency_gap2_check": str(decision.get("EMERGENCY_GAP2_PARTICIPATION_CHECK", "SKIPPED")).upper(),
+        "emergency_gap2_result": FINAL_TRACE_RECOVERED if bool(decision.get("EMERGENCY_GAP2_APPROVED", False)) else (FINAL_TRACE_FAIL if bool(decision.get("EMERGENCY_GAP2_REJECTED", False)) else FINAL_TRACE_SKIPPED),
+        "emergency_gap2_reject_reason": str(decision.get("EMERGENCY_GAP2_REJECTED_REASON", "")),
+        "trade_cautious_candidate": bool(decision.get("TRADE_CAUTIOUS_FROM_WEAK_GAP", False) or str(decision.get("execution_state", "")).upper() == "EXECUTE_CAUTIOUS" or str(decision.get("decision_output_state", "")).upper() == "TRADE_CAUTIOUS"),
+        "transition_gate_result": FINAL_TRACE_NA,
+        "entry_location_result": FINAL_TRACE_NA,
+        "exhaustion_result": FINAL_TRACE_NA,
+        "bb_middle_chop_result": FINAL_TRACE_NA,
+        "macd_opposite_result": FINAL_TRACE_NA,
+        "soft_lock_result": FINAL_TRACE_NA,
+        "wait_entry_window_result": FINAL_TRACE_NA,
+        "protection_authority_result": FINAL_TRACE_NA,
+        "payload_validation_result": FINAL_TRACE_NA,
+        "risk_payload_invariant_result": FINAL_TRACE_NA,
+        "executor_contract_result": FINAL_TRACE_NA,
+        "final_veto_owner": str(decision.get("final_veto_owner", "NONE") or "NONE"),
+        "effective_veto_code": str(decision.get("effective_veto_code", "NONE") or "NONE"),
+        "supporting_vetoes": list(decision.get("supporting_vetoes", [])) if isinstance(decision.get("supporting_vetoes", []), list) else [str(decision.get("supporting_vetoes"))],
+        "decision_before_final_publish": _final_trace_decision_state(decision),
+        "final_published_decision": str(decision.get("decision", "UNKNOWN")).upper(),
+        "final_output_state": _final_trace_decision_state(decision),
+        "last_executable_candidate": _final_trace_decision_state(decision) if _final_trace_is_executable_state(decision) else "NONE",
+        "first_non_executable_stage": "NONE",
+        "schema_trade_cautious_compatible": "TRADE_CAUTIOUS" in VALID_DECISIONS,
+        "downstream_executable_states": sorted(VALID_DECISIONS),
+        "downstream_trade_cautious_recognized": "TRADE_CAUTIOUS" in VALID_DECISIONS,
+        "stage_events": [],
+    }
+    decision["FINAL_DECISION_TRACE"] = trace
+    return decision
+
+
+def record_final_decision_trace_stage(decision, stage_name, before=None):
+    """Record one publication gate outcome without changing decision logic."""
+    if not isinstance(decision, dict):
+        return decision
+    trace = decision.setdefault("FINAL_DECISION_TRACE", {})
+    before_state = _final_trace_decision_state(before) if isinstance(before, dict) else "UNKNOWN"
+    after_state = _final_trace_decision_state(decision)
+    before_exec = _final_trace_is_executable_state(before) if isinstance(before, dict) else False
+    after_exec = _final_trace_is_executable_state(decision)
+    status = FINAL_TRACE_PASS
+    if before_exec and not after_exec:
+        status = FINAL_TRACE_OVERRIDDEN
+        if not trace.get("first_non_executable_stage") or trace.get("first_non_executable_stage") == "NONE":
+            trace["first_non_executable_stage"] = stage_name
+            trace["first_non_executable_state"] = after_state
+    elif (not before_exec) and after_exec:
+        status = FINAL_TRACE_RECOVERED
+    elif not after_exec and str(decision.get("decision", "")).upper() in ("NO_TRADE", "WAIT_VALID"):
+        status = FINAL_TRACE_FAIL
+    if after_exec:
+        trace["last_executable_candidate"] = after_state
+    event = {
+        "stage": stage_name,
+        "result": status,
+        "before": before_state,
+        "after": after_state,
+        "decision": str(decision.get("decision", "UNKNOWN")).upper(),
+        "execution_state": str(decision.get("execution_state", "UNKNOWN")).upper(),
+        "decision_output_state": str(decision.get("decision_output_state", "UNKNOWN")).upper(),
+        "veto_owner": str(decision.get("final_veto_owner", decision.get("blocking_module", "NONE")) or "NONE"),
+        "veto_code": str(decision.get("effective_veto_code", decision.get("no_trade_reason", "NONE")) or "NONE"),
+        "reason": str(decision.get("wait_reason", decision.get("payload_validation_reason", decision.get("final_veto_reason", ""))) or ""),
+    }
+    trace.setdefault("stage_events", []).append(event)
+    field_map = {
+        "transition_gate": "transition_gate_result",
+        "entry_location": "entry_location_result",
+        "exhaustion_protection": "exhaustion_result",
+        "expectancy_entry_filter": "bb_middle_chop_result",
+        "execution_timing_layer": "wait_entry_window_result",
+        "protection_authority_manager": "protection_authority_result",
+        "payload_validation": "payload_validation_result",
+        "risk_payload_invariant": "risk_payload_invariant_result",
+        "executor_authority_contract": "executor_contract_result",
+    }
+    key = field_map.get(stage_name)
+    if key:
+        trace[key] = status
+    trace["soft_lock_result"] = FINAL_TRACE_FAIL if str(decision.get("soft_lock_state", "")).upper() in ("TREND_LOCK", "TRANSITION_WAIT") else trace.get("soft_lock_result", FINAL_TRACE_NA)
+    trace["macd_opposite_result"] = FINAL_TRACE_FAIL if "MACD" in str(decision.get("EMERGENCY_GAP2_REJECTED_REASON", decision.get("reason", ""))).upper() and "OPPOSITE" in str(decision.get("EMERGENCY_GAP2_REJECTED_REASON", decision.get("reason", ""))).upper() else trace.get("macd_opposite_result", FINAL_TRACE_NA)
+    trace["final_veto_owner"] = str(decision.get("final_veto_owner", decision.get("blocking_module", "NONE")) or "NONE")
+    trace["effective_veto_code"] = str(decision.get("effective_veto_code", decision.get("no_trade_reason", "NONE")) or "NONE")
+    sv = decision.get("supporting_vetoes", trace.get("supporting_vetoes", []))
+    trace["supporting_vetoes"] = sv if isinstance(sv, list) else [str(sv)]
+    trace["final_published_decision"] = str(decision.get("decision", "UNKNOWN")).upper()
+    trace["final_output_state"] = after_state
+    print("FINAL_DECISION_TRACE", json.dumps(trace, sort_keys=True))
+    return decision
 decision_sequence_counter = int(time.time())
 
 # V25 RP TIME SYNC STANDARD V1
@@ -5106,39 +5250,73 @@ def write_decision(data):
                 data = apply_v25_3_rsi_soft_penalty_recovery(data)
                 data = apply_final_decision_gate_trace_v25_2(data)
                 data = apply_late_entry_guard_v26_6(data)
+                data = initialize_final_decision_trace(data)
+                _trace_before = dict(data)
                 data = apply_exhaustion_protection_v26_6_6(data)
+                data = record_final_decision_trace_stage(data, "exhaustion_protection", _trace_before)
+                _trace_before = dict(data)
                 data = apply_expectancy_entry_filters_v26_6_2(data)
+                data = record_final_decision_trace_stage(data, "expectancy_entry_filter", _trace_before)
+                _trace_before = dict(data)
                 data = apply_session_loss_governor_v26_6_2(data)
+                data = record_final_decision_trace_stage(data, "transition_gate", _trace_before)
                 data = apply_expectancy_metrics_v26_6_6(data)
+                _trace_before = dict(data)
                 data = apply_protection_authority_manager_v26_6_1(data)
+                data = record_final_decision_trace_stage(data, "protection_authority_manager", _trace_before)
+                _trace_before = dict(data)
                 data = apply_execution_timing_layer_v26_6_5(data)
+                data = record_final_decision_trace_stage(data, "execution_timing_layer", _trace_before)
+                _trace_before = dict(data)
                 data = normalize_decision_schema_v20_2(data)
+                data = record_final_decision_trace_stage(data, "schema_normalization", _trace_before)
                 data = align_management_with_trend_context(data)
                 data = enforce_trend_management_v26_6(data)
                 data = apply_early_participation_sizing_v26_6(data)
+                _trace_before = dict(data)
                 data = apply_expectancy_entry_filters_v26_6_2(data)
+                data = record_final_decision_trace_stage(data, "expectancy_entry_filter", _trace_before)
+                _trace_before = dict(data)
                 data = apply_session_loss_governor_v26_6_2(data)
+                data = record_final_decision_trace_stage(data, "transition_gate", _trace_before)
                 data = apply_expectancy_metrics_v26_6_6(data)
                 data = apply_shadow_opposite_audit_v26_6_6(data)
+                _trace_before = dict(data)
                 data = construct_risk_payload_before_validation(data)
+                data = record_final_decision_trace_stage(data, "risk_payload_construction", _trace_before)
                 data = apply_loss_cap_and_profit_lock_v26_6_2(data)
                 data = apply_exit_authority_manager_v26_6_4(data)
                 data = enforce_expectancy_rr_structure(data)
                 data = enforce_trend_management_v26_6(data)
                 data = apply_max_realized_loss_guard_v26_6(data)
+                _trace_before = dict(data)
                 data = validate_final_decision_payload(data)
+                data = record_final_decision_trace_stage(data, "payload_validation", _trace_before)
+                _trace_before = dict(data)
                 data = apply_executor_authority_contract_v26_6_1(data)
+                data = record_final_decision_trace_stage(data, "executor_authority_contract", _trace_before)
+                _trace_before = dict(data)
                 data = apply_execution_timing_layer_v26_6_5(data)
+                data = record_final_decision_trace_stage(data, "execution_timing_layer", _trace_before)
+                _trace_before = dict(data)
                 data = apply_protection_authority_manager_v26_6_1(data, allow_release=False, count_cycle=False)
+                data = record_final_decision_trace_stage(data, "protection_authority_manager", _trace_before)
+                _trace_before = dict(data)
                 data = normalize_decision_schema_v20_2(data)
+                data = record_final_decision_trace_stage(data, "schema_normalization", _trace_before)
                 data = enforce_trend_management_v26_6(data)
                 data = apply_early_participation_sizing_v26_6(data)
                 data = apply_loss_cap_and_profit_lock_v26_6_2(data)
                 data = apply_max_realized_loss_guard_v26_6(data)
                 data = apply_exit_authority_manager_v26_6_4(data)
+                _trace_before = dict(data)
                 data = apply_executor_authority_contract_v26_6_1(data)
+                data = record_final_decision_trace_stage(data, "executor_authority_contract", _trace_before)
+                _trace_before = dict(data)
                 data = enforce_risk_payload_invariant_before_publication(data)
+                data = record_final_decision_trace_stage(data, "risk_payload_invariant", _trace_before)
                 data = attach_no_trade_explainability(data)
+                data = record_final_decision_trace_stage(data, "final_no_trade_explainability", data)
                 data = attach_score_decomposition(data)
                 if str(data.get("decision", "")).upper() == "TRADE":
                     data["final_veto_owner"] = "NONE"
@@ -5149,6 +5327,7 @@ def write_decision(data):
                 data["build_tag"] = BUILD_TAG
                 data["runtime_signature"] = RUNTIME_SIGNATURE
                 data = attach_final_write_metadata(data, write_start)
+                data = record_final_decision_trace_stage(data, "final_publish", data)
                 payload_text = json.dumps(data, indent=2)
                 f.write(payload_text)
                 f.flush()
