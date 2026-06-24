@@ -4498,6 +4498,107 @@ def attach_no_trade_explainability(decision):
     return decision
 
 
+
+def _dashboard_exit_mode_from_decision(decision):
+    dashboard_exit_mode = str(
+        decision.get(
+            "dashboard_exit_mode",
+            decision.get("fixed_take_profit_close_mode", decision.get("dashboard_fixed_take_profit_close_mode", ""))
+        )
+    ).upper().strip()
+    fixed_take_profit = decision.get("dashboard_fixed_take_profit", {})
+    if isinstance(fixed_take_profit, dict) and not dashboard_exit_mode:
+        dashboard_exit_mode = str(fixed_take_profit.get("close_mode", "")).upper().strip()
+    return dashboard_exit_mode
+
+
+def _tp_only_sl_suppression_approved(decision):
+    active_profile = str(decision.get("active_profile", decision.get("dashboard_active_profile", ""))).upper().strip()
+    fixed_take_profit = decision.get("dashboard_fixed_take_profit", {})
+    fixed_tp_enabled = bool(decision.get("fixed_take_profit_enabled_by_dashboard", False))
+    if isinstance(fixed_take_profit, dict):
+        fixed_tp_enabled = fixed_tp_enabled or bool(fixed_take_profit.get("enable", fixed_take_profit.get("fixed_take_profit_enable", False)))
+    dashboard_exit_mode = _dashboard_exit_mode_from_decision(decision)
+    risk = decision.get("dashboard_risk", {})
+    initial_sl = safe_float(decision.get("initial_sl_usd_001_lot", risk.get("initial_sl_usd_001_lot", 0.0) if isinstance(risk, dict) else 0.0), 0.0)
+    broker_sl_required = _protection_bool(decision.get("broker_sl_required", active_profile != "TP_ONLY_1USD_TEST"))
+    approved = (
+        active_profile == "TP_ONLY_1USD_TEST"
+        and not broker_sl_required
+        and initial_sl <= 0
+        and fixed_tp_enabled
+        and dashboard_exit_mode in ("MARKET_CLOSE", "IMMEDIATE_MARKET_CLOSE")
+    )
+    decision["broker_sl_required"] = broker_sl_required
+    decision["broker_tp_required"] = not (approved and dashboard_exit_mode in ("MARKET_CLOSE", "IMMEDIATE_MARKET_CLOSE"))
+    decision["dashboard_exit_mode"] = dashboard_exit_mode
+    decision["profile_sl_suppression_check"] = "PROFILE_SL_SUPPRESSION_APPROVED" if approved else "PROFILE_SL_SUPPRESSION_REJECTED"
+    print(decision["profile_sl_suppression_check"], f"profile={active_profile}", f"broker_sl_required={broker_sl_required}", f"exit_mode={dashboard_exit_mode}")
+    return approved
+
+
+def enforce_risk_payload_invariant_before_publication(decision):
+    """Final pre-publication guard: executable TRADE must never publish invalid broker risk."""
+    if not isinstance(decision, dict):
+        return decision
+    if str(decision.get("decision", "")).upper() != "TRADE":
+        return decision
+
+    decision["risk_payload_invariant_check"] = "RISK_PAYLOAD_INVARIANT_CHECK"
+    action = str(decision.get("action", decision.get("bias", ""))).upper().strip()
+    sl = safe_float(decision.get("sl", decision.get("stop_loss", 0)), 0.0)
+    tp = safe_float(decision.get("tp", decision.get("tp1", 0)), 0.0)
+    entry_price = _trade_entry_price(decision)
+    risk_distance = abs(entry_price - sl) if entry_price > 0 and sl > 0 else safe_float(decision.get("risk_distance", decision.get("planned_sl_risk_points", 0)), 0.0)
+    suppression_approved = _tp_only_sl_suppression_approved(decision)
+    broker_sl_required = bool(decision.get("broker_sl_required", True))
+    dashboard_exit_mode = str(decision.get("dashboard_exit_mode", "")).upper()
+    broker_tp_required = _protection_bool(decision.get("broker_tp_required", True))
+    tp_dashboard_managed = dashboard_exit_mode in ("MARKET_CLOSE", "IMMEDIATE_MARKET_CLOSE")
+
+    errors = []
+    if action not in ("BUY", "SELL"):
+        errors.append(f"action_invalid={action}")
+    if broker_sl_required:
+        if sl <= 0:
+            errors.append(f"sl_invalid={sl}")
+        if risk_distance <= 0:
+            errors.append(f"risk_distance_invalid={risk_distance}")
+        if entry_price <= 0:
+            errors.append(f"entry_price_invalid={entry_price}")
+    elif sl <= 0 and not suppression_approved:
+        errors.append("sl_suppression_not_profile_approved")
+    if broker_tp_required and not tp_dashboard_managed and tp <= 0:
+        errors.append(f"tp_invalid={tp}")
+
+    if errors:
+        bias = action if action in ("BUY", "SELL") else str(decision.get("bias", "NEUTRAL")).upper()
+        decision["risk_payload_invariant_result"] = "RISK_PAYLOAD_INVALID"
+        decision["risk_payload_invalid_errors"] = errors
+        decision["risk_construction_skipped"] = "RISK_CONSTRUCTION_SKIPPED" if str(decision.get("risk_payload_construction", "")).upper().startswith("FAILED") else False
+        decision["trade_downgrade_reason"] = "TRADE_DOWNGRADED_INVALID_RISK_PACKAGE"
+        decision["decision"] = "NO_TRADE"
+        decision["decision_output_state"] = "WAIT_VALID"
+        decision["entry_allowed"] = False
+        decision["allowed"] = False
+        decision["payload_valid"] = False
+        decision["payload_validation_failed"] = True
+        decision["payload_validation_reason"] = "RISK_PAYLOAD_INVALID: " + "; ".join(errors)
+        decision["bias"] = bias if bias in ("BUY", "SELL") else "NEUTRAL"
+        decision["action"] = bias if bias in ("BUY", "SELL") else "NEUTRAL"
+        decision["no_trade_reason"] = "INVALID_RISK_PACKAGE"
+        decision["blocked_stage"] = "RISK_CONSTRUCTION"
+        decision["blocking_module"] = "risk_payload_invariant"
+        decision["final_veto_reason"] = "RISK_PAYLOAD_INVALID"
+        decision["reason"] = (str(decision.get("reason", "")).strip() + " | TRADE_DOWNGRADED_INVALID_RISK_PACKAGE").strip()
+        print("RISK_PAYLOAD_INVALID", "; ".join(errors))
+    else:
+        decision["risk_payload_invariant_result"] = "RISK_PAYLOAD_VALID"
+        decision["risk_distance"] = round(risk_distance, 3) if risk_distance > 0 else 0
+        decision["payload_valid"] = True
+        print("RISK_PAYLOAD_VALID", f"sl={sl}", f"tp={tp}", f"entry={entry_price}", f"broker_sl_required={broker_sl_required}")
+    return decision
+
 def construct_risk_payload_before_validation(decision):
     """
     V26.4.8 intent-to-payload bridge.
@@ -4523,7 +4624,10 @@ def construct_risk_payload_before_validation(decision):
         return decision
 
     decision = apply_trade_management_dashboard_v27(decision)
-    tp_only_profile = bool(decision.get("tp_only_profile_active", False))
+    tp_only_profile = bool(decision.get("tp_only_profile_active", False)) and _tp_only_sl_suppression_approved(decision)
+    if bool(decision.get("tp_only_profile_active", False)) and not tp_only_profile:
+        decision["risk_payload_construction"] = "TP_ONLY_PROFILE_SL_SUPPRESSION_REJECTED"
+        decision["risk_payload_construction_reason"] = "TP_ONLY profile active but broker SL suppression contract is not approved"
     if tp_only_profile:
         decision["sl"] = 0
         decision["stop_loss"] = 0
@@ -4668,7 +4772,7 @@ def validate_final_decision_payload(data):
         broker_sl_required = _protection_bool(data.get("broker_sl_required", active_profile != "TP_ONLY_1USD_TEST"))
         broker_tp_required = _protection_bool(data.get("broker_tp_required", True))
         dashboard_tp_required = _protection_bool(data.get("dashboard_tp_required", broker_tp_required))
-        skip_broker_sl_validation = active_profile == "TP_ONLY_1USD_TEST" or not broker_sl_required
+        skip_broker_sl_validation = _tp_only_sl_suppression_approved(data) or (not broker_sl_required and active_profile == "TP_ONLY_1USD_TEST")
         skip_broker_tp_validation = (
             dashboard_exit_mode in ("MARKET_CLOSE", "IMMEDIATE_MARKET_CLOSE")
             or not dashboard_tp_required
@@ -4826,6 +4930,7 @@ def write_decision(data):
                 data = apply_max_realized_loss_guard_v26_6(data)
                 data = apply_exit_authority_manager_v26_6_4(data)
                 data = apply_executor_authority_contract_v26_6_1(data)
+                data = enforce_risk_payload_invariant_before_publication(data)
                 data = attach_no_trade_explainability(data)
                 data["runtime_branch"] = RUNTIME_BRANCH
                 data["arch_version"] = ARCH_VERSION
