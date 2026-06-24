@@ -1,6 +1,6 @@
 {
   "schema_version": "V27_TRADE_MANAGEMENT_DASHBOARD_SCHEMA_1",
-  "active_profile": "TP_ONLY_1USD_TEST",
+  "active_profile": "Balanced",
   "enabled": true,
-  "description": "Runtime post-entry trade management dashboard. Active profile set to TP_ONLY_1USD_TEST for TP-only live/backtest validation; AI direction/bias/entry logic remains unchanged."
+  "description": "Runtime post-entry trade management dashboard. Balanced is the default production profile. TP_ONLY_1USD_TEST remains available only as a validation profile and must not be used as the production active profile."
 }

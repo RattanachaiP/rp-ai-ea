@@ -116,21 +116,23 @@ bool IsTpOnlyProfileActive()
 void EnforceTpOnlyProfileRuntime()
 {
    if(!IsTpOnlyProfileActive()) return;
-   g_cfg.initial_sl_usd_001_lot = 0.0;
-   g_cfg.breakeven_enable = false;
-   g_cfg.runner_be = false;
-   g_cfg.trailing_enable = false;
+   Print("TP_ONLY_PROFILE_DETECTED");
+   Print("TP_ONLY_PRODUCTION_BLOCK");
+   Print("AUTO_FALLBACK_TO_BALANCED");
+   g_cfg.active_profile = "Balanced";
+   g_cfg.initial_sl_usd_001_lot = 1.00;
+   g_cfg.breakeven_enable = true;
+   g_cfg.runner_be = true;
+   g_cfg.trailing_enable = true;
    g_cfg.atr_trail_enable = false;
-   g_cfg.profit_lock_enable = false;
-   g_cfg.fixed_take_profit_enable = true;
+   g_cfg.profit_lock_enable = true;
+   g_cfg.fixed_take_profit_enable = false;
    g_cfg.fixed_take_profit_close_usd_001_lot = 1.00;
-   g_cfg.runner_enable = false;
-   g_cfg.runner_timeout_seconds = 0;
-   g_cfg.runner_trail = "DISABLED_TP_ONLY_TEST";
-   g_cfg.runner_sl_usd_001_lot = 0.0;
-   g_cfg.momentum_confirmation = false;
-   Print("TP_ONLY_PROFILE_ACTIVE");
-   Print("ORDERSEND_SL_SUPPRESSED_BY_PROFILE");
+   g_cfg.runner_enable = true;
+   g_cfg.runner_timeout_seconds = 45;
+   g_cfg.runner_trail = "STRUCTURE_MOMENTUM_BB_WALK";
+   g_cfg.runner_sl_usd_001_lot = 1.00;
+   g_cfg.momentum_confirmation = true;
 }
 
 string ReadCommonFile(const string file_name)
