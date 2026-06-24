@@ -4298,6 +4298,24 @@ def ensure_ea_v17_compat_fields(data):
     data.setdefault("master_gate", "NOT_EVALUATED")
     data.setdefault("master_gate_reason", "")
 
+    # Mandatory NO_TRADE explainability schema. These defaults are observability-only
+    # and are populated with concrete blocker details immediately before publish.
+    data.setdefault("no_trade_reason", "")
+    data.setdefault("no_trade_reasons", [])
+    data.setdefault("blocked_stage", "")
+    data.setdefault("blocking_module", "")
+    data.setdefault("confidence_score", safe_float(data.get("confidence", 0), 0.0))
+    data.setdefault("score_gap", abs(safe_int(data.get("buy_score"), 0) - safe_int(data.get("sell_score"), 0)))
+    data.setdefault("required_score_gap", safe_int(data.get("adaptive_gap", data.get("minimum_score_gap_required", 0)), 0))
+    data.setdefault("entry_window_state", data.get("execution_window_state", data.get("entry_window_validation", "NOT_EVALUATED")))
+    data.setdefault("bb_state", data.get("bb", "NORMAL"))
+    data.setdefault("rsi_state", "NOT_EVALUATED")
+    data.setdefault("macd_state", "NOT_EVALUATED")
+    data.setdefault("countertrend_state", "NOT_EVALUATED")
+    data.setdefault("exhaustion_state", data.get("trend_exhaustion", "NOT_EVALUATED"))
+    data.setdefault("protection_state", data.get("active_protection_state", "NOT_EVALUATED"))
+    data.setdefault("final_veto_reason", "")
+
 
     if "_market_state_path" in data:
         data["market_state_path"] = data.get("_market_state_path", "")
@@ -4331,6 +4349,153 @@ def _trade_entry_price(decision):
         if bias == "SELL":
             return sl - sl_points
     return 0.0
+
+
+def _append_no_trade_reason(reasons, code, detail="", stage="", module="", priority=50):
+    if not code:
+        return
+    reasons.append({
+        "priority": priority,
+        "code": str(code).upper(),
+        "detail": str(detail or code),
+        "blocked_stage": str(stage or "DECISION_ENGINE"),
+        "blocking_module": str(module or "AI_DECISION_ENGINE"),
+    })
+
+
+def _classify_no_trade_reason_text(reason_text):
+    text = str(reason_text or "").upper()
+    if "COOLDOWN" in text or "MAX SIGNAL" in text or "WAIT" in text:
+        return "WAIT_ENTRY_WINDOW", "ENTRY_WINDOW", "COOLDOWN_GATE", 10
+    if "SOFT LOCK" in text or "TRANSITION_WAIT" in text or "COUNTERTREND" in text:
+        return "COUNTERTREND_BLOCK", "COUNTERTREND", "SOFT_DIRECTION_LOCK", 15
+    if "WEAK GAP" in text or "SCORE_GAP" in text or "ADAPTIVE SCORE GAP" in text or "WEAK EDGE" in text:
+        return "INSUFFICIENT_SCORE_GAP", "SCORING", "SCORE_GAP_GATE", 20
+    if "RSI" in text and ("MID" in text or "MIDDLE" in text):
+        return "RSI_MIDZONE", "MOMENTUM_FILTER", "RSI_FILTER", 25
+    if "BB" in text and ("EXHAUST" in text or "DEV4" in text or "OVEREXTENSION" in text):
+        return "BB_EXHAUSTION", "BB_FILTER", "BOLLINGER_FILTER", 30
+    if "BB" in text or "COMPRESSION" in text or "REVERSAL ZONE" in text:
+        return "BB_STATE_BLOCK", "BB_FILTER", "BOLLINGER_FILTER", 35
+    if "EXHAUST" in text or "LATE" in text:
+        return "EXHAUSTION_BLOCK", "EXHAUSTION_PROTECTION", "EXHAUSTION_GUARD", 40
+    if "PROTECTION" in text or "LOSS" in text or "RISK" in text or "RR" in text:
+        return "PROTECTION_BLOCK", "PROTECTION", "PROTECTION_AUTHORITY", 45
+    if "INVALID" in text or "STALE" in text or "MARKET_STATE" in text:
+        return "INVALID_OR_STALE_MARKET_STATE", "MARKET_STATE", "MARKET_STATE_READER", 5
+    if "NO SETUP" in text:
+        return "NO_EXECUTABLE_SETUP", "SETUP_SELECTION", "SETUP_CLASSIFIER", 55
+    return "FINAL_VETO", "FINAL_DECISION", "FINAL_DECISION_GATE", 90
+
+
+def _rsi_state_for_decision(decision):
+    rsi = safe_float(decision.get("rsi", 0), 0.0)
+    bias = str(decision.get("bias", decision.get("action", "NEUTRAL"))).upper()
+    if rsi <= 0:
+        return "NOT_EVALUATED"
+    if 45 <= rsi <= 55:
+        return "RSI_MIDZONE"
+    if bias == "BUY" and rsi >= 70:
+        return "BUY_OVERBOUGHT"
+    if bias == "SELL" and rsi <= 30:
+        return "SELL_OVERSOLD"
+    return "DIRECTIONAL_CONFIRM" if bias in ("BUY", "SELL") else "NEUTRAL"
+
+
+def _macd_state_for_decision(decision):
+    macd = safe_float(decision.get("macd_hist", 0), 0.0)
+    bias = str(decision.get("bias", decision.get("action", "NEUTRAL"))).upper()
+    if macd == 0:
+        return "FLAT_OR_NOT_EVALUATED"
+    if (bias == "BUY" and macd > 0) or (bias == "SELL" and macd < 0):
+        return "DIRECTIONAL_CONFIRM"
+    if bias in ("BUY", "SELL"):
+        return "DIRECTIONAL_CONFLICT"
+    return "NEUTRAL"
+
+
+def attach_no_trade_explainability(decision):
+    """
+    Publish a complete, structured explanation for every NO_TRADE decision.
+    Observability only: does not change thresholds, indicators, or trade decisions.
+    """
+    if not isinstance(decision, dict) or str(decision.get("decision", "")).upper() != "NO_TRADE":
+        return decision
+
+    reasons = []
+    reason_text = str(decision.get("reason", "") or decision.get("final_veto_reason", "") or "NO_TRADE")
+    code, stage, module, priority = _classify_no_trade_reason_text(reason_text)
+    _append_no_trade_reason(reasons, code, reason_text, stage, module, priority)
+
+    score_gap = abs(safe_int(decision.get("buy_score"), 0) - safe_int(decision.get("sell_score"), 0))
+    required_gap = safe_int(decision.get("required_score_gap", 0), 0)
+    if required_gap <= 0:
+        required_gap = safe_int(decision.get("adaptive_gap", decision.get("minimum_score_gap_required", 0)), 0)
+    if required_gap > 0 and score_gap < required_gap:
+        _append_no_trade_reason(
+            reasons,
+            "INSUFFICIENT_SCORE_GAP",
+            f"score_gap={score_gap} < required_score_gap={required_gap}",
+            "SCORING",
+            "SCORE_GAP_GATE",
+            20,
+        )
+
+    entry_window_state = str(decision.get("execution_window_state", decision.get("entry_window_validation", "")) or "").upper()
+    execution_delay = str(decision.get("execution_delay_reason", "") or "").strip()
+    if entry_window_state and entry_window_state not in ("OPEN", "PASS", "PASSED", "APPROVED", "NOT_EVALUATED"):
+        _append_no_trade_reason(reasons, "WAIT_ENTRY_WINDOW", execution_delay or entry_window_state, "ENTRY_WINDOW", "EXECUTION_TIMING_LAYER", 10)
+
+    if bool(decision.get("short_term_countertrend", False)) or str(decision.get("soft_lock_state", "")).upper() in ("TREND_LOCK", "TRANSITION_WAIT"):
+        _append_no_trade_reason(
+            reasons,
+            "COUNTERTREND_BLOCK",
+            decision.get("soft_lock_reason", decision.get("execution_delay_reason", "")),
+            "COUNTERTREND",
+            "SOFT_DIRECTION_LOCK",
+            15,
+        )
+
+    exhaustion_state = str(decision.get("trend_exhaustion", decision.get("exhaustion_state", "")) or "").upper()
+    if exhaustion_state in ("BLOCK", "BLOCKED", "EXHAUSTED", "HIGH", "EXTREME") or bool(decision.get("late_continuation_risk", False)):
+        _append_no_trade_reason(reasons, "EXHAUSTION_BLOCK", decision.get("trend_exhaustion_reason", exhaustion_state), "EXHAUSTION_PROTECTION", "EXHAUSTION_GUARD", 40)
+
+    protection_state = str(decision.get("active_protection_state", decision.get("protection_state", "")) or "").upper()
+    if protection_state and protection_state not in ("NONE", "CLEAR", "NOT_EVALUATED", "INACTIVE"):
+        _append_no_trade_reason(reasons, "PROTECTION_BLOCK", decision.get("active_protection_reason", protection_state), "PROTECTION", "PROTECTION_AUTHORITY", 45)
+
+    deduped = {}
+    for item in reasons:
+        key = (item["code"], item["detail"])
+        if key not in deduped or item["priority"] < deduped[key]["priority"]:
+            deduped[key] = item
+    ordered = sorted(deduped.values(), key=lambda item: item["priority"])
+    primary = ordered[0] if ordered else {
+        "code": "FINAL_VETO",
+        "detail": reason_text,
+        "blocked_stage": "FINAL_DECISION",
+        "blocking_module": "FINAL_DECISION_GATE",
+    }
+
+    decision["no_trade_reason"] = primary["code"]
+    decision["no_trade_reasons"] = [
+        {k: v for k, v in item.items() if k != "priority"}
+        for item in ordered
+    ]
+    decision["blocked_stage"] = primary["blocked_stage"]
+    decision["blocking_module"] = primary["blocking_module"]
+    decision["confidence_score"] = safe_float(decision.get("confidence", decision.get("execution_confidence_score", 0)), 0.0)
+    decision["score_gap"] = score_gap
+    decision["required_score_gap"] = required_gap
+    decision["entry_window_state"] = entry_window_state or "NOT_EVALUATED"
+    decision["bb_state"] = str(decision.get("bb_state", decision.get("bb", "UNKNOWN"))).upper()
+    decision["rsi_state"] = _rsi_state_for_decision(decision)
+    decision["macd_state"] = _macd_state_for_decision(decision)
+    decision["countertrend_state"] = "BLOCKED" if any(item["code"] == "COUNTERTREND_BLOCK" for item in ordered) else "CLEAR"
+    decision["exhaustion_state"] = exhaustion_state or "NOT_EVALUATED"
+    decision["protection_state"] = protection_state or "NOT_EVALUATED"
+    decision["final_veto_reason"] = reason_text
+    return decision
 
 
 def construct_risk_payload_before_validation(decision):
@@ -4661,6 +4826,7 @@ def write_decision(data):
                 data = apply_max_realized_loss_guard_v26_6(data)
                 data = apply_exit_authority_manager_v26_6_4(data)
                 data = apply_executor_authority_contract_v26_6_1(data)
+                data = attach_no_trade_explainability(data)
                 data["runtime_branch"] = RUNTIME_BRANCH
                 data["arch_version"] = ARCH_VERSION
                 data["build_tag"] = BUILD_TAG
@@ -4939,6 +5105,19 @@ def no_trade(reason, market_mode="UNKNOWN", bb_state="UNKNOWN"):
         "stop_loss": 0,
         "tp1": 0,
         "reason": reason,
+        "no_trade_reason": "",
+        "no_trade_reasons": [],
+        "blocked_stage": "",
+        "blocking_module": "",
+        "confidence_score": 0,
+        "required_score_gap": 0,
+        "entry_window_state": "NOT_EVALUATED",
+        "rsi_state": "NOT_EVALUATED",
+        "macd_state": "NOT_EVALUATED",
+        "countertrend_state": "NOT_EVALUATED",
+        "exhaustion_state": "NOT_EVALUATED",
+        "protection_state": "NOT_EVALUATED",
+        "final_veto_reason": "",
         "trend_bias": "NEUTRAL",
         "confidence": 0,
         "manual_action": "WAIT",
