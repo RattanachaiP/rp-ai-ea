@@ -366,8 +366,6 @@ def _final_trace_decision_state(decision):
     output = str(decision.get("decision_output_state", "")).upper()
     execution = str(decision.get("execution_state", "")).upper()
     if published == "TRADE":
-        if output in ("TRADE_CAUTIOUS", "EXECUTE_CAUTIOUS") or execution == "EXECUTE_CAUTIOUS":
-            return "TRADE_CAUTIOUS"
         return "TRADE"
     if output:
         return output
@@ -403,7 +401,7 @@ def initialize_final_decision_trace(decision):
         "dominant_direction": dominant,
         "initial_decision": _final_trace_decision_state(decision),
         "emergency_gap2_check": str(decision.get("EMERGENCY_GAP2_PARTICIPATION_CHECK", "SKIPPED")).upper(),
-        "emergency_gap2_result": FINAL_TRACE_RECOVERED if bool(decision.get("EMERGENCY_GAP2_APPROVED", False)) else (FINAL_TRACE_FAIL if bool(decision.get("EMERGENCY_GAP2_REJECTED", False)) else FINAL_TRACE_SKIPPED),
+        "emergency_gap2_result": "APPROVED" if bool(decision.get("EMERGENCY_GAP2_APPROVED", False)) else (FINAL_TRACE_FAIL if bool(decision.get("EMERGENCY_GAP2_REJECTED", False)) else FINAL_TRACE_SKIPPED),
         "emergency_gap2_reject_reason": str(decision.get("EMERGENCY_GAP2_REJECTED_REASON", "")),
         "trade_cautious_candidate": bool(decision.get("TRADE_CAUTIOUS_FROM_WEAK_GAP", False) or str(decision.get("execution_state", "")).upper() == "EXECUTE_CAUTIOUS" or str(decision.get("decision_output_state", "")).upper() == "TRADE_CAUTIOUS"),
         "transition_gate_result": FINAL_TRACE_NA,
@@ -425,9 +423,9 @@ def initialize_final_decision_trace(decision):
         "final_output_state": _final_trace_decision_state(decision),
         "last_executable_candidate": _final_trace_decision_state(decision) if _final_trace_is_executable_state(decision) else "NONE",
         "first_non_executable_stage": "NONE",
-        "schema_trade_cautious_compatible": "TRADE_CAUTIOUS" in VALID_DECISIONS,
+        "schema_trade_cautious_compatible": "NOT_NEEDED" if str(decision.get("decision", "")).upper() == "TRADE" and (bool(decision.get("TRADE_CAUTIOUS_FROM_WEAK_GAP", False)) or str(decision.get("execution_state", "")).upper() == "EXECUTE_CAUTIOUS") else ("TRADE_CAUTIOUS" in VALID_DECISIONS),
         "downstream_executable_states": sorted(VALID_DECISIONS),
-        "downstream_trade_cautious_recognized": "TRADE_CAUTIOUS" in VALID_DECISIONS,
+        "downstream_trade_cautious_recognized": "NOT_NEEDED" if str(decision.get("decision", "")).upper() == "TRADE" and (bool(decision.get("TRADE_CAUTIOUS_FROM_WEAK_GAP", False)) or str(decision.get("execution_state", "")).upper() == "EXECUTE_CAUTIOUS") else ("TRADE_CAUTIOUS" in VALID_DECISIONS),
         "stage_events": [],
     }
     decision["FINAL_DECISION_TRACE"] = trace
@@ -2314,24 +2312,48 @@ def _emergency_gap2_participation_allowed(decision, bias, action, score_gap, mod
     decision["EMERGENCY_GAP2_APPROVED"] = True
     decision["EMERGENCY_GAP2_REJECTED"] = False
     decision["TRADE_CAUTIOUS_FROM_WEAK_GAP"] = True
+    decision["original_recovery"] = "TRADE_CAUTIOUS_FROM_WEAK_GAP"
+    decision["recovery_applied"] = True
+    decision["decision"] = "TRADE"
+    decision["allowed"] = True
+    decision["entry_allowed"] = True
+    decision["participation_type"] = "CAUTIOUS"
+    decision["execution_mode"] = "CAUTIOUS"
     decision["participation_size_factor"] = EMERGENCY_GAP2_PARTICIPATION_SIZE_FACTOR
     decision["risk_fraction"] = EMERGENCY_GAP2_PARTICIPATION_SIZE_FACTOR
     decision["position_size_multiplier"] = EMERGENCY_GAP2_PARTICIPATION_SIZE_FACTOR
     decision["minimum_lot_fallback_allowed"] = True
     decision["no_pyramid"] = True
+    decision["pyramid_enabled"] = False
+    decision["continuation_add_enabled"] = False
     decision["runner_enabled"] = False
     decision["runner_default"] = "DISABLED_FOR_EMERGENCY_GAP2"
     decision["execution_state"] = "EXECUTE_CAUTIOUS"
-    decision["decision_output_state"] = "TRADE_CAUTIOUS"
+    decision["decision_output_state"] = "TRADE"
     decision["management"] = "SCALP_TP"
     decision["mgmt"] = "SCALP_TP"
     decision["expectancy_emergency_block"] = "NONE"
     decision["effective_veto_code"] = "NONE"
     decision["final_veto_owner"] = "NONE"
-    decision["supporting_vetoes"] = supporting_vetoes
+    decision["supporting_vetoes"] = ["V26_6_2_WEAK_GAP_NO_TRADE"] + [v for v in supporting_vetoes if v != "V26_6_2_WEAK_GAP_NO_TRADE"]
     decision["emergency_gap2_reason"] = "TRADE_CAUTIOUS_FROM_WEAK_GAP: bias/action aligned, gap=2, hard safety clear, payload risk constructible"
     decision["reason"] = (str(decision.get("reason", "")).strip() + " | TRADE_CAUTIOUS_FROM_WEAK_GAP").strip()
     return True
+
+
+def _emergency_gap2_recovered_participation_active(decision):
+    if not isinstance(decision, dict):
+        return False
+    if not bool(decision.get("EMERGENCY_GAP2_APPROVED", False)):
+        return False
+    if str(decision.get("decision", "")).upper() != "TRADE":
+        return False
+    if str(decision.get("execution_state", "")).upper() != "EXECUTE_CAUTIOUS":
+        return False
+    if not bool(decision.get("payload_valid", True)):
+        return False
+    hard_block, _ = _v26_has_hard_block(decision)
+    return not hard_block
 
 
 def apply_expectancy_entry_filters_v26_6_2(decision):
@@ -2356,6 +2378,13 @@ def apply_expectancy_entry_filters_v26_6_2(decision):
     decision["expectancy_emergency_filter"] = "V26.6.2_ACTIVE"
     decision["minimum_score_gap_required"] = V26_6_2_MIN_SCORE_GAP
     decision["transition_normal_minimum_score_gap"] = V26_6_2_TRANSITION_NORMAL_MIN_GAP
+
+    if _emergency_gap2_recovered_participation_active(decision):
+        decision["expectancy_emergency_block"] = "NONE"
+        decision["effective_veto_code"] = "NONE"
+        decision["final_veto_owner"] = "NONE"
+        decision["recovery_applied"] = True
+        return decision
 
     if score_gap < V26_6_2_MIN_SCORE_GAP:
         if _emergency_gap2_participation_allowed(

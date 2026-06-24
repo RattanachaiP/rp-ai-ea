@@ -41,9 +41,14 @@ class EmergencyGap2ParticipationTests(unittest.TestCase):
 
         self.assertEqual(result["decision"], "TRADE")
         self.assertEqual(result["execution_state"], "EXECUTE_CAUTIOUS")
-        self.assertEqual(result["decision_output_state"], "TRADE_CAUTIOUS")
+        self.assertEqual(result["decision_output_state"], "TRADE")
+        self.assertEqual(result["execution_mode"], "CAUTIOUS")
+        self.assertEqual(result["participation_type"], "CAUTIOUS")
         self.assertTrue(result["EMERGENCY_GAP2_APPROVED"])
         self.assertEqual(result["participation_size_factor"], 0.25)
+        self.assertFalse(result["runner_enabled"])
+        self.assertFalse(result["pyramid_enabled"])
+        self.assertFalse(result["continuation_add_enabled"])
         self.assertEqual(result["original_veto"], "V26_6_2_WEAK_GAP_NO_TRADE")
         self.assertEqual(result["final_veto_owner"], "NONE")
 
@@ -103,6 +108,28 @@ class EmergencyGap2ParticipationTests(unittest.TestCase):
 
         self.assertEqual(result["decision"], "NO_TRADE")
         self.assertIn("BB_MIDDLE_CHOP", result["supporting_vetoes"])
+
+    def test_approved_gap2_is_not_rekilled_by_duplicate_weak_gap_filter(self):
+        payload = engine.apply_expectancy_entry_filters_v26_6_2(self.base_trade())
+
+        result = engine.apply_expectancy_entry_filters_v26_6_2(payload)
+
+        self.assertEqual(result["decision"], "TRADE")
+        self.assertEqual(result["execution_state"], "EXECUTE_CAUTIOUS")
+        self.assertEqual(result["effective_veto_code"], "NONE")
+        self.assertEqual(result["final_veto_owner"], "NONE")
+        self.assertTrue(result["recovery_applied"])
+
+    def test_final_trace_reports_trade_schema_compatibility_not_needed(self):
+        payload = engine.apply_expectancy_entry_filters_v26_6_2(self.base_trade())
+        payload = engine.initialize_final_decision_trace(payload)
+
+        trace = payload["FINAL_DECISION_TRACE"]
+        self.assertEqual(trace["initial_decision"], "TRADE")
+        self.assertEqual(trace["last_executable_candidate"], "TRADE")
+        self.assertEqual(trace["final_published_decision"], "TRADE")
+        self.assertEqual(trace["schema_trade_cautious_compatible"], "NOT_NEEDED")
+        self.assertEqual(trace["downstream_trade_cautious_recognized"], "NOT_NEEDED")
 
 
 if __name__ == "__main__":
