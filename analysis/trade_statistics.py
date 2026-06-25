@@ -17,6 +17,9 @@ CSV_FIELDS = [
     "ticket", "symbol", "direction", "mode", "entry_time", "exit_time",
     "entry_price", "exit_price", "stop_loss", "take_profit", "exit_reason",
     "mfe", "mae", "net_profit", "duration", "dashboard_profile",
+    "be_enabled", "be_trigger_price", "be_trigger_profit_usd", "be_trigger_time",
+    "be_trigger_after_seconds", "be_sl_price", "be_offset_usd", "be_stop_out",
+    "profit_before_be_stop_out", "max_profit_after_be_trigger", "lost_opportunity_after_be",
 ]
 
 
@@ -38,6 +41,17 @@ class CompletedTrade:
     net_profit: float
     duration: float
     dashboard_profile: str
+    be_enabled: bool = False
+    be_trigger_price: float = 0.0
+    be_trigger_profit_usd: float = 0.0
+    be_trigger_time: str = ""
+    be_trigger_after_seconds: float = 0.0
+    be_sl_price: float = 0.0
+    be_offset_usd: float = 0.0
+    be_stop_out: bool = False
+    profit_before_be_stop_out: float = 0.0
+    max_profit_after_be_trigger: float = 0.0
+    lost_opportunity_after_be: float = 0.0
 
 
 def append_completed_trade(trade: CompletedTrade, csv_path: Path | str = "trade_statistics.csv") -> None:
@@ -50,6 +64,17 @@ def append_completed_trade(trade: CompletedTrade, csv_path: Path | str = "trade_
         if write_header:
             writer.writeheader()
         writer.writerow(asdict(trade))
+
+
+def _row_bool(row: dict[str, str], key: str) -> bool:
+    return str(row.get(key, "")).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _row_float(row: dict[str, str], key: str) -> float:
+    try:
+        return float(row.get(key, "") or 0)
+    except ValueError:
+        return 0.0
 
 
 def load_completed_trades(csv_path: Path | str = "trade_statistics.csv") -> list[CompletedTrade]:
@@ -67,6 +92,17 @@ def load_completed_trades(csv_path: Path | str = "trade_statistics.csv") -> list
                 exit_reason=row["exit_reason"], mfe=float(row["mfe"] or 0), mae=float(row["mae"] or 0),
                 net_profit=float(row["net_profit"] or 0), duration=float(row["duration"] or 0),
                 dashboard_profile=row["dashboard_profile"],
+                be_enabled=_row_bool(row, "be_enabled"),
+                be_trigger_price=_row_float(row, "be_trigger_price"),
+                be_trigger_profit_usd=_row_float(row, "be_trigger_profit_usd"),
+                be_trigger_time=row.get("be_trigger_time", ""),
+                be_trigger_after_seconds=_row_float(row, "be_trigger_after_seconds"),
+                be_sl_price=_row_float(row, "be_sl_price"),
+                be_offset_usd=_row_float(row, "be_offset_usd"),
+                be_stop_out=_row_bool(row, "be_stop_out"),
+                profit_before_be_stop_out=_row_float(row, "profit_before_be_stop_out"),
+                max_profit_after_be_trigger=_row_float(row, "max_profit_after_be_trigger"),
+                lost_opportunity_after_be=_row_float(row, "lost_opportunity_after_be"),
             )
             for row in rows
         ]
@@ -89,6 +125,8 @@ def profile_success_metrics(trades: Iterable[CompletedTrade]) -> dict[str, dict[
         gross_win = sum(wins)
         gross_loss = abs(sum(losses))
         avg_mfe = _average([t.mfe for t in items])
+        be_triggers = [t for t in items if t.be_enabled]
+        be_stop_outs = [t for t in items if t.be_stop_out]
         metrics[profile] = {
             "trades": len(items),
             "win_rate": len(wins) / len(items) if items else 0.0,
@@ -99,6 +137,11 @@ def profile_success_metrics(trades: Iterable[CompletedTrade]) -> dict[str, dict[
             "average_mfe": avg_mfe,
             "average_mae": _average([t.mae for t in items]),
             "mfe_capture_ratio": _average([t.net_profit / t.mfe for t in items if t.mfe > 0]),
+            "BE_TRIGGER_COUNT": len(be_triggers),
+            "BE_STOP_OUT_COUNT": len(be_stop_outs),
+            "BE_STOP_OUT_RATE": len(be_stop_outs) / len(be_triggers) if be_triggers else 0.0,
+            "AVG_PROFIT_BEFORE_BE_STOP_OUT": _average([t.profit_before_be_stop_out for t in be_stop_outs]),
+            "AVG_LOST_OPPORTUNITY_AFTER_BE": _average([t.lost_opportunity_after_be for t in be_stop_outs]),
             "exit_reason_distribution": dict(Counter(t.exit_reason for t in items)),
         }
     return metrics

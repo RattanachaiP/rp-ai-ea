@@ -1981,8 +1981,15 @@ def apply_trade_management_dashboard_v27(decision):
     decision["initial_sl_usd_001_lot"] = 0.0 if tp_only_profile else safe_float(risk.get("initial_sl_usd_001_lot", 1.0), 1.0)
     decision["breakeven_enabled_by_dashboard"] = be_enabled
     decision["breakeven_trigger_usd_001_lot"] = safe_float(breakeven.get("trigger_usd_001_lot", 0.0), 0.0) if be_enabled else 0.0
-    decision["breakeven_delay_seconds"] = safe_int(breakeven.get("delay_seconds", 0), 0) if be_enabled else 0
-    decision["breakeven_lock_distance_usd_001_lot"] = safe_float(breakeven.get("be_lock_distance_usd_001_lot", 0.0), 0.0) if be_enabled else 0.0
+    decision["breakeven_delay_seconds"] = safe_int(breakeven.get("delay_seconds", breakeven.get("minimum_hold_seconds_before_be", 0)), 0) if be_enabled else 0
+    decision["breakeven_minimum_hold_seconds_before_be"] = safe_int(breakeven.get("minimum_hold_seconds_before_be", breakeven.get("delay_seconds", 0)), 0) if be_enabled else 0
+    decision["breakeven_minimum_noise_safe_be_usd"] = safe_float(breakeven.get("minimum_noise_safe_be_usd", 0.0), 0.0) if be_enabled else 0.0
+    decision["breakeven_atr_be_enabled"] = bool(breakeven.get("atr_be_enabled", False)) if be_enabled else False
+    decision["breakeven_atr_be_multiplier"] = safe_float(breakeven.get("atr_be_multiplier", 0.0), 0.0) if be_enabled else 0.0
+    decision["breakeven_max_spread_points"] = safe_float(breakeven.get("max_spread_points", 0.0), 0.0) if be_enabled else 0.0
+    decision["breakeven_offset_usd_001_lot"] = safe_float(breakeven.get("offset_usd_001_lot", 0.0), 0.0) if be_enabled else 0.0
+    decision["breakeven_final_trigger_policy"] = "max(dashboard_be_trigger_usd, atr_based_be_trigger_usd, minimum_noise_safe_be_usd) after hold/spread/noise-window checks" if be_enabled else "DISABLED_BY_DASHBOARD"
+    decision["breakeven_lock_distance_usd_001_lot"] = safe_float(breakeven.get("be_lock_distance_usd_001_lot", breakeven.get("offset_usd_001_lot", 0.0)), 0.0) if be_enabled else 0.0
     decision["trailing_enabled_by_dashboard"] = trailing_enabled
     decision["profit_lock_enabled_by_dashboard"] = profit_lock_enabled
     decision["fixed_take_profit_enabled_by_dashboard"] = bool(fixed_take_profit.get("enable", False))
