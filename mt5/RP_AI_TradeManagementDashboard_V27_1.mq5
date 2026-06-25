@@ -3,8 +3,8 @@
 //| On-chart MT5 dashboard for post-entry trade management only.      |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "27.20"
-#property description "V27.2 Interactive Trade Management Dashboard Editor - post-entry management only"
+#property version   "27.30"
+#property description "V27.3 Exit Optimization Dashboard - post-entry management only"
 
 #include <Trade/Trade.mqh>
 
@@ -16,9 +16,10 @@ input int    InpX                 = 12;
 input int    InpY                 = 24;
 input int    InpTimerSeconds      = 2;
 input bool   InpManageOpenTrades  = true;
+input string InpTradeStatisticsCsv = "trade_statistics.csv";
 
 #define RP_DASH_SCHEMA "V27_TRADE_MANAGEMENT_DASHBOARD_SCHEMA_1"
-#define RP_PREFIX      "RP_V271_TMD_"
+#define RP_PREFIX      "RP_V273_TMD_"
 
 struct DashboardConfig
 {
@@ -68,35 +69,76 @@ CTrade g_trade;
 datetime g_last_load = 0;
 string g_status = "starting";
 
+ulong g_track_tickets[];
+double g_track_mfe[];
+double g_track_mae[];
+
+int TrackIndex(const ulong ticket)
+{
+   for(int i = 0; i < ArraySize(g_track_tickets); ++i)
+      if(g_track_tickets[i] == ticket) return i;
+   return -1;
+}
+
+int EnsureTrack(const ulong ticket)
+{
+   int idx = TrackIndex(ticket);
+   if(idx >= 0) return idx;
+   int n = ArraySize(g_track_tickets);
+   ArrayResize(g_track_tickets, n + 1);
+   ArrayResize(g_track_mfe, n + 1);
+   ArrayResize(g_track_mae, n + 1);
+   g_track_tickets[n] = ticket;
+   g_track_mfe[n] = 0.0;
+   g_track_mae[n] = 0.0;
+   return n;
+}
+
+void RemoveTrack(const ulong ticket)
+{
+   int idx = TrackIndex(ticket);
+   if(idx < 0) return;
+   int last = ArraySize(g_track_tickets) - 1;
+   if(idx != last)
+   {
+      g_track_tickets[idx] = g_track_tickets[last];
+      g_track_mfe[idx] = g_track_mfe[last];
+      g_track_mae[idx] = g_track_mae[last];
+   }
+   ArrayResize(g_track_tickets, last);
+   ArrayResize(g_track_mfe, last);
+   ArrayResize(g_track_mae, last);
+}
+
 void ApplyBackwardCompatibleDefaults(DashboardConfig &cfg)
 {
-   cfg.active_profile = InpDefaultProfile;
+   cfg.active_profile = "Profile_A";
    cfg.enabled = true;
    cfg.initial_sl_usd_001_lot = 1.00;
    cfg.emergency_close = true;
    cfg.hard_loss_cap_usd_001_lot = 1.00;
    cfg.max_floating_loss_usd_001_lot = 0.80;
-   cfg.breakeven_enable = true;
+   cfg.breakeven_enable = false;
    cfg.breakeven_trigger_usd_001_lot = 0.50;
    cfg.breakeven_offset_usd_001_lot = 0.00;
-   cfg.runner_be = true;
-   cfg.trailing_enable = true;
+   cfg.runner_be = false;
+   cfg.trailing_enable = false;
    cfg.trailing_start_usd_001_lot = 0.80;
    cfg.trailing_distance_usd_001_lot = 0.30;
    cfg.trailing_step_usd_001_lot = 0.10;
    cfg.atr_trail_enable = false;
-   cfg.profit_lock_enable = true;
+   cfg.profit_lock_enable = false;
    cfg.lock1_trigger = 0.50; cfg.lock1_lock = 0.00;
    cfg.lock2_trigger = 0.80; cfg.lock2_lock = 0.10;
    cfg.lock3_trigger = 1.20; cfg.lock3_lock = 0.40;
    cfg.minimum_locked_profit_usd_001_lot = 0.05;
-   cfg.fixed_take_profit_enable = false;
+   cfg.fixed_take_profit_enable = true;
    cfg.fixed_take_profit_close_usd_001_lot = 1.00;
-   cfg.runner_enable = true;
+   cfg.runner_enable = false;
    cfg.runner_timeout_seconds = 45;
    cfg.runner_trail = "STRUCTURE_MOMENTUM_BB_WALK";
    cfg.runner_sl_usd_001_lot = 1.00;
-   cfg.momentum_confirmation = true;
+   cfg.momentum_confirmation = false;
    cfg.time_exit_enable = false;
    cfg.maximum_seconds = 0;
    cfg.maximum_bars = 0;
@@ -462,7 +504,7 @@ string CurrentProfitLockLevel()
 
 void UpdateDashboardText()
 {
-   ObjectSetString(0, RP_PREFIX + "TITLE", OBJPROP_TEXT, "V27.2 Interactive Trade Management Dashboard Editor (POST-ENTRY ONLY; no AI direction/entry controls)");
+   ObjectSetString(0, RP_PREFIX + "TITLE", OBJPROP_TEXT, "V27.3 Exit Optimization Dashboard (POST-ENTRY ONLY; AI decision engine frozen)");
    string json_status = g_cfg.fallback_defaults_used ? "FALLBACK_EMBEDDED_DEFAULTS" : "JSON_PROFILE_LOADED";
    ObjectSetString(0, RP_PREFIX + "BODY", OBJPROP_TEXT,
                    StringFormat("Profile: %s | JSON Status: %s | Last Reload: %s | TM: %s | Status: %s\nActive Exit Authority Owner: %s | Effective Management Mode: %s\nCurrent BE Trigger: %.2f | Trail Distance: %.2f | Hard Loss Cap: %.2f | Profit Lock: %s\nExecutor consumes this runtime profile through Exit Authority priority: EMERGENCY > HARD_LOSS > PROFIT_LOCK > BE > TRAIL > RUNNER > TIME",
@@ -528,9 +570,10 @@ void AdjustControl(const string id, const int dir)
 
 void CycleProfile()
 {
-   if(g_cfg.active_profile == "Balanced") g_cfg.active_profile = "Conservative";
-   else if(g_cfg.active_profile == "Conservative") g_cfg.active_profile = "Aggressive";
-   else g_cfg.active_profile = "Balanced";
+   if(g_cfg.active_profile == "Profile_A") g_cfg.active_profile = "Profile_B";
+   else if(g_cfg.active_profile == "Profile_B") g_cfg.active_profile = "Profile_C";
+   else if(g_cfg.active_profile == "Profile_C") g_cfg.active_profile = "Profile_D";
+   else g_cfg.active_profile = "Profile_A";
    g_status = "profile selected in-memory - click Reload JSON to load file or Save JSON to create it";
 }
 
@@ -543,8 +586,87 @@ double MoneyToPriceDistance(const double money_001_lot, const double volume)
    return (scaled_money / tick_value) * tick_size;
 }
 
+void UpdateOpenTradeExcursions()
+{
+   for(int i = PositionsTotal() - 1; i >= 0; --i)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(!PositionSelectByTicket(ticket) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      int idx = EnsureTrack(ticket);
+      double profit = PositionGetDouble(POSITION_PROFIT);
+      if(profit > g_track_mfe[idx]) g_track_mfe[idx] = profit;
+      if(profit < g_track_mae[idx]) g_track_mae[idx] = profit;
+   }
+}
+
+string CsvEscape(const string value)
+{
+   string escaped = value;
+   StringReplace(escaped, "\"", "\"\"");
+   return "\"" + escaped + "\"";
+}
+
+void EnsureTradeStatisticsHeader()
+{
+   int read = FileOpen(InpTradeStatisticsCsv, FILE_READ | FILE_TXT | FILE_COMMON | FILE_ANSI);
+   if(read != INVALID_HANDLE)
+   {
+      bool empty = FileIsEnding(read);
+      FileClose(read);
+      if(!empty) return;
+   }
+   int handle = FileOpen(InpTradeStatisticsCsv, FILE_WRITE | FILE_TXT | FILE_COMMON | FILE_ANSI);
+   if(handle == INVALID_HANDLE) return;
+   FileWriteString(handle, "Ticket,Symbol,Direction,Mode,Entry Time,Exit Time,Entry Price,Exit Price,Stop Loss,Take Profit,Exit Reason,MFE,MAE,Net Profit,Duration,Dashboard Profile\n");
+   FileClose(handle);
+}
+
+void RecordCompletedTrade(const ulong position_id, const ulong exit_deal)
+{
+   if(!HistoryDealSelect(exit_deal)) return;
+   string symbol = HistoryDealGetString(exit_deal, DEAL_SYMBOL);
+   if(symbol != _Symbol) return;
+   datetime exit_time = (datetime)HistoryDealGetInteger(exit_deal, DEAL_TIME);
+   double exit_price = HistoryDealGetDouble(exit_deal, DEAL_PRICE);
+   double net_profit = HistoryDealGetDouble(exit_deal, DEAL_PROFIT) + HistoryDealGetDouble(exit_deal, DEAL_SWAP) + HistoryDealGetDouble(exit_deal, DEAL_COMMISSION);
+   long reason_code = HistoryDealGetInteger(exit_deal, DEAL_REASON);
+   string exit_reason = EnumToString((ENUM_DEAL_REASON)reason_code);
+
+   datetime entry_time = 0;
+   double entry_price = 0.0;
+   string direction = "UNKNOWN";
+   if(HistorySelect(0, exit_time + 60))
+   {
+      for(int i = HistoryDealsTotal() - 1; i >= 0; --i)
+      {
+         ulong deal = HistoryDealGetTicket(i);
+         if((ulong)HistoryDealGetInteger(deal, DEAL_POSITION_ID) != position_id) continue;
+         if((ENUM_DEAL_ENTRY)HistoryDealGetInteger(deal, DEAL_ENTRY) != DEAL_ENTRY_IN) continue;
+         entry_time = (datetime)HistoryDealGetInteger(deal, DEAL_TIME);
+         entry_price = HistoryDealGetDouble(deal, DEAL_PRICE);
+         direction = ((ENUM_DEAL_TYPE)HistoryDealGetInteger(deal, DEAL_TYPE) == DEAL_TYPE_BUY) ? "BUY" : "SELL";
+      }
+   }
+
+   int idx = TrackIndex(position_id);
+   double mfe = idx >= 0 ? g_track_mfe[idx] : MathMax(net_profit, 0.0);
+   double mae = idx >= 0 ? g_track_mae[idx] : MathMin(net_profit, 0.0);
+   EnsureTradeStatisticsHeader();
+   int handle = FileOpen(InpTradeStatisticsCsv, FILE_READ | FILE_WRITE | FILE_TXT | FILE_COMMON | FILE_ANSI);
+   if(handle == INVALID_HANDLE) return;
+   FileSeek(handle, 0, SEEK_END);
+   string row = StringFormat("%I64u,%s,%s,%s,%s,%s,%.5f,%.5f,%.5f,%.5f,%s,%.2f,%.2f,%.2f,%d,%s\n",
+      position_id, CsvEscape(symbol), CsvEscape(direction), CsvEscape(g_cfg.runner_enable ? "RUNNER/TRAIL" : "PROTECT"),
+      CsvEscape(TimeToString(entry_time, TIME_DATE | TIME_SECONDS)), CsvEscape(TimeToString(exit_time, TIME_DATE | TIME_SECONDS)),
+      entry_price, exit_price, 0.0, 0.0, CsvEscape(exit_reason), mfe, mae, net_profit, (int)(exit_time - entry_time), CsvEscape(g_cfg.active_profile));
+   FileWriteString(handle, row);
+   FileClose(handle);
+   RemoveTrack(position_id);
+}
+
 void ManageOpenPositions()
 {
+   UpdateOpenTradeExcursions();
    if(!InpManageOpenTrades || !g_cfg.enabled) return;
    for(int i = PositionsTotal() - 1; i >= 0; --i)
    {
@@ -635,6 +757,14 @@ void OnTimer()
 void OnTick()
 {
    ManageOpenPositions();
+}
+
+void OnTradeTransaction(const MqlTradeTransaction &trans, const MqlTradeRequest &request, const MqlTradeResult &result)
+{
+   if(trans.type != TRADE_TRANSACTION_DEAL_ADD) return;
+   if(!HistoryDealSelect(trans.deal)) return;
+   if((ENUM_DEAL_ENTRY)HistoryDealGetInteger(trans.deal, DEAL_ENTRY) == DEAL_ENTRY_OUT)
+      RecordCompletedTrade((ulong)HistoryDealGetInteger(trans.deal, DEAL_POSITION_ID), trans.deal);
 }
 
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)

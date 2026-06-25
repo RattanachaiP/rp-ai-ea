@@ -14,12 +14,12 @@ from pathlib import Path
 from typing import Any, Dict, Mapping
 
 SCHEMA_VERSION = "V27_TRADE_MANAGEMENT_DASHBOARD_SCHEMA_1"
-PRODUCTION_PROFILE_FALLBACK_ORDER = ("Balanced", "Conservative", "Aggressive")
+PRODUCTION_PROFILE_FALLBACK_ORDER = ("Profile_A", "Profile_B", "Profile_C", "Profile_D", "Balanced", "Conservative", "Aggressive")
 VALIDATION_ONLY_PROFILES = {"TP_ONLY_1USD_TEST"}
 
 DEFAULT_DASHBOARD: Dict[str, Any] = {
     "schema_version": SCHEMA_VERSION,
-    "active_profile": "Balanced",
+    "active_profile": "Profile_A",
     "enabled": True,
     "risk": {
         "initial_sl_usd_001_lot": 1.00,
@@ -131,7 +131,7 @@ def load_trade_management_dashboard(repo_root: Path | None = None) -> Dict[str, 
     except Exception as exc:  # config fallback must not stop trading runtime
         warnings.append(f"dashboard_load_failed:{type(exc).__name__}")
 
-    active_profile = str(config.get("active_profile") or "Balanced")
+    active_profile = str(config.get("active_profile") or "Profile_A")
     if active_profile.upper() in VALIDATION_ONLY_PROFILES:
         warnings.extend([
             "TP_ONLY_PROFILE_DETECTED",
@@ -141,7 +141,10 @@ def load_trade_management_dashboard(repo_root: Path | None = None) -> Dict[str, 
         print("TP_ONLY_PROFILE_DETECTED")
         print("TP_ONLY_PRODUCTION_BLOCK")
         print("AUTO_FALLBACK_TO_BALANCED")
-        active_profile = PRODUCTION_PROFILE_FALLBACK_ORDER[0]
+        active_profile = next(
+            (candidate for candidate in PRODUCTION_PROFILE_FALLBACK_ORDER if (paths["profiles"] / f"{candidate}.json").exists()),
+            PRODUCTION_PROFILE_FALLBACK_ORDER[0],
+        )
         config["active_profile"] = active_profile
 
     profile_path = paths["profiles"] / f"{active_profile}.json"
@@ -155,6 +158,7 @@ def load_trade_management_dashboard(repo_root: Path | None = None) -> Dict[str, 
 
     config["schema_version"] = SCHEMA_VERSION
     config["active_profile"] = str(config.get("active_profile") or active_profile)
+    config["decision_engine_freeze"] = "DIRECTION_BIAS_ENTRY_SCORE_INDICATORS_UNCHANGED"
     config["load_sources"] = sources
     config["load_warnings"] = warnings
     config["fallback_defaults_used"] = sources == ["embedded_defaults"] or bool(warnings)
