@@ -22,6 +22,9 @@ input double InpBeFalseTriggerThresholdUsd = 0.20;
 #define RP_DASH_SCHEMA "V27_TRADE_MANAGEMENT_DASHBOARD_SCHEMA_1"
 #define RP_PREFIX      "RP_V273_TMD_"
 #define TRADE_STATS_RELATIVE_PATH "RP_AI_EA\\analysis\\trade_statistics.csv"
+#define TRADE_STATS_SCHEMA_VERSION "V27_3_5_EXIT_EVIDENCE_AUDIT"
+#define DECISION_JSON_FILE "decision.json"
+#define MARKET_STATE_JSON_FILE "market_state.json"
 
 struct DashboardConfig
 {
@@ -91,8 +94,41 @@ double g_track_profit_before_be_stop_out[];
 double g_track_max_profit_after_be_trigger[];
 double g_track_min_profit_after_be_trigger[];
 double g_track_lost_opportunity_after_be[];
+double g_track_order_sl_at_open[];
+double g_track_order_tp_at_open[];
+double g_track_position_sl_last[];
+double g_track_position_tp_last[];
+datetime g_track_mfe_time[];
+datetime g_track_mae_time[];
+double g_track_price_at_mfe[];
+double g_track_price_at_mae[];
+string g_track_dashboard_close_intent[];
+string g_track_decision_uuid[];
+double g_track_sequence_id[];
+double g_track_heartbeat_unix[];
+double g_track_market_state_age_sec[];
+double g_track_decision_age_sec[];
+string g_track_action[];
+string g_track_bias[];
+string g_track_mode[];
+string g_track_bb_state[];
+double g_track_rsi[];
+double g_track_macd_hist[];
+double g_track_adx[];
+double g_track_atr[];
+double g_track_spread_points_entry[];
+double g_track_buy_score[];
+double g_track_sell_score[];
+double g_track_score_gap[];
+string g_track_dominant_direction[];
+string g_track_execution_state[];
+string g_track_management_mode[];
+string g_track_dashboard_profile_at_entry[];
 
 double EffectiveBeTriggerUsd001Lot();
+string ReadCommonFile(const string file_name);
+string JsonString(const string json, const string key, const string fallback);
+double JsonNumber(const string json, const string key, const double fallback);
 
 int TrackIndex(const ulong ticket)
 {
@@ -121,6 +157,36 @@ int EnsureTrack(const ulong ticket)
    ArrayResize(g_track_max_profit_after_be_trigger, n + 1);
    ArrayResize(g_track_min_profit_after_be_trigger, n + 1);
    ArrayResize(g_track_lost_opportunity_after_be, n + 1);
+   ArrayResize(g_track_order_sl_at_open, n + 1);
+   ArrayResize(g_track_order_tp_at_open, n + 1);
+   ArrayResize(g_track_position_sl_last, n + 1);
+   ArrayResize(g_track_position_tp_last, n + 1);
+   ArrayResize(g_track_mfe_time, n + 1);
+   ArrayResize(g_track_mae_time, n + 1);
+   ArrayResize(g_track_price_at_mfe, n + 1);
+   ArrayResize(g_track_price_at_mae, n + 1);
+   ArrayResize(g_track_dashboard_close_intent, n + 1);
+   ArrayResize(g_track_decision_uuid, n + 1);
+   ArrayResize(g_track_sequence_id, n + 1);
+   ArrayResize(g_track_heartbeat_unix, n + 1);
+   ArrayResize(g_track_market_state_age_sec, n + 1);
+   ArrayResize(g_track_decision_age_sec, n + 1);
+   ArrayResize(g_track_action, n + 1);
+   ArrayResize(g_track_bias, n + 1);
+   ArrayResize(g_track_mode, n + 1);
+   ArrayResize(g_track_bb_state, n + 1);
+   ArrayResize(g_track_rsi, n + 1);
+   ArrayResize(g_track_macd_hist, n + 1);
+   ArrayResize(g_track_adx, n + 1);
+   ArrayResize(g_track_atr, n + 1);
+   ArrayResize(g_track_spread_points_entry, n + 1);
+   ArrayResize(g_track_buy_score, n + 1);
+   ArrayResize(g_track_sell_score, n + 1);
+   ArrayResize(g_track_score_gap, n + 1);
+   ArrayResize(g_track_dominant_direction, n + 1);
+   ArrayResize(g_track_execution_state, n + 1);
+   ArrayResize(g_track_management_mode, n + 1);
+   ArrayResize(g_track_dashboard_profile_at_entry, n + 1);
    g_track_tickets[n] = ticket;
    g_track_mfe[n] = 0.0;
    g_track_mae[n] = 0.0;
@@ -136,6 +202,38 @@ int EnsureTrack(const ulong ticket)
    g_track_max_profit_after_be_trigger[n] = 0.0;
    g_track_min_profit_after_be_trigger[n] = 0.0;
    g_track_lost_opportunity_after_be[n] = 0.0;
+   g_track_order_sl_at_open[n] = PositionSelectByTicket(ticket) ? PositionGetDouble(POSITION_SL) : 0.0;
+   g_track_order_tp_at_open[n] = PositionSelectByTicket(ticket) ? PositionGetDouble(POSITION_TP) : 0.0;
+   g_track_position_sl_last[n] = g_track_order_sl_at_open[n];
+   g_track_position_tp_last[n] = g_track_order_tp_at_open[n];
+   g_track_mfe_time[n] = 0;
+   g_track_mae_time[n] = 0;
+   g_track_price_at_mfe[n] = 0.0;
+   g_track_price_at_mae[n] = 0.0;
+   g_track_dashboard_close_intent[n] = "";
+   string decision_json = ReadCommonFile(DECISION_JSON_FILE);
+   string market_json = ReadCommonFile(MARKET_STATE_JSON_FILE);
+   g_track_decision_uuid[n] = JsonString(decision_json, "decision_uuid", JsonString(decision_json, "uuid", ""));
+   g_track_sequence_id[n] = JsonNumber(decision_json, "sequence_id", 0.0);
+   g_track_heartbeat_unix[n] = JsonNumber(decision_json, "heartbeat_unix", 0.0);
+   g_track_market_state_age_sec[n] = JsonNumber(decision_json, "market_state_age_sec", 0.0);
+   g_track_decision_age_sec[n] = JsonNumber(decision_json, "decision_age_sec", 0.0);
+   g_track_action[n] = JsonString(decision_json, "action", JsonString(decision_json, "decision", ""));
+   g_track_bias[n] = JsonString(decision_json, "bias", "");
+   g_track_mode[n] = JsonString(decision_json, "mode", "");
+   g_track_bb_state[n] = JsonString(decision_json, "bb_state", "");
+   g_track_rsi[n] = JsonNumber(decision_json, "rsi", JsonNumber(market_json, "rsi", 0.0));
+   g_track_macd_hist[n] = JsonNumber(decision_json, "macd_hist", JsonNumber(market_json, "macd_hist", 0.0));
+   g_track_adx[n] = JsonNumber(decision_json, "adx", JsonNumber(market_json, "adx", 0.0));
+   g_track_atr[n] = JsonNumber(decision_json, "atr", JsonNumber(market_json, "atr", 0.0));
+   g_track_spread_points_entry[n] = (SymbolInfoDouble(_Symbol, SYMBOL_ASK) - SymbolInfoDouble(_Symbol, SYMBOL_BID)) / _Point;
+   g_track_buy_score[n] = JsonNumber(decision_json, "buy_score", 0.0);
+   g_track_sell_score[n] = JsonNumber(decision_json, "sell_score", 0.0);
+   g_track_score_gap[n] = JsonNumber(decision_json, "score_gap", MathAbs(g_track_buy_score[n] - g_track_sell_score[n]));
+   g_track_dominant_direction[n] = JsonString(decision_json, "dominant_direction", "");
+   g_track_execution_state[n] = JsonString(decision_json, "execution_state", JsonString(decision_json, "execution_window_state", ""));
+   g_track_management_mode[n] = JsonString(decision_json, "management_mode", JsonString(decision_json, "effective_management_mode", ""));
+   g_track_dashboard_profile_at_entry[n] = g_cfg.active_profile;
    return n;
 }
 
@@ -161,6 +259,36 @@ void RemoveTrack(const ulong ticket)
       g_track_max_profit_after_be_trigger[idx] = g_track_max_profit_after_be_trigger[last];
       g_track_min_profit_after_be_trigger[idx] = g_track_min_profit_after_be_trigger[last];
       g_track_lost_opportunity_after_be[idx] = g_track_lost_opportunity_after_be[last];
+      g_track_order_sl_at_open[idx] = g_track_order_sl_at_open[last];
+      g_track_order_tp_at_open[idx] = g_track_order_tp_at_open[last];
+      g_track_position_sl_last[idx] = g_track_position_sl_last[last];
+      g_track_position_tp_last[idx] = g_track_position_tp_last[last];
+      g_track_mfe_time[idx] = g_track_mfe_time[last];
+      g_track_mae_time[idx] = g_track_mae_time[last];
+      g_track_price_at_mfe[idx] = g_track_price_at_mfe[last];
+      g_track_price_at_mae[idx] = g_track_price_at_mae[last];
+      g_track_dashboard_close_intent[idx] = g_track_dashboard_close_intent[last];
+      g_track_decision_uuid[idx] = g_track_decision_uuid[last];
+      g_track_sequence_id[idx] = g_track_sequence_id[last];
+      g_track_heartbeat_unix[idx] = g_track_heartbeat_unix[last];
+      g_track_market_state_age_sec[idx] = g_track_market_state_age_sec[last];
+      g_track_decision_age_sec[idx] = g_track_decision_age_sec[last];
+      g_track_action[idx] = g_track_action[last];
+      g_track_bias[idx] = g_track_bias[last];
+      g_track_mode[idx] = g_track_mode[last];
+      g_track_bb_state[idx] = g_track_bb_state[last];
+      g_track_rsi[idx] = g_track_rsi[last];
+      g_track_macd_hist[idx] = g_track_macd_hist[last];
+      g_track_adx[idx] = g_track_adx[last];
+      g_track_atr[idx] = g_track_atr[last];
+      g_track_spread_points_entry[idx] = g_track_spread_points_entry[last];
+      g_track_buy_score[idx] = g_track_buy_score[last];
+      g_track_sell_score[idx] = g_track_sell_score[last];
+      g_track_score_gap[idx] = g_track_score_gap[last];
+      g_track_dominant_direction[idx] = g_track_dominant_direction[last];
+      g_track_execution_state[idx] = g_track_execution_state[last];
+      g_track_management_mode[idx] = g_track_management_mode[last];
+      g_track_dashboard_profile_at_entry[idx] = g_track_dashboard_profile_at_entry[last];
    }
    ArrayResize(g_track_tickets, last);
    ArrayResize(g_track_mfe, last);
@@ -177,6 +305,36 @@ void RemoveTrack(const ulong ticket)
    ArrayResize(g_track_max_profit_after_be_trigger, last);
    ArrayResize(g_track_min_profit_after_be_trigger, last);
    ArrayResize(g_track_lost_opportunity_after_be, last);
+   ArrayResize(g_track_order_sl_at_open, last);
+   ArrayResize(g_track_order_tp_at_open, last);
+   ArrayResize(g_track_position_sl_last, last);
+   ArrayResize(g_track_position_tp_last, last);
+   ArrayResize(g_track_mfe_time, last);
+   ArrayResize(g_track_mae_time, last);
+   ArrayResize(g_track_price_at_mfe, last);
+   ArrayResize(g_track_price_at_mae, last);
+   ArrayResize(g_track_dashboard_close_intent, last);
+   ArrayResize(g_track_decision_uuid, last);
+   ArrayResize(g_track_sequence_id, last);
+   ArrayResize(g_track_heartbeat_unix, last);
+   ArrayResize(g_track_market_state_age_sec, last);
+   ArrayResize(g_track_decision_age_sec, last);
+   ArrayResize(g_track_action, last);
+   ArrayResize(g_track_bias, last);
+   ArrayResize(g_track_mode, last);
+   ArrayResize(g_track_bb_state, last);
+   ArrayResize(g_track_rsi, last);
+   ArrayResize(g_track_macd_hist, last);
+   ArrayResize(g_track_adx, last);
+   ArrayResize(g_track_atr, last);
+   ArrayResize(g_track_spread_points_entry, last);
+   ArrayResize(g_track_buy_score, last);
+   ArrayResize(g_track_sell_score, last);
+   ArrayResize(g_track_score_gap, last);
+   ArrayResize(g_track_dominant_direction, last);
+   ArrayResize(g_track_execution_state, last);
+   ArrayResize(g_track_management_mode, last);
+   ArrayResize(g_track_dashboard_profile_at_entry, last);
 }
 
 void ApplyBackwardCompatibleDefaults(DashboardConfig &cfg)
@@ -796,8 +954,11 @@ void UpdateOpenTradeExcursions()
       if(!PositionSelectByTicket(ticket) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
       int idx = EnsureTrack(ticket);
       double profit = PositionGetDouble(POSITION_PROFIT);
-      if(profit > g_track_mfe[idx]) g_track_mfe[idx] = profit;
-      if(profit < g_track_mae[idx]) g_track_mae[idx] = profit;
+      double price = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? SymbolInfoDouble(_Symbol, SYMBOL_BID) : SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      g_track_position_sl_last[idx] = PositionGetDouble(POSITION_SL);
+      g_track_position_tp_last[idx] = PositionGetDouble(POSITION_TP);
+      if(profit > g_track_mfe[idx]) { g_track_mfe[idx] = profit; g_track_mfe_time[idx] = TimeCurrent(); g_track_price_at_mfe[idx] = price; }
+      if(profit < g_track_mae[idx]) { g_track_mae[idx] = profit; g_track_mae_time[idx] = TimeCurrent(); g_track_price_at_mae[idx] = price; }
       if(g_track_be_enabled[idx])
       {
          if(profit > g_track_max_profit_after_be_trigger[idx])
@@ -853,6 +1014,41 @@ string CsvEscape(const string value)
    return "\"" + escaped + "\"";
 }
 
+
+string TradeStatisticsHeaderV2735()
+{
+   return "csv_schema_version,ticket,symbol,direction,trade_mode,entry_time,exit_time,entry_price,exit_price,stop_loss,take_profit,exit_reason,close_source,broker_exit_reason,dashboard_exit_reason,exit_authority_owner,broker_sl_price,broker_tp_price,position_sl_at_close,position_tp_at_close,order_sl_at_open,order_tp_at_open,close_trigger_price,close_trigger_distance_usd,decision_uuid,sequence_id,heartbeat_unix,market_state_age_sec,decision_age_sec,action,bias,mode,bb_state,rsi,macd_hist,adx,atr,spread_points_entry,buy_score,sell_score,score_gap,dominant_direction,execution_state,management_mode,dashboard_profile_at_entry,spread_points_exit,atr_exit,bb_state_exit,rsi_exit,macd_hist_exit,adx_exit,floating_profit_before_close,floating_loss_before_close,position_age_seconds_at_close,dashboard_profile_at_exit,mfe,mae,time_to_mfe_seconds,time_to_mae_seconds,price_at_mfe,price_at_mae,mfe_before_exit,mae_before_exit,max_profit_usd,realized_profit_usd,lost_opportunity_usd,profit_capture_ratio,entry_quality_score,exit_quality_score,trade_quality_score,net_profit,duration,dashboard_profile,be_trigger_count,be_trigger_price,be_trigger_profit,be_trigger_time,be_trigger_age_seconds,be_sl_price,be_offset_usd,be_stop_out,realized_profit,profit_before_be,maximum_profit_after_be,maximum_drawdown_after_be,lost_opportunity_after_be,be_false_trigger,be_false_trigger_distance,be_false_trigger_time,be_survival_time_seconds,capture_ratio_after_be,post_sl_continuation_direction\n";
+}
+
+bool IsManualDealReason(const long reason_code)
+{
+   return reason_code == DEAL_REASON_CLIENT || reason_code == DEAL_REASON_MOBILE || reason_code == DEAL_REASON_WEB;
+}
+
+string ClassifyCloseSource(const long reason_code, const double broker_sl, const double broker_tp, const string dashboard_reason)
+{
+   if(reason_code == DEAL_REASON_SL && broker_sl > 0.0) return "BROKER_SL";
+   if(reason_code == DEAL_REASON_TP && broker_tp > 0.0) return "BROKER_TP";
+   if(reason_code == DEAL_REASON_EXPERT)
+   {
+      if(dashboard_reason == "BE") return "DASHBOARD_BE";
+      if(dashboard_reason == "TRAIL") return "DASHBOARD_TRAIL";
+      if(dashboard_reason == "PROFIT_LOCK") return "DASHBOARD_PROFIT_LOCK";
+      if(dashboard_reason == "TIME_EXIT") return "DASHBOARD_TIME_EXIT";
+      if(dashboard_reason == "PARTIAL_EXIT") return "DASHBOARD_PARTIAL_EXIT";
+      if(dashboard_reason == "MARKET_CLOSE" || dashboard_reason == "HARD_LOSS_CAP") return "DASHBOARD_MARKET_CLOSE";
+      return "EXPERT_CLOSE";
+   }
+   if(IsManualDealReason(reason_code)) return "MANUAL_CLOSE";
+   return "UNKNOWN";
+}
+
+double QualityScore(const double numerator, const double denominator)
+{
+   if(denominator <= 0.0) return 0.0;
+   return ClampDouble((numerator / denominator) * 100.0, 0.0, 100.0);
+}
+
 bool EnsureTradeStatisticsHeader()
 {
    if(!EnsureTradeStatisticsFolders()) return false;
@@ -867,7 +1063,7 @@ bool EnsureTradeStatisticsHeader()
       return false;
    }
    if(FileSize(handle) == 0)
-      FileWriteString(handle, "ticket,symbol,direction,mode,entry_time,exit_time,entry_price,exit_price,stop_loss,take_profit,exit_reason,mfe,mae,net_profit,duration,dashboard_profile,be_trigger_count,be_trigger_price,be_trigger_profit,be_trigger_time,be_trigger_age_seconds,be_sl_price,be_offset_usd,be_stop_out,realized_profit,profit_before_be,maximum_profit_after_be,maximum_drawdown_after_be,lost_opportunity_after_be,be_false_trigger,be_false_trigger_distance,be_false_trigger_time,be_survival_time_seconds,capture_ratio_after_be,post_sl_continuation_direction\n");
+      FileWriteString(handle, TradeStatisticsHeaderV2735());
    FileClose(handle);
    Print("CSV_HEADER_READY");
    return true;
@@ -925,6 +1121,45 @@ void RecordCompletedTrade(const ulong position_id, const ulong exit_deal)
    bool be_false_trigger = false_distance > 0.0;
    int be_survival_seconds = (be_stop_out && be_trigger_time > 0) ? (int)(exit_time - be_trigger_time) : 0;
    double capture_ratio_after_be = (be_enabled && max_profit_after_be > 0.0) ? net_profit / max_profit_after_be : 0.0;
+
+   double broker_sl_price = idx >= 0 ? g_track_order_sl_at_open[idx] : 0.0;
+   double broker_tp_price = idx >= 0 ? g_track_order_tp_at_open[idx] : 0.0;
+   double position_sl_at_close = idx >= 0 ? g_track_position_sl_last[idx] : 0.0;
+   double position_tp_at_close = idx >= 0 ? g_track_position_tp_last[idx] : 0.0;
+   double order_sl_at_open = idx >= 0 ? g_track_order_sl_at_open[idx] : 0.0;
+   double order_tp_at_open = idx >= 0 ? g_track_order_tp_at_open[idx] : 0.0;
+   string dashboard_reason = idx >= 0 ? g_track_dashboard_close_intent[idx] : "";
+   string close_source = ClassifyCloseSource(reason_code, broker_sl_price, broker_tp_price, dashboard_reason);
+   string exit_owner = close_source == "UNKNOWN" ? "UNKNOWN" : (StringFind(close_source, "DASHBOARD_") == 0 ? "DASHBOARD" : (StringFind(close_source, "BROKER_") == 0 ? "BROKER" : (close_source == "MANUAL_CLOSE" ? "MANUAL" : "EXPERT")));
+   double close_trigger_price = exit_price;
+   double trigger_ref = 0.0;
+   if(close_source == "BROKER_SL") trigger_ref = broker_sl_price;
+   else if(close_source == "BROKER_TP") trigger_ref = broker_tp_price;
+   else if(position_sl_at_close > 0.0) trigger_ref = position_sl_at_close;
+   double close_trigger_distance_usd = trigger_ref > 0.0 ? MathAbs(exit_price - trigger_ref) : 0.0;
+   double max_profit_usd = MathMax(0.0, mfe);
+   double realized_profit_usd = net_profit;
+   double lost_opportunity_usd = max_profit_usd - realized_profit_usd;
+   double profit_capture_ratio = max_profit_usd > 0.0 ? realized_profit_usd / max_profit_usd : 0.0;
+   double entry_quality_score = (mfe <= 0.0) ? 0.0 : QualityScore(mfe, mfe + MathAbs(mae));
+   double exit_quality_score = QualityScore(MathMax(0.0, realized_profit_usd), max_profit_usd);
+   double trade_quality_score = (entry_quality_score * 0.45) + (exit_quality_score * 0.55);
+   int time_to_mfe_seconds = (idx >= 0 && g_track_mfe_time[idx] > 0 && entry_time > 0) ? (int)(g_track_mfe_time[idx] - entry_time) : 0;
+   int time_to_mae_seconds = (idx >= 0 && g_track_mae_time[idx] > 0 && entry_time > 0) ? (int)(g_track_mae_time[idx] - entry_time) : 0;
+   string exit_json = ReadCommonFile(MARKET_STATE_JSON_FILE);
+   double spread_points_exit = (SymbolInfoDouble(_Symbol, SYMBOL_ASK) - SymbolInfoDouble(_Symbol, SYMBOL_BID)) / _Point;
+   double atr_exit = JsonNumber(exit_json, "atr", 0.0);
+   string bb_state_exit = JsonString(exit_json, "bb_state", "");
+   double rsi_exit = JsonNumber(exit_json, "rsi", 0.0);
+   double macd_hist_exit = JsonNumber(exit_json, "macd_hist", 0.0);
+   double adx_exit = JsonNumber(exit_json, "adx", 0.0);
+   double floating_profit_before_close = MathMax(net_profit, 0.0);
+   double floating_loss_before_close = MathMin(net_profit, 0.0);
+   int position_age_seconds_at_close = (entry_time > 0) ? (int)(exit_time - entry_time) : 0;
+
+   if(close_source == "UNKNOWN")
+      Print(StringFormat("EXIT_SOURCE_UNKNOWN | ticket=%I64u | reason=broker_reason=%s dashboard_reason=%s", position_id, exit_reason, dashboard_reason));
+   Print(StringFormat("EXIT_SOURCE_CLASSIFIED | ticket=%I64u | close_source=%s | broker_reason=%s | dashboard_reason=%s", position_id, close_source, exit_reason, dashboard_reason));
    if(!EnsureTradeStatisticsHeader())
    {
       Print(StringFormat("COMPLETED_TRADE_RECORD_FAILED | reason=header_file_open_failed | error=%d", GetLastError()));
@@ -940,17 +1175,25 @@ void RecordCompletedTrade(const ulong position_id, const ulong exit_deal)
       return;
    }
    FileSeek(handle, 0, SEEK_END);
-   string row = StringFormat("%I64u,%s,%s,%s,%s,%s,%.5f,%.5f,%.5f,%.5f,%s,%.2f,%.2f,%.2f,%d,%s,%d,%.5f,%.2f,%s,%d,%.5f,%.2f,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%s,%.2f,%s,%d,%.4f\n",
-      position_id, CsvEscape(symbol), CsvEscape(direction), CsvEscape(g_cfg.runner_enable ? "RUNNER/TRAIL" : "PROTECT"),
+   string row = StringFormat("%s,%I64u,%s,%s,%s,%s,%s,%.5f,%.5f,%.5f,%.5f,%s,%s,%s,%s,%s,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%s,%.0f,%.0f,%.2f,%.2f,%s,%s,%s,%s,%.2f,%.5f,%.2f,%.5f,%.2f,%.2f,%.2f,%.2f,%s,%s,%s,%s,%.2f,%.5f,%s,%.2f,%.5f,%.2f,%.2f,%.2f,%d,%s,%.2f,%.2f,%d,%d,%.5f,%.5f,%.2f,%.2f,%.2f,%.2f,%.2f,%.4f,%.2f,%.2f,%.2f,%.2f,%d,%s,%d,%.5f,%.2f,%s,%d,%.5f,%.2f,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%s,%.2f,%s,%d,%.4f\n",
+      TRADE_STATS_SCHEMA_VERSION, position_id, CsvEscape(symbol), CsvEscape(direction), CsvEscape(g_cfg.runner_enable ? "RUNNER/TRAIL" : "PROTECT"),
       CsvEscape(TimeToString(entry_time, TIME_DATE | TIME_SECONDS)), CsvEscape(TimeToString(exit_time, TIME_DATE | TIME_SECONDS)),
-      entry_price, exit_price, 0.0, 0.0, CsvEscape(exit_reason), mfe, mae, net_profit, (int)(exit_time - entry_time), CsvEscape(g_cfg.active_profile),
+      entry_price, exit_price, position_sl_at_close, position_tp_at_close, CsvEscape(exit_reason), CsvEscape(close_source), CsvEscape(exit_reason), CsvEscape(dashboard_reason), CsvEscape(exit_owner),
+      broker_sl_price, broker_tp_price, position_sl_at_close, position_tp_at_close, order_sl_at_open, order_tp_at_open, close_trigger_price, close_trigger_distance_usd,
+      CsvEscape(idx >= 0 ? g_track_decision_uuid[idx] : ""), idx >= 0 ? g_track_sequence_id[idx] : 0.0, idx >= 0 ? g_track_heartbeat_unix[idx] : 0.0, idx >= 0 ? g_track_market_state_age_sec[idx] : 0.0, idx >= 0 ? g_track_decision_age_sec[idx] : 0.0,
+      CsvEscape(idx >= 0 ? g_track_action[idx] : ""), CsvEscape(idx >= 0 ? g_track_bias[idx] : ""), CsvEscape(idx >= 0 ? g_track_mode[idx] : ""), CsvEscape(idx >= 0 ? g_track_bb_state[idx] : ""), idx >= 0 ? g_track_rsi[idx] : 0.0, idx >= 0 ? g_track_macd_hist[idx] : 0.0, idx >= 0 ? g_track_adx[idx] : 0.0, idx >= 0 ? g_track_atr[idx] : 0.0,
+      idx >= 0 ? g_track_spread_points_entry[idx] : 0.0, idx >= 0 ? g_track_buy_score[idx] : 0.0, idx >= 0 ? g_track_sell_score[idx] : 0.0, idx >= 0 ? g_track_score_gap[idx] : 0.0,
+      CsvEscape(idx >= 0 ? g_track_dominant_direction[idx] : ""), CsvEscape(idx >= 0 ? g_track_execution_state[idx] : ""), CsvEscape(idx >= 0 ? g_track_management_mode[idx] : ""), CsvEscape(idx >= 0 ? g_track_dashboard_profile_at_entry[idx] : ""),
+      spread_points_exit, atr_exit, CsvEscape(bb_state_exit), rsi_exit, macd_hist_exit, adx_exit, floating_profit_before_close, floating_loss_before_close, position_age_seconds_at_close, CsvEscape(g_cfg.active_profile),
+      mfe, mae, time_to_mfe_seconds, time_to_mae_seconds, idx >= 0 ? g_track_price_at_mfe[idx] : 0.0, idx >= 0 ? g_track_price_at_mae[idx] : 0.0, mfe, mae,
+      max_profit_usd, realized_profit_usd, lost_opportunity_usd, profit_capture_ratio, entry_quality_score, exit_quality_score, trade_quality_score, net_profit, (int)(exit_time - entry_time), CsvEscape(g_cfg.active_profile),
       be_enabled ? 1 : 0, be_trigger_price, be_trigger_profit, CsvEscape(be_trigger_time > 0 ? TimeToString(be_trigger_time, TIME_DATE | TIME_SECONDS) : ""),
       be_after_seconds, be_sl_price, be_offset, be_stop_out ? "true" : "false", net_profit, profit_before_be_stop_out, max_profit_after_be, maximum_drawdown_after_be, lost_opportunity_after_be,
       be_false_trigger ? "true" : "false", false_distance, CsvEscape(be_false_trigger ? TimeToString(exit_time, TIME_DATE | TIME_SECONDS) : ""), be_survival_seconds, capture_ratio_after_be);
    row = StringSubstr(row, 0, StringLen(row) - 1) + ",\"\"\n";
    FileWriteString(handle, row);
    FileClose(handle);
-   Print(StringFormat("COMPLETED_TRADE_RECORDED | ticket=%I64u | pnl=%.2f | profile=%s | exit_reason=%s", position_id, net_profit, g_cfg.active_profile, exit_reason));
+   Print(StringFormat("COMPLETED_TRADE_RECORDED | ticket=%I64u | pnl=%.2f | profile=%s | close_source=%s | exit_quality=%.2f", position_id, net_profit, g_cfg.active_profile, close_source, exit_quality_score));
    RemoveTrack(position_id);
 }
 
@@ -974,12 +1217,14 @@ void ManageOpenPositions()
 
       if(profit <= -g_cfg.hard_loss_cap_usd_001_lot * (volume / 0.01))
       {
+         g_track_dashboard_close_intent[EnsureTrack(ticket)] = "HARD_LOSS_CAP";
          g_trade.PositionClose(ticket);
          continue;
       }
 
       if(g_cfg.fixed_take_profit_enable && profit >= g_cfg.fixed_take_profit_close_usd_001_lot * (volume / 0.01))
       {
+         g_track_dashboard_close_intent[EnsureTrack(ticket)] = "MARKET_CLOSE";
          g_trade.PositionClose(ticket);
          continue;
       }
@@ -994,6 +1239,7 @@ void ManageOpenPositions()
          else if(profit >= g_cfg.lock1_trigger * scale) lock_money = MathMax(lock_money, g_cfg.lock1_lock);
          if(lock_money > -999998.0)
          {
+            g_track_dashboard_close_intent[EnsureTrack(ticket)] = "PROFIT_LOCK";
             lock_money = MathMax(lock_money, g_cfg.minimum_locked_profit_usd_001_lot);
             double lock_dist = MoneyToPriceDistance(lock_money, volume);
             candidate_sl = (type == POSITION_TYPE_BUY) ? open + lock_dist : open - lock_dist;
@@ -1012,6 +1258,7 @@ void ManageOpenPositions()
          {
             double be_dist = MoneyToPriceDistance(g_cfg.breakeven_offset_usd_001_lot, volume);
             candidate_sl = (type == POSITION_TYPE_BUY) ? open + be_dist : open - be_dist;
+            g_track_dashboard_close_intent[idx] = "BE";
             g_track_be_enabled[idx] = true;
             g_track_be_trigger_price[idx] = price;
             g_track_be_trigger_profit_usd[idx] = profit;
@@ -1026,6 +1273,7 @@ void ManageOpenPositions()
       }
       if(g_cfg.trailing_enable && profit >= g_cfg.trailing_start_usd_001_lot * (volume / 0.01))
       {
+         g_track_dashboard_close_intent[EnsureTrack(ticket)] = "TRAIL";
          double trail_dist = MoneyToPriceDistance(g_cfg.trailing_distance_usd_001_lot, volume);
          double trail_sl = (type == POSITION_TYPE_BUY) ? price - trail_dist : price + trail_dist;
          if(candidate_sl == 0.0 || (type == POSITION_TYPE_BUY && trail_sl > candidate_sl) || (type == POSITION_TYPE_SELL && trail_sl < candidate_sl))
@@ -1047,6 +1295,10 @@ int OnInit()
 {
    LoadDashboardProfile();
    Print("DASHBOARD_SINGLE_SOURCE_OF_TRUTH_PASS");
+   Print(StringFormat("TRADE_STATS_SCHEMA_VERSION = %s", TRADE_STATS_SCHEMA_VERSION));
+   Print("TRADE_STATS_EXIT_AUDIT_ENABLED = true");
+   Print("TRADE_STATS_ENTRY_SNAPSHOT_ENABLED = true");
+   Print("TRADE_STATS_EXIT_SNAPSHOT_ENABLED = true");
    Print("TRADE_STATISTICS_OUTPUT_MODE = FILE_COMMON");
    Print(StringFormat("TRADE_STATISTICS_RELATIVE_PATH = %s", TradeStatisticsRelativePath()));
    Print(StringFormat("TRADE_STATISTICS_CSV_PATH = %s", TradeStatisticsResolvedPath()));
