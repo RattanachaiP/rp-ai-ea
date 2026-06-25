@@ -1,6 +1,6 @@
 {
   "schema_version": "V27_TRADE_MANAGEMENT_DASHBOARD_SCHEMA_1",
-  "active_profile": "Profile_A",
+  "active_profile": "Profile_E_SWING_SAFE_SHORT_TP",
   "enabled": true,
-  "description": "V27.3 exit optimization dashboard. AI Decision Engine remains frozen; only post-entry exit management profiles A-D are compared using trade_statistics.csv evidence."
+  "description": "V27.3.2 Profile_E Swing-Safe Short TP Test. AI Decision Engine remains frozen; only post-entry exit geometry is changed for a controlled Profile_A vs Profile_E comparison."
 }

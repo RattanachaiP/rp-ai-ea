@@ -24,6 +24,7 @@ CSV_FIELDS = [
     "maximum_drawdown_after_be", "lost_opportunity_after_be", "be_false_trigger",
     "be_false_trigger_distance", "be_false_trigger_time", "be_survival_time_seconds",
     "capture_ratio_after_be",
+    "post_sl_continuation_direction",
 ]
 
 
@@ -63,6 +64,7 @@ class CompletedTrade:
     be_false_trigger_time: str = ""
     be_survival_time_seconds: float = 0.0
     capture_ratio_after_be: float = 0.0
+    post_sl_continuation_direction: str = ""
 
 
 def append_completed_trade(trade: CompletedTrade, csv_path: Path | str = "trade_statistics.csv") -> None:
@@ -121,6 +123,7 @@ def load_completed_trades(csv_path: Path | str = "trade_statistics.csv") -> list
                 be_false_trigger_time=row.get("be_false_trigger_time", ""),
                 be_survival_time_seconds=_row_float(row, "be_survival_time_seconds"),
                 capture_ratio_after_be=_row_float(row, "capture_ratio_after_be"),
+                post_sl_continuation_direction=row.get("post_sl_continuation_direction", ""),
             )
             for row in rows
         ]
@@ -145,6 +148,11 @@ def profile_success_metrics(trades: Iterable[CompletedTrade]) -> dict[str, dict[
         avg_mfe = _average([t.mfe for t in items])
         be_triggers = [t for t in items if t.be_trigger_count > 0]
         be_stop_outs = [t for t in items if t.be_stop_out]
+        sl_hits = [t for t in items if "SL" in t.exit_reason.upper() or "STOP" in t.exit_reason.upper()]
+        tp_hits = [t for t in items if "TP" in t.exit_reason.upper() or "TAKE_PROFIT" in t.exit_reason.upper()]
+        post_sl_continuation = Counter(
+            t.post_sl_continuation_direction for t in sl_hits if t.post_sl_continuation_direction
+        )
         false_triggers = [t for t in be_stop_outs if t.be_false_trigger]
         metrics[profile] = {
             "trades": len(items),
@@ -156,6 +164,13 @@ def profile_success_metrics(trades: Iterable[CompletedTrade]) -> dict[str, dict[
             "average_mfe": avg_mfe,
             "average_mae": _average([t.mae for t in items]),
             "mfe_capture_ratio": _average([t.net_profit / t.mfe for t in items if t.mfe > 0]),
+            "sl_hit_count": len(sl_hits),
+            "sl_hit_rate": len(sl_hits) / len(items) if items else 0.0,
+            "tp_hit_count": len(tp_hits),
+            "tp_hit_rate": len(tp_hits) / len(items) if items else 0.0,
+            "be_count": sum(t.be_trigger_count for t in be_triggers),
+            "average_holding_time": _average([t.duration for t in items]),
+            "post_sl_continuation_direction": dict(post_sl_continuation),
             "BE_TRIGGER_COUNT": sum(t.be_trigger_count for t in be_triggers),
             "BE_STOP_OUT_COUNT": len(be_stop_outs),
             "BE_STOP_OUT_RATE": len(be_stop_outs) / len(be_triggers) if be_triggers else 0.0,

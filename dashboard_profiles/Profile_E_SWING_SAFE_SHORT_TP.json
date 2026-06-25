@@ -1,0 +1,87 @@
+{
+  "active_profile": "Profile_E_SWING_SAFE_SHORT_TP",
+  "description": "V27.3.2 controlled exit-geometry experiment: Profile A baseline with 30% wider SL, 20% shorter fixed TP, and BE/Trail/Runner/Profit Lock/Time Exit/Partial Exit disabled. AI direction, bias, entry, score, indicators, and market classification remain frozen.",
+  "experiment": {
+    "version": "V27.3.2",
+    "purpose": "Test whether wider breathing room plus a shorter profit target improves expectancy without changing decision-engine authority.",
+    "baseline_profile": "Profile_A",
+    "sl_distance_change_vs_profile_a": "+30%",
+    "tp_distance_change_vs_profile_a": "-20%",
+    "minimum_completed_trades": 20,
+    "preferred_completed_trades": "50-100",
+    "validation_window": "stable post-patch production data only; exclude TP_ONLY, broken SL=0, decision-contract repair, and pre-production profile data",
+    "stop_conditions": [
+      "Profit Factor < 0.80 after 20 trades",
+      "Average Loss expands beyond acceptable threshold",
+      "SL hit rate remains high despite wider SL",
+      "TP hit rate does not improve",
+      "Drawdown accelerates"
+    ],
+    "success_criteria": [
+      "TP hit rate improves",
+      "SL hit rate decreases",
+      "Profit Factor improves vs Profile_A",
+      "Expectancy improves vs Profile_A",
+      "Average loss does not expand dangerously",
+      "Equity curve stabilizes or improves"
+    ]
+  },
+  "risk": {
+    "initial_sl_usd_001_lot": 1.3,
+    "hard_loss_cap_usd_001_lot": 1.3,
+    "max_floating_loss_usd_001_lot": 1.3,
+    "emergency_close": true,
+    "dynamic_sl_enabled": false,
+    "atr_sl_enabled": false,
+    "dynamic_risk_multiplier": 1.0
+  },
+  "breakeven": {
+    "enable": false,
+    "runner_be": false
+  },
+  "trailing": {
+    "enable": false,
+    "dynamic_trail": false,
+    "structure_trail": false,
+    "atr_trail": false
+  },
+  "profit_locks": {
+    "enable": false
+  },
+  "fixed_take_profit": {
+    "enable": true,
+    "fixed_take_profit_enable": true,
+    "close_profit_usd_001_lot": 0.8,
+    "close_mode": "IMMEDIATE_MARKET_CLOSE"
+  },
+  "runner": {
+    "enable_runner": false,
+    "momentum_confirmation": false,
+    "runner_exit_mode": "DISABLED"
+  },
+  "time_exits": {
+    "time_exit_enable": false,
+    "maximum_seconds": 0,
+    "maximum_bars": 0,
+    "session_exit": false,
+    "news_exit": false,
+    "position_aging_exit": false
+  },
+  "partial_exits": {
+    "enable": false,
+    "partial_level_1_percent": 0,
+    "partial_level_2_percent": 0,
+    "partial_level_3_percent": 0,
+    "remaining_runner_percent": 0
+  },
+  "scaling": {
+    "enabled": false,
+    "pyramid": false,
+    "position_rule": "ONE_POSITION_PER_SIGNAL_SLOT_RULES_UNCHANGED"
+  },
+  "exit_authority_priority": [
+    "EMERGENCY_EXIT",
+    "HARD_LOSS_CAP",
+    "FIXED_TAKE_PROFIT"
+  ]
+}

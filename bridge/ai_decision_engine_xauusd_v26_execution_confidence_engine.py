@@ -1994,6 +1994,19 @@ def apply_trade_management_dashboard_v27(decision):
     decision["profit_lock_enabled_by_dashboard"] = profit_lock_enabled
     decision["fixed_take_profit_enabled_by_dashboard"] = bool(fixed_take_profit.get("enable", False))
     decision["fixed_take_profit_close_usd_001_lot"] = safe_float(fixed_take_profit.get("close_profit_usd_001_lot", 1.0), 1.0)
+    decision["dashboard_fixed_take_profit_close_mode"] = str(fixed_take_profit.get("close_mode", "")).upper().strip()
+    decision["dashboard_display_active_profile"] = decision["dashboard_active_profile"]
+    decision["dashboard_display_be"] = "ON" if be_enabled else "OFF"
+    decision["dashboard_display_trail"] = "ON" if trailing_enabled else "OFF"
+    decision["dashboard_display_runner"] = "ON" if runner_enabled else "OFF"
+    decision["dashboard_display_profit_lock"] = "ON" if profit_lock_enabled else "OFF"
+    decision["dashboard_display_tp_target_usd_001_lot"] = decision["fixed_take_profit_close_usd_001_lot"] if decision["fixed_take_profit_enabled_by_dashboard"] else 0.0
+    decision["dashboard_display_sl_distance_usd_001_lot"] = safe_float(risk.get("initial_sl_usd_001_lot", 0.0), 0.0)
+    decision["dashboard_profile_metrics_required"] = [
+        "trade_count", "win_rate", "average_win", "average_loss", "profit_factor",
+        "expectancy", "sl_hit_count", "tp_hit_count", "be_count", "average_holding_time",
+        "mfe", "mae", "mfe_capture_ratio", "post_sl_continuation_direction"
+    ]
     decision["broker_sl_required"] = not tp_only_profile
     decision["broker_tp_required"] = not tp_only_profile
     decision["runner_enabled_by_dashboard"] = runner_enabled
