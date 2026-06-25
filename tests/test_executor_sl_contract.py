@@ -104,7 +104,7 @@ class ExecutorSlContractTests(unittest.TestCase):
         constructed = engine.apply_trade_management_dashboard_v27(payload)
         constructed = engine.enforce_risk_payload_invariant_before_publication(constructed)
 
-        self.assertEqual(constructed["dashboard_active_profile"], "Balanced")
+        self.assertEqual(constructed["dashboard_active_profile"], "Profile_A")
         self.assertTrue(constructed["broker_sl_required"])
         self.assertTrue(constructed["broker_tp_required"])
         self.assertGreater(constructed["stop_loss"], 0)

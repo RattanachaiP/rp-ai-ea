@@ -1,0 +1,13 @@
+{
+  "active_profile": "Profile_A",
+  "description": "V27.3 exit optimization Profile A: SL ON, TP ON, BE OFF, Trail OFF, Runner OFF, Profit Lock OFF, Time Exit OFF, Partial Exit OFF.",
+  "risk": {"initial_sl_usd_001_lot": 1.0, "hard_loss_cap_usd_001_lot": 1.0, "max_floating_loss_usd_001_lot": 1.0, "emergency_close": true},
+  "breakeven": {"enable": false, "runner_be": false},
+  "trailing": {"enable": false, "dynamic_trail": false, "structure_trail": false, "atr_trail": false},
+  "profit_locks": {"enable": false},
+  "fixed_take_profit": {"enable": true, "fixed_take_profit_enable": true, "close_profit_usd_001_lot": 1.0, "close_mode": "IMMEDIATE_MARKET_CLOSE"},
+  "runner": {"enable_runner": false, "momentum_confirmation": false, "runner_exit_mode": "DISABLED"},
+  "time_exits": {"time_exit_enable": false, "maximum_seconds": 0, "maximum_bars": 0, "session_exit": false, "news_exit": false, "position_aging_exit": false},
+  "partial_exits": {"enable": false, "partial_level_1_percent": 0, "partial_level_2_percent": 0, "partial_level_3_percent": 0, "remaining_runner_percent": 0},
+  "exit_authority_priority": ["EMERGENCY_EXIT", "HARD_LOSS_CAP", "FIXED_TAKE_PROFIT"]
+}
