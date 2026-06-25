@@ -8,11 +8,25 @@ score, or indicator logic.
 from __future__ import annotations
 
 import csv
+import os
 from collections import Counter, defaultdict
 from statistics import median
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Iterable
+
+DEFAULT_TRADE_STATISTICS_CSV_PATH = Path(os.environ.get(
+    "TRADE_STATISTICS_CSV_PATH",
+    r"C:\Users\rp_fu\AppData\Roaming\MetaQuotes\Terminal\Common\Files\RP_AI_EA\analysis\trade_statistics.csv",
+))
+
+
+def resolve_trade_statistics_csv_path(csv_path: Path | str | None = None) -> Path:
+    """Return the authoritative completed-trade CSV path used by MT5 FILE_COMMON."""
+    if csv_path is None or str(csv_path) == "":
+        return DEFAULT_TRADE_STATISTICS_CSV_PATH
+    return Path(csv_path)
+
 
 CSV_FIELDS = [
     "ticket", "symbol", "direction", "mode", "entry_time", "exit_time",
@@ -67,9 +81,9 @@ class CompletedTrade:
     post_sl_continuation_direction: str = ""
 
 
-def append_completed_trade(trade: CompletedTrade, csv_path: Path | str = "trade_statistics.csv") -> None:
+def append_completed_trade(trade: CompletedTrade, csv_path: Path | str | None = None) -> None:
     """Append one completed trade to trade_statistics.csv with a stable header."""
-    path = Path(csv_path)
+    path = resolve_trade_statistics_csv_path(csv_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     write_header = not path.exists() or path.stat().st_size == 0
     with path.open("a", newline="", encoding="utf-8") as handle:
@@ -90,8 +104,8 @@ def _row_float(row: dict[str, str], key: str) -> float:
         return 0.0
 
 
-def load_completed_trades(csv_path: Path | str = "trade_statistics.csv") -> list[CompletedTrade]:
-    path = Path(csv_path)
+def load_completed_trades(csv_path: Path | str | None = None) -> list[CompletedTrade]:
+    path = resolve_trade_statistics_csv_path(csv_path)
     if not path.exists():
         return []
     with path.open("r", newline="", encoding="utf-8") as handle:
