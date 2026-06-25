@@ -48,3 +48,23 @@ def test_breakeven_analytics_metrics():
     assert metrics["AVERAGE_BE_SURVIVAL_TIME"] == 30
     assert metrics["MEDIAN_BE_SURVIVAL_TIME"] == 30
     assert metrics["AVG_LOST_OPPORTUNITY_AFTER_BE"] == 1.3
+
+
+def test_profile_e_required_exit_geometry_metrics():
+    rows = [
+        CompletedTrade(
+            "5", "XAUUSD", "BUY", "SCALP", "2026-01-01 00:00:00", "2026-01-01 00:04:00",
+            2300, 2300.8, 2298.7, 2300.8, "TP", 0.9, -0.2, 0.8, 240, "Profile_E_SWING_SAFE_SHORT_TP",
+        ),
+        CompletedTrade(
+            "6", "XAUUSD", "BUY", "SCALP", "2026-01-01 00:00:00", "2026-01-01 00:06:00",
+            2300, 2298.7, 2298.7, 2300.8, "SL", 0.2, -1.3, -1.3, 360, "Profile_E_SWING_SAFE_SHORT_TP",
+            post_sl_continuation_direction="WITH_ORIGINAL_DIRECTION",
+        ),
+    ]
+    metrics = profile_success_metrics(rows)["Profile_E_SWING_SAFE_SHORT_TP"]
+    assert metrics["tp_hit_count"] == 1
+    assert metrics["sl_hit_count"] == 1
+    assert metrics["be_count"] == 0
+    assert metrics["average_holding_time"] == 300
+    assert metrics["post_sl_continuation_direction"] == {"WITH_ORIGINAL_DIRECTION": 1}

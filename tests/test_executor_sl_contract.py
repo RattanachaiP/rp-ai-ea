@@ -104,13 +104,33 @@ class ExecutorSlContractTests(unittest.TestCase):
         constructed = engine.apply_trade_management_dashboard_v27(payload)
         constructed = engine.enforce_risk_payload_invariant_before_publication(constructed)
 
-        self.assertEqual(constructed["dashboard_active_profile"], "Profile_A")
+        self.assertEqual(constructed["dashboard_active_profile"], "Profile_E_SWING_SAFE_SHORT_TP")
         self.assertTrue(constructed["broker_sl_required"])
         self.assertTrue(constructed["broker_tp_required"])
         self.assertGreater(constructed["stop_loss"], 0)
         self.assertGreater(constructed["take_profit"], 0)
         self.assertGreater(constructed["risk_distance"], 0)
         self.assertTrue(constructed["payload_valid"])
+
+    def test_profile_e_dashboard_geometry_is_swing_safe_short_tp(self):
+        dashboard = engine.load_trade_management_dashboard(Path(__file__).resolve().parents[1])
+
+        self.assertEqual(dashboard["active_profile"], "Profile_E_SWING_SAFE_SHORT_TP")
+        self.assertEqual(dashboard["risk"]["initial_sl_usd_001_lot"], 1.3)
+        self.assertEqual(dashboard["fixed_take_profit"]["close_profit_usd_001_lot"], 0.8)
+        self.assertFalse(dashboard["breakeven"].get("enable", True))
+        self.assertFalse(dashboard["trailing"].get("enable", True))
+        self.assertFalse(dashboard["runner"].get("enable_runner", True))
+        self.assertFalse(dashboard["profit_locks"].get("enable", True))
+
+        payload = self.base_trade()
+        constructed = engine.apply_trade_management_dashboard_v27(payload)
+        self.assertEqual(constructed["dashboard_display_active_profile"], "Profile_E_SWING_SAFE_SHORT_TP")
+        self.assertEqual(constructed["dashboard_display_be"], "OFF")
+        self.assertEqual(constructed["dashboard_display_trail"], "OFF")
+        self.assertEqual(constructed["dashboard_display_runner"], "OFF")
+        self.assertEqual(constructed["dashboard_display_tp_target_usd_001_lot"], 0.8)
+        self.assertEqual(constructed["dashboard_display_sl_distance_usd_001_lot"], 1.3)
 
 
 if __name__ == "__main__":

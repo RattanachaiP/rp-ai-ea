@@ -173,3 +173,10 @@ Participation restoration intentionally comes before scaling. Before increasing 
 - Trade management parameters are loaded at runtime from `trade_management_dashboard.json` and optional `dashboard_profiles/<Profile>.json` files, allowing Conservative, Balanced, Aggressive, London Session, News Session, Scalp, and Trend profile switching without AI recompilation.
 - Every post-entry exit decision remains routed through the Exit Authority Manager with exactly one effective owner.
 - Backward compatibility is mandatory: missing or malformed dashboard files fall back to embedded V26.6-compatible defaults and publish fallback telemetry.
+
+## V27.3.2 Profile_E Swing-Safe Short TP Test
+- Runtime dashboard active profile advances to `Profile_E_SWING_SAFE_SHORT_TP` for a controlled post-entry exit-geometry experiment only.
+- AI direction, bias, entry logic, score logic, indicator logic, market classification, and executor strategy authority remain frozen.
+- Profile_E uses Profile_A as the baseline, widens the standard `0.01` XAUUSD SL from `$1.00` to `$1.30` (+30%), reduces fixed TP from `$1.00` to `$0.80` (-20%), and disables breakeven, trailing, runner, profit lock, time exit, partial exit, scaling, and pyramiding.
+- Validation compares stable post-patch production Profile_A vs Profile_E data only, excluding TP_ONLY data, broken SL=0 data, decision-contract repair data, and pre-production profile data.
+- Profile_E metrics must track trade count, win rate, average win/loss, profit factor, expectancy, SL/TP hit counts and rates, BE count (expected zero), average holding time, MFE, MAE, MFE capture ratio, and post-SL continuation direction when available.
