@@ -22,6 +22,24 @@ def test_success_metrics_and_evidence_gate():
     assert evidence_gate(metrics, min_trades_per_profile=3)[0] is False
 
 
+def test_loads_v2735_exit_evidence_csv(tmp_path):
+    path = tmp_path / "trade_statistics.csv"
+    path.write_text(
+        "csv_schema_version,ticket,symbol,direction,trade_mode,entry_time,exit_time,entry_price,exit_price,"
+        "stop_loss,take_profit,exit_reason,close_source,broker_exit_reason,dashboard_exit_reason,"
+        "mfe,mae,net_profit,duration,dashboard_profile,realized_profit_usd\n"
+        "V27_3_5_EXIT_EVIDENCE_AUDIT,9,XAUUSD,BUY,PROTECT,2026.06.25 10:00:00,2026.06.25 10:01:00,"
+        "2300.0,2301.0,2299.0,2302.0,DEAL_REASON_TP,BROKER_TP,DEAL_REASON_TP,,1.5,-0.2,1.0,60,Profile_E,1.0\n",
+        encoding="utf-8",
+    )
+
+    trades = load_completed_trades(path)
+
+    assert len(trades) == 1
+    assert trades[0].mode == "PROTECT"
+    assert trades[0].net_profit == 1.0
+
+
 def test_breakeven_analytics_metrics():
     rows = [
         CompletedTrade(

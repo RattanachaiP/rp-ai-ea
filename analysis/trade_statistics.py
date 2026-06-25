@@ -112,13 +112,13 @@ def load_completed_trades(csv_path: Path | str | None = None) -> list[CompletedT
         rows = csv.DictReader(handle)
         return [
             CompletedTrade(
-                ticket=row["ticket"], symbol=row["symbol"], direction=row["direction"], mode=row["mode"],
-                entry_time=row["entry_time"], exit_time=row["exit_time"],
-                entry_price=float(row["entry_price"] or 0), exit_price=float(row["exit_price"] or 0),
-                stop_loss=float(row["stop_loss"] or 0), take_profit=float(row["take_profit"] or 0),
-                exit_reason=row["exit_reason"], mfe=float(row["mfe"] or 0), mae=float(row["mae"] or 0),
-                net_profit=float(row["net_profit"] or 0), duration=float(row["duration"] or 0),
-                dashboard_profile=row["dashboard_profile"],
+                ticket=row.get("ticket", ""), symbol=row.get("symbol", ""), direction=row.get("direction", ""), mode=row.get("mode", row.get("trade_mode", "")),
+                entry_time=row.get("entry_time", ""), exit_time=row.get("exit_time", ""),
+                entry_price=_row_float(row, "entry_price"), exit_price=_row_float(row, "exit_price"),
+                stop_loss=_row_float(row, "stop_loss"), take_profit=_row_float(row, "take_profit"),
+                exit_reason=row.get("exit_reason", row.get("broker_exit_reason", "")), mfe=_row_float(row, "mfe"), mae=_row_float(row, "mae"),
+                net_profit=_row_float(row, "net_profit") or _row_float(row, "realized_profit_usd"), duration=_row_float(row, "duration"),
+                dashboard_profile=row.get("dashboard_profile", row.get("dashboard_profile_at_entry", "")),
                 be_trigger_count=int(_row_float(row, "be_trigger_count") or (1 if _row_bool(row, "be_enabled") else 0)),
                 be_trigger_price=_row_float(row, "be_trigger_price"),
                 be_trigger_profit=_row_float(row, "be_trigger_profit") or _row_float(row, "be_trigger_profit_usd"),
