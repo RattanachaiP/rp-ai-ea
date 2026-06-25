@@ -16,11 +16,12 @@ input int    InpX                 = 12;
 input int    InpY                 = 24;
 input int    InpTimerSeconds      = 2;
 input bool   InpManageOpenTrades  = true;
-input string InpTradeStatisticsCsv = "D:\\RP_AI_EA\\analysis\\trade_statistics.csv";
+input string InpTradeStatisticsCsv = "RP_AI_EA\\analysis\\trade_statistics.csv";
 input double InpBeFalseTriggerThresholdUsd = 0.20;
 
 #define RP_DASH_SCHEMA "V27_TRADE_MANAGEMENT_DASHBOARD_SCHEMA_1"
 #define RP_PREFIX      "RP_V273_TMD_"
+#define TRADE_STATS_RELATIVE_PATH "RP_AI_EA\\analysis\\trade_statistics.csv"
 
 struct DashboardConfig
 {
@@ -807,6 +808,44 @@ void UpdateOpenTradeExcursions()
    }
 }
 
+string TradeStatisticsRelativePath()
+{
+   string configured = InpTradeStatisticsCsv == "" ? TRADE_STATS_RELATIVE_PATH : InpTradeStatisticsCsv;
+   if(StringFind(configured, ":") >= 0 || StringFind(configured, "\\") == 0 || StringFind(configured, "/") == 0)
+      return TRADE_STATS_RELATIVE_PATH;
+   return configured;
+}
+
+string TradeStatisticsResolvedPath()
+{
+   return TerminalInfoString(TERMINAL_COMMONDATA_PATH) + "\\Files\\" + TradeStatisticsRelativePath();
+}
+
+bool EnsureTradeStatisticsFolders()
+{
+   ResetLastError();
+   if(!FolderCreate("RP_AI_EA", FILE_COMMON))
+   {
+      int err = GetLastError();
+      if(err != 5016)
+      {
+         Print(StringFormat("TRADE_STATS_FOLDER_CREATE_FAILED | folder=RP_AI_EA | error=%d", err));
+         return false;
+      }
+   }
+   ResetLastError();
+   if(!FolderCreate("RP_AI_EA\\analysis", FILE_COMMON))
+   {
+      int err = GetLastError();
+      if(err != 5016)
+      {
+         Print(StringFormat("TRADE_STATS_FOLDER_CREATE_FAILED | folder=RP_AI_EA\\analysis | error=%d", err));
+         return false;
+      }
+   }
+   return true;
+}
+
 string CsvEscape(const string value)
 {
    string escaped = value;
@@ -814,29 +853,29 @@ string CsvEscape(const string value)
    return "\"" + escaped + "\"";
 }
 
-void EnsureTradeStatisticsHeader()
+bool EnsureTradeStatisticsHeader()
 {
-   int read = FileOpen(InpTradeStatisticsCsv, FILE_READ | FILE_TXT | FILE_COMMON | FILE_ANSI);
-   if(read == INVALID_HANDLE) read = FileOpen(InpTradeStatisticsCsv, FILE_READ | FILE_TXT | FILE_ANSI);
-   if(read != INVALID_HANDLE)
-   {
-      bool empty = FileIsEnding(read);
-      FileClose(read);
-      if(!empty) return;
-   }
-   int handle = FileOpen(InpTradeStatisticsCsv, FILE_WRITE | FILE_TXT | FILE_COMMON | FILE_ANSI);
-   if(handle == INVALID_HANDLE) handle = FileOpen(InpTradeStatisticsCsv, FILE_WRITE | FILE_TXT | FILE_ANSI);
+   if(!EnsureTradeStatisticsFolders()) return false;
+   string path = TradeStatisticsRelativePath();
+   ResetLastError();
+   int handle = FileOpen(path, FILE_READ | FILE_WRITE | FILE_CSV | FILE_ANSI | FILE_COMMON);
    if(handle == INVALID_HANDLE)
    {
-      Print(StringFormat("COMPLETED_TRADE_RECORD_FAILED | reason=header_file_open_failed path=%s error=%d", InpTradeStatisticsCsv, GetLastError()));
-      return;
+      int err = GetLastError();
+      Print(StringFormat("CSV_HEADER_CREATE_FAILED | path=%s | error=%d", path, err));
+      Print(StringFormat("TRADE_STATISTICS_FILE_OPEN_FAILED | path=%s | error=%d", path, err));
+      return false;
    }
-   FileWriteString(handle, "ticket,symbol,direction,mode,entry_time,exit_time,entry_price,exit_price,stop_loss,take_profit,exit_reason,mfe,mae,net_profit,duration,dashboard_profile,be_trigger_count,be_trigger_price,be_trigger_profit,be_trigger_time,be_trigger_age_seconds,be_sl_price,be_offset_usd,be_stop_out,realized_profit,profit_before_be,maximum_profit_after_be,maximum_drawdown_after_be,lost_opportunity_after_be,be_false_trigger,be_false_trigger_distance,be_false_trigger_time,be_survival_time_seconds,capture_ratio_after_be,post_sl_continuation_direction\n");
+   if(FileSize(handle) == 0)
+      FileWriteString(handle, "ticket,symbol,direction,mode,entry_time,exit_time,entry_price,exit_price,stop_loss,take_profit,exit_reason,mfe,mae,net_profit,duration,dashboard_profile,be_trigger_count,be_trigger_price,be_trigger_profit,be_trigger_time,be_trigger_age_seconds,be_sl_price,be_offset_usd,be_stop_out,realized_profit,profit_before_be,maximum_profit_after_be,maximum_drawdown_after_be,lost_opportunity_after_be,be_false_trigger,be_false_trigger_distance,be_false_trigger_time,be_survival_time_seconds,capture_ratio_after_be,post_sl_continuation_direction\n");
    FileClose(handle);
+   Print("CSV_HEADER_READY");
+   return true;
 }
 
 void RecordCompletedTrade(const ulong position_id, const ulong exit_deal)
 {
+   Print("COMPLETED_TRADE_RECORD_ATTEMPT");
    if(!HistoryDealSelect(exit_deal))
    {
       Print("COMPLETED_TRADE_RECORD_FAILED | reason=history_deal_select_failed");
@@ -886,12 +925,18 @@ void RecordCompletedTrade(const ulong position_id, const ulong exit_deal)
    bool be_false_trigger = false_distance > 0.0;
    int be_survival_seconds = (be_stop_out && be_trigger_time > 0) ? (int)(exit_time - be_trigger_time) : 0;
    double capture_ratio_after_be = (be_enabled && max_profit_after_be > 0.0) ? net_profit / max_profit_after_be : 0.0;
-   EnsureTradeStatisticsHeader();
-   int handle = FileOpen(InpTradeStatisticsCsv, FILE_READ | FILE_WRITE | FILE_TXT | FILE_COMMON | FILE_ANSI);
-   if(handle == INVALID_HANDLE) handle = FileOpen(InpTradeStatisticsCsv, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI);
+   if(!EnsureTradeStatisticsHeader())
+   {
+      Print(StringFormat("COMPLETED_TRADE_RECORD_FAILED | reason=header_file_open_failed | error=%d", GetLastError()));
+      return;
+   }
+   string path = TradeStatisticsRelativePath();
+   ResetLastError();
+   int handle = FileOpen(path, FILE_READ | FILE_WRITE | FILE_CSV | FILE_ANSI | FILE_COMMON);
    if(handle == INVALID_HANDLE)
    {
-      Print(StringFormat("COMPLETED_TRADE_RECORD_FAILED | reason=file_open_failed path=%s error=%d", InpTradeStatisticsCsv, GetLastError()));
+      int err = GetLastError();
+      Print(StringFormat("COMPLETED_TRADE_RECORD_FAILED | reason=file_open_failed | error=%d", err));
       return;
    }
    FileSeek(handle, 0, SEEK_END);
@@ -1002,8 +1047,11 @@ int OnInit()
 {
    LoadDashboardProfile();
    Print("DASHBOARD_SINGLE_SOURCE_OF_TRUTH_PASS");
-   Print(StringFormat("TRADE_STATISTICS_CSV_PATH = %s", InpTradeStatisticsCsv));
-   EnsureTradeStatisticsHeader();
+   Print("TRADE_STATISTICS_OUTPUT_MODE = FILE_COMMON");
+   Print(StringFormat("TRADE_STATISTICS_RELATIVE_PATH = %s", TradeStatisticsRelativePath()));
+   Print(StringFormat("TRADE_STATISTICS_CSV_PATH = %s", TradeStatisticsResolvedPath()));
+   if(EnsureTradeStatisticsHeader())
+      Print("FILE_WRITE_PERMISSION_PASS");
    DrawDashboard();
    EventSetTimer(MathMax(1, InpTimerSeconds));
    return INIT_SUCCEEDED;
