@@ -1,6 +1,6 @@
 {
   "active_profile": "Profile_B",
-  "description": "V27.3 exit optimization Profile B: Profile A + BE ON",
+  "description": "V27.3 Noise-Safe BE test Profile B: same as Profile A plus BE ON with delayed, ATR-aware noise-safe trigger. Trail/Runner/Profit Lock remain OFF.",
   "risk": {
     "initial_sl_usd_001_lot": 1.0,
     "hard_loss_cap_usd_001_lot": 1.0,
@@ -9,7 +9,16 @@
   },
   "breakeven": {
     "enable": true,
-    "runner_be": true
+    "trigger_usd_001_lot": 1.50,
+    "offset_usd_001_lot": 0.20,
+    "runner_be": false,
+    "delay_seconds": 20,
+    "minimum_hold_seconds_before_be": 20,
+    "minimum_noise_safe_be_usd": 1.20,
+    "atr_be_enabled": true,
+    "atr_be_multiplier": 1.10,
+    "max_spread_points": 35.0,
+    "be_lock_distance_usd_001_lot": 0.20
   },
   "trailing": {
     "enable": false,

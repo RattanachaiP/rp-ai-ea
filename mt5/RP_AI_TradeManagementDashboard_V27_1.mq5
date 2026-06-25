@@ -32,6 +32,11 @@ struct DashboardConfig
    bool breakeven_enable;
    double breakeven_trigger_usd_001_lot;
    double breakeven_offset_usd_001_lot;
+   int minimum_hold_seconds_before_be;
+   double minimum_noise_safe_be_usd;
+   bool atr_be_enabled;
+   double atr_be_multiplier;
+   double max_spread_points;
    bool runner_be;
    bool trailing_enable;
    double trailing_start_usd_001_lot;
@@ -72,6 +77,19 @@ string g_status = "starting";
 ulong g_track_tickets[];
 double g_track_mfe[];
 double g_track_mae[];
+bool g_track_be_enabled[];
+double g_track_be_trigger_price[];
+double g_track_be_trigger_profit_usd[];
+datetime g_track_be_trigger_time[];
+int g_track_be_trigger_after_seconds[];
+double g_track_be_sl_price[];
+double g_track_be_offset_usd[];
+bool g_track_be_stop_out[];
+double g_track_profit_before_be_stop_out[];
+double g_track_max_profit_after_be_trigger[];
+double g_track_lost_opportunity_after_be[];
+
+double EffectiveBeTriggerUsd001Lot();
 
 int TrackIndex(const ulong ticket)
 {
@@ -88,9 +106,31 @@ int EnsureTrack(const ulong ticket)
    ArrayResize(g_track_tickets, n + 1);
    ArrayResize(g_track_mfe, n + 1);
    ArrayResize(g_track_mae, n + 1);
+   ArrayResize(g_track_be_enabled, n + 1);
+   ArrayResize(g_track_be_trigger_price, n + 1);
+   ArrayResize(g_track_be_trigger_profit_usd, n + 1);
+   ArrayResize(g_track_be_trigger_time, n + 1);
+   ArrayResize(g_track_be_trigger_after_seconds, n + 1);
+   ArrayResize(g_track_be_sl_price, n + 1);
+   ArrayResize(g_track_be_offset_usd, n + 1);
+   ArrayResize(g_track_be_stop_out, n + 1);
+   ArrayResize(g_track_profit_before_be_stop_out, n + 1);
+   ArrayResize(g_track_max_profit_after_be_trigger, n + 1);
+   ArrayResize(g_track_lost_opportunity_after_be, n + 1);
    g_track_tickets[n] = ticket;
    g_track_mfe[n] = 0.0;
    g_track_mae[n] = 0.0;
+   g_track_be_enabled[n] = false;
+   g_track_be_trigger_price[n] = 0.0;
+   g_track_be_trigger_profit_usd[n] = 0.0;
+   g_track_be_trigger_time[n] = 0;
+   g_track_be_trigger_after_seconds[n] = 0;
+   g_track_be_sl_price[n] = 0.0;
+   g_track_be_offset_usd[n] = 0.0;
+   g_track_be_stop_out[n] = false;
+   g_track_profit_before_be_stop_out[n] = 0.0;
+   g_track_max_profit_after_be_trigger[n] = 0.0;
+   g_track_lost_opportunity_after_be[n] = 0.0;
    return n;
 }
 
@@ -104,10 +144,32 @@ void RemoveTrack(const ulong ticket)
       g_track_tickets[idx] = g_track_tickets[last];
       g_track_mfe[idx] = g_track_mfe[last];
       g_track_mae[idx] = g_track_mae[last];
+      g_track_be_enabled[idx] = g_track_be_enabled[last];
+      g_track_be_trigger_price[idx] = g_track_be_trigger_price[last];
+      g_track_be_trigger_profit_usd[idx] = g_track_be_trigger_profit_usd[last];
+      g_track_be_trigger_time[idx] = g_track_be_trigger_time[last];
+      g_track_be_trigger_after_seconds[idx] = g_track_be_trigger_after_seconds[last];
+      g_track_be_sl_price[idx] = g_track_be_sl_price[last];
+      g_track_be_offset_usd[idx] = g_track_be_offset_usd[last];
+      g_track_be_stop_out[idx] = g_track_be_stop_out[last];
+      g_track_profit_before_be_stop_out[idx] = g_track_profit_before_be_stop_out[last];
+      g_track_max_profit_after_be_trigger[idx] = g_track_max_profit_after_be_trigger[last];
+      g_track_lost_opportunity_after_be[idx] = g_track_lost_opportunity_after_be[last];
    }
    ArrayResize(g_track_tickets, last);
    ArrayResize(g_track_mfe, last);
    ArrayResize(g_track_mae, last);
+   ArrayResize(g_track_be_enabled, last);
+   ArrayResize(g_track_be_trigger_price, last);
+   ArrayResize(g_track_be_trigger_profit_usd, last);
+   ArrayResize(g_track_be_trigger_time, last);
+   ArrayResize(g_track_be_trigger_after_seconds, last);
+   ArrayResize(g_track_be_sl_price, last);
+   ArrayResize(g_track_be_offset_usd, last);
+   ArrayResize(g_track_be_stop_out, last);
+   ArrayResize(g_track_profit_before_be_stop_out, last);
+   ArrayResize(g_track_max_profit_after_be_trigger, last);
+   ArrayResize(g_track_lost_opportunity_after_be, last);
 }
 
 void ApplyBackwardCompatibleDefaults(DashboardConfig &cfg)
@@ -119,8 +181,13 @@ void ApplyBackwardCompatibleDefaults(DashboardConfig &cfg)
    cfg.hard_loss_cap_usd_001_lot = 1.00;
    cfg.max_floating_loss_usd_001_lot = 0.80;
    cfg.breakeven_enable = false;
-   cfg.breakeven_trigger_usd_001_lot = 0.50;
-   cfg.breakeven_offset_usd_001_lot = 0.00;
+   cfg.breakeven_trigger_usd_001_lot = 1.50;
+   cfg.breakeven_offset_usd_001_lot = 0.20;
+   cfg.minimum_hold_seconds_before_be = 20;
+   cfg.minimum_noise_safe_be_usd = 1.20;
+   cfg.atr_be_enabled = true;
+   cfg.atr_be_multiplier = 1.10;
+   cfg.max_spread_points = 35.0;
    cfg.runner_be = false;
    cfg.trailing_enable = false;
    cfg.trailing_start_usd_001_lot = 0.80;
@@ -287,7 +354,11 @@ void ValidateConfig(DashboardConfig &cfg)
    cfg.hard_loss_cap_usd_001_lot = ClampDouble(cfg.hard_loss_cap_usd_001_lot, 0.01, 100.0);
    cfg.max_floating_loss_usd_001_lot = ClampDouble(cfg.max_floating_loss_usd_001_lot, 0.01, 100.0);
    cfg.breakeven_trigger_usd_001_lot = ClampDouble(cfg.breakeven_trigger_usd_001_lot, 0.0, 100.0);
-   cfg.breakeven_offset_usd_001_lot = ClampDouble(cfg.breakeven_offset_usd_001_lot, -10.0, 100.0);
+   cfg.breakeven_offset_usd_001_lot = ClampDouble(cfg.breakeven_offset_usd_001_lot, 0.0, 100.0);
+   cfg.minimum_hold_seconds_before_be = ClampInt(cfg.minimum_hold_seconds_before_be, 0, 86400);
+   cfg.minimum_noise_safe_be_usd = ClampDouble(cfg.minimum_noise_safe_be_usd, 0.0, 100.0);
+   cfg.atr_be_multiplier = ClampDouble(cfg.atr_be_multiplier, 0.0, 10.0);
+   cfg.max_spread_points = ClampDouble(cfg.max_spread_points, 0.0, 10000.0);
    cfg.trailing_start_usd_001_lot = ClampDouble(cfg.trailing_start_usd_001_lot, 0.0, 100.0);
    cfg.trailing_distance_usd_001_lot = ClampDouble(cfg.trailing_distance_usd_001_lot, 0.01, 100.0);
    cfg.trailing_step_usd_001_lot = ClampDouble(cfg.trailing_step_usd_001_lot, 0.01, 100.0);
@@ -324,6 +395,11 @@ void OverlayJson(DashboardConfig &cfg, const string json)
    cfg.breakeven_enable = JsonBool(breakeven, "enable", cfg.breakeven_enable);
    cfg.breakeven_trigger_usd_001_lot = JsonNumber(breakeven, "trigger_usd_001_lot", cfg.breakeven_trigger_usd_001_lot);
    cfg.breakeven_offset_usd_001_lot = JsonNumber(breakeven, "offset_usd_001_lot", cfg.breakeven_offset_usd_001_lot);
+   cfg.minimum_hold_seconds_before_be = (int)JsonNumber(breakeven, "minimum_hold_seconds_before_be", JsonNumber(breakeven, "delay_seconds", cfg.minimum_hold_seconds_before_be));
+   cfg.minimum_noise_safe_be_usd = JsonNumber(breakeven, "minimum_noise_safe_be_usd", cfg.minimum_noise_safe_be_usd);
+   cfg.atr_be_enabled = JsonBool(breakeven, "atr_be_enabled", cfg.atr_be_enabled);
+   cfg.atr_be_multiplier = JsonNumber(breakeven, "atr_be_multiplier", cfg.atr_be_multiplier);
+   cfg.max_spread_points = JsonNumber(breakeven, "max_spread_points", cfg.max_spread_points);
    cfg.runner_be = JsonBool(breakeven, "runner_be", cfg.runner_be);
    cfg.trailing_enable = JsonBool(trailing, "enable", JsonBool(trailing, "dynamic_trail", cfg.trailing_enable));
    cfg.trailing_start_usd_001_lot = JsonNumber(trailing, "start_usd_001_lot", cfg.trailing_start_usd_001_lot);
@@ -386,7 +462,7 @@ string DashboardJson()
                        "  \"active_profile\": \"%s\",\n"
                        "  \"enabled\": %s,\n"
                        "  \"risk\": {\"initial_sl_usd_001_lot\": %.2f, \"hard_loss_cap_usd_001_lot\": %.2f, \"max_floating_loss_usd_001_lot\": %.2f, \"emergency_close\": %s},\n"
-                       "  \"breakeven\": {\"enable\": %s, \"trigger_usd_001_lot\": %.2f, \"offset_usd_001_lot\": %.2f, \"runner_be\": %s},\n"
+                       "  \"breakeven\": {\"enable\": %s, \"trigger_usd_001_lot\": %.2f, \"offset_usd_001_lot\": %.2f, \"minimum_hold_seconds_before_be\": %d, \"minimum_noise_safe_be_usd\": %.2f, \"atr_be_enabled\": %s, \"atr_be_multiplier\": %.2f, \"max_spread_points\": %.2f, \"runner_be\": %s},\n"
                        "  \"trailing\": {\"enable\": %s, \"start_usd_001_lot\": %.2f, \"distance_usd_001_lot\": %.2f, \"step_usd_001_lot\": %.2f, \"atr_trail\": %s, \"dynamic_trail\": %s},\n"
                        "  \"profit_locks\": {\"enable\": %s, \"lock_level_1_usd_001_lot\": {\"trigger\": %.2f, \"lock\": %.2f}, \"lock2_trigger\": %.2f, \"lock2_lock\": %.2f, \"lock3_trigger\": %.2f, \"lock3_lock\": %.2f, \"minimum_locked_profit_usd_001_lot\": %.2f},\n"
                        "  \"fixed_take_profit\": {\"fixed_take_profit_enable\": %s, \"close_profit_usd_001_lot\": %.2f, \"close_mode\": \"IMMEDIATE_MARKET_CLOSE\"},\n"
@@ -396,7 +472,9 @@ string DashboardJson()
                        "}\n",
                        RP_DASH_SCHEMA, g_cfg.active_profile, g_cfg.enabled ? "true" : "false",
                        g_cfg.initial_sl_usd_001_lot, g_cfg.hard_loss_cap_usd_001_lot, g_cfg.max_floating_loss_usd_001_lot, g_cfg.emergency_close ? "true" : "false",
-                       g_cfg.breakeven_enable ? "true" : "false", g_cfg.breakeven_trigger_usd_001_lot, g_cfg.breakeven_offset_usd_001_lot, g_cfg.runner_be ? "true" : "false",
+                       g_cfg.breakeven_enable ? "true" : "false", g_cfg.breakeven_trigger_usd_001_lot, g_cfg.breakeven_offset_usd_001_lot,
+                       g_cfg.minimum_hold_seconds_before_be, g_cfg.minimum_noise_safe_be_usd, g_cfg.atr_be_enabled ? "true" : "false",
+                       g_cfg.atr_be_multiplier, g_cfg.max_spread_points, g_cfg.runner_be ? "true" : "false",
                        g_cfg.trailing_enable ? "true" : "false", g_cfg.trailing_start_usd_001_lot, g_cfg.trailing_distance_usd_001_lot, g_cfg.trailing_step_usd_001_lot, g_cfg.atr_trail_enable ? "true" : "false", g_cfg.trailing_enable ? "true" : "false",
                        g_cfg.profit_lock_enable ? "true" : "false", g_cfg.lock1_trigger, g_cfg.lock1_lock, g_cfg.lock2_trigger, g_cfg.lock2_lock, g_cfg.lock3_trigger, g_cfg.lock3_lock, g_cfg.minimum_locked_profit_usd_001_lot,
                        g_cfg.fixed_take_profit_enable ? "true" : "false", g_cfg.fixed_take_profit_close_usd_001_lot,
@@ -462,6 +540,9 @@ void DrawDashboard()
    DrawControl("BE_ENABLE", "BE Enable", BoolText(g_cfg.breakeven_enable), InpX, y); y += 22;
    DrawControl("BE_TRIGGER", "BE Trigger", DoubleToString(g_cfg.breakeven_trigger_usd_001_lot, 2), InpX, y); y += 22;
    DrawControl("BE_OFFSET", "BE Offset", DoubleToString(g_cfg.breakeven_offset_usd_001_lot, 2), InpX, y); y += 22;
+   DrawControl("BE_HOLD", "BE Min Hold Sec", IntegerToString(g_cfg.minimum_hold_seconds_before_be), InpX, y); y += 22;
+   DrawControl("BE_NOISE", "BE Noise Floor", DoubleToString(g_cfg.minimum_noise_safe_be_usd, 2), InpX, y); y += 22;
+   DrawControl("ATR_BE", "ATR BE", BoolText(g_cfg.atr_be_enabled) + " x" + DoubleToString(g_cfg.atr_be_multiplier, 2), InpX, y); y += 22;
    DrawControl("RUNNER_BE", "Runner BE", BoolText(g_cfg.runner_be), InpX, y); y += 22;
 
    y = InpY + 50;
@@ -507,11 +588,11 @@ void UpdateDashboardText()
    ObjectSetString(0, RP_PREFIX + "TITLE", OBJPROP_TEXT, "V27.3 Exit Optimization Dashboard (POST-ENTRY ONLY; AI decision engine frozen)");
    string json_status = g_cfg.fallback_defaults_used ? "FALLBACK_EMBEDDED_DEFAULTS" : "JSON_PROFILE_LOADED";
    ObjectSetString(0, RP_PREFIX + "BODY", OBJPROP_TEXT,
-                   StringFormat("Profile: %s | JSON Status: %s | Last Reload: %s | TM: %s | Status: %s\nActive Exit Authority Owner: %s | Effective Management Mode: %s\nCurrent BE Trigger: %.2f | Trail Distance: %.2f | Hard Loss Cap: %.2f | Profit Lock: %s\nExecutor consumes this runtime profile through Exit Authority priority: EMERGENCY > HARD_LOSS > PROFIT_LOCK > BE > TRAIL > RUNNER > TIME",
+                   StringFormat("Profile: %s | JSON Status: %s | Last Reload: %s | TM: %s | Status: %s\nActive Exit Authority Owner: %s | Effective Management Mode: %s\nCurrent BE Trigger: %.2f (effective %.2f; hold %ds) | Trail Distance: %.2f | Hard Loss Cap: %.2f | Profit Lock: %s\nExecutor consumes this runtime profile through Exit Authority priority: EMERGENCY > HARD_LOSS > PROFIT_LOCK > BE > TRAIL > RUNNER > TIME",
                                 g_cfg.active_profile, json_status, TimeToString(g_last_load, TIME_DATE | TIME_SECONDS),
                                 g_cfg.enabled ? "ENABLED" : "DISABLED", g_status,
                                 "Exit Authority Manager (single-owner priority)", g_cfg.runner_enable ? "RUNNER/TRAIL/LOCK" : "SCALP_PROTECTION",
-                                g_cfg.breakeven_trigger_usd_001_lot, g_cfg.trailing_distance_usd_001_lot, g_cfg.hard_loss_cap_usd_001_lot, CurrentProfitLockLevel()));
+                                g_cfg.breakeven_trigger_usd_001_lot, EffectiveBeTriggerUsd001Lot(), g_cfg.minimum_hold_seconds_before_be, g_cfg.trailing_distance_usd_001_lot, g_cfg.hard_loss_cap_usd_001_lot, CurrentProfitLockLevel()));
 
    string pos = "Open positions (ticket dir lot profit MFE mode owner state profile):\n";
    for(int i = PositionsTotal() - 1; i >= 0; --i)
@@ -542,6 +623,9 @@ void AdjustControl(const string id, const int dir)
    else if(id == "BE_ENABLE") g_cfg.breakeven_enable = !g_cfg.breakeven_enable;
    else if(id == "BE_TRIGGER") g_cfg.breakeven_trigger_usd_001_lot += dir * step;
    else if(id == "BE_OFFSET") g_cfg.breakeven_offset_usd_001_lot += dir * step;
+   else if(id == "BE_HOLD") g_cfg.minimum_hold_seconds_before_be += dir * 5;
+   else if(id == "BE_NOISE") g_cfg.minimum_noise_safe_be_usd += dir * step;
+   else if(id == "ATR_BE") g_cfg.atr_be_enabled = !g_cfg.atr_be_enabled;
    else if(id == "RUNNER_BE") g_cfg.runner_be = !g_cfg.runner_be;
    else if(id == "TRAIL_ENABLE") g_cfg.trailing_enable = !g_cfg.trailing_enable;
    else if(id == "TRAIL_START") g_cfg.trailing_start_usd_001_lot += dir * step;
@@ -577,6 +661,44 @@ void CycleProfile()
    g_status = "profile selected in-memory - click Reload JSON to load file or Save JSON to create it";
 }
 
+
+double CurrentAtrMoney001Lot()
+{
+   if(!g_cfg.atr_be_enabled) return 0.0;
+   int handle = iATR(_Symbol, PERIOD_CURRENT, 14);
+   if(handle == INVALID_HANDLE) return 0.0;
+   double buf[];
+   ArraySetAsSeries(buf, true);
+   if(CopyBuffer(handle, 0, 0, 1, buf) <= 0)
+   {
+      IndicatorRelease(handle);
+      return 0.0;
+   }
+   IndicatorRelease(handle);
+   double tick_value = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+   double tick_size = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   if(tick_value <= 0.0 || tick_size <= 0.0) return 0.0;
+   return (buf[0] / tick_size) * tick_value;
+}
+
+double EffectiveBeTriggerUsd001Lot()
+{
+   double trigger = MathMax(g_cfg.breakeven_trigger_usd_001_lot, g_cfg.minimum_noise_safe_be_usd);
+   double atr_money = CurrentAtrMoney001Lot();
+   if(atr_money > 0.0) trigger = MathMax(trigger, atr_money * g_cfg.atr_be_multiplier);
+   return trigger;
+}
+
+bool IsSpreadNormal()
+{
+   if(g_cfg.max_spread_points <= 0.0) return true;
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   if(point <= 0.0) return true;
+   return ((ask - bid) / point) <= g_cfg.max_spread_points;
+}
+
 double MoneyToPriceDistance(const double money_001_lot, const double volume)
 {
    double tick_value = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
@@ -596,6 +718,8 @@ void UpdateOpenTradeExcursions()
       double profit = PositionGetDouble(POSITION_PROFIT);
       if(profit > g_track_mfe[idx]) g_track_mfe[idx] = profit;
       if(profit < g_track_mae[idx]) g_track_mae[idx] = profit;
+      if(g_track_be_enabled[idx] && profit > g_track_max_profit_after_be_trigger[idx])
+         g_track_max_profit_after_be_trigger[idx] = profit;
    }
 }
 
@@ -617,7 +741,7 @@ void EnsureTradeStatisticsHeader()
    }
    int handle = FileOpen(InpTradeStatisticsCsv, FILE_WRITE | FILE_TXT | FILE_COMMON | FILE_ANSI);
    if(handle == INVALID_HANDLE) return;
-   FileWriteString(handle, "Ticket,Symbol,Direction,Mode,Entry Time,Exit Time,Entry Price,Exit Price,Stop Loss,Take Profit,Exit Reason,MFE,MAE,Net Profit,Duration,Dashboard Profile\n");
+   FileWriteString(handle, "Ticket,Symbol,Direction,Mode,Entry Time,Exit Time,Entry Price,Exit Price,Stop Loss,Take Profit,Exit Reason,MFE,MAE,Net Profit,Duration,Dashboard Profile,be_enabled,be_trigger_price,be_trigger_profit_usd,be_trigger_time,be_trigger_after_seconds,be_sl_price,be_offset_usd,be_stop_out,profit_before_be_stop_out,max_profit_after_be_trigger,lost_opportunity_after_be\n");
    FileClose(handle);
 }
 
@@ -651,14 +775,27 @@ void RecordCompletedTrade(const ulong position_id, const ulong exit_deal)
    int idx = TrackIndex(position_id);
    double mfe = idx >= 0 ? g_track_mfe[idx] : MathMax(net_profit, 0.0);
    double mae = idx >= 0 ? g_track_mae[idx] : MathMin(net_profit, 0.0);
+   bool be_enabled = idx >= 0 ? g_track_be_enabled[idx] : false;
+   double be_trigger_price = idx >= 0 ? g_track_be_trigger_price[idx] : 0.0;
+   double be_trigger_profit = idx >= 0 ? g_track_be_trigger_profit_usd[idx] : 0.0;
+   datetime be_trigger_time = idx >= 0 ? g_track_be_trigger_time[idx] : 0;
+   int be_after_seconds = idx >= 0 ? g_track_be_trigger_after_seconds[idx] : 0;
+   double be_sl_price = idx >= 0 ? g_track_be_sl_price[idx] : 0.0;
+   double be_offset = idx >= 0 ? g_track_be_offset_usd[idx] : 0.0;
+   bool be_stop_out = be_enabled && reason_code == DEAL_REASON_SL;
+   double profit_before_be_stop_out = be_stop_out ? be_trigger_profit : 0.0;
+   double max_profit_after_be = idx >= 0 ? g_track_max_profit_after_be_trigger[idx] : 0.0;
+   double lost_opportunity_after_be = be_stop_out ? MathMax(0.0, max_profit_after_be - net_profit) : 0.0;
    EnsureTradeStatisticsHeader();
    int handle = FileOpen(InpTradeStatisticsCsv, FILE_READ | FILE_WRITE | FILE_TXT | FILE_COMMON | FILE_ANSI);
    if(handle == INVALID_HANDLE) return;
    FileSeek(handle, 0, SEEK_END);
-   string row = StringFormat("%I64u,%s,%s,%s,%s,%s,%.5f,%.5f,%.5f,%.5f,%s,%.2f,%.2f,%.2f,%d,%s\n",
+   string row = StringFormat("%I64u,%s,%s,%s,%s,%s,%.5f,%.5f,%.5f,%.5f,%s,%.2f,%.2f,%.2f,%d,%s,%s,%.5f,%.2f,%s,%d,%.5f,%.2f,%s,%.2f,%.2f,%.2f\n",
       position_id, CsvEscape(symbol), CsvEscape(direction), CsvEscape(g_cfg.runner_enable ? "RUNNER/TRAIL" : "PROTECT"),
       CsvEscape(TimeToString(entry_time, TIME_DATE | TIME_SECONDS)), CsvEscape(TimeToString(exit_time, TIME_DATE | TIME_SECONDS)),
-      entry_price, exit_price, 0.0, 0.0, CsvEscape(exit_reason), mfe, mae, net_profit, (int)(exit_time - entry_time), CsvEscape(g_cfg.active_profile));
+      entry_price, exit_price, 0.0, 0.0, CsvEscape(exit_reason), mfe, mae, net_profit, (int)(exit_time - entry_time), CsvEscape(g_cfg.active_profile),
+      be_enabled ? "true" : "false", be_trigger_price, be_trigger_profit, CsvEscape(be_trigger_time > 0 ? TimeToString(be_trigger_time, TIME_DATE | TIME_SECONDS) : ""),
+      be_after_seconds, be_sl_price, be_offset, be_stop_out ? "true" : "false", profit_before_be_stop_out, max_profit_after_be, lost_opportunity_after_be);
    FileWriteString(handle, row);
    FileClose(handle);
    RemoveTrack(position_id);
@@ -709,10 +846,29 @@ void ManageOpenPositions()
             candidate_sl = (type == POSITION_TYPE_BUY) ? open + lock_dist : open - lock_dist;
          }
       }
-      if(g_cfg.breakeven_enable && profit >= g_cfg.breakeven_trigger_usd_001_lot * (volume / 0.01))
+      if(g_cfg.breakeven_enable)
       {
-         double be_dist = MoneyToPriceDistance(g_cfg.breakeven_offset_usd_001_lot, volume);
-         candidate_sl = (type == POSITION_TYPE_BUY) ? open + be_dist : open - be_dist;
+         int idx = EnsureTrack(ticket);
+         datetime open_time = (datetime)PositionGetInteger(POSITION_TIME);
+         int open_seconds = (int)(TimeCurrent() - open_time);
+         double be_trigger = EffectiveBeTriggerUsd001Lot();
+         bool hold_ok = open_seconds >= g_cfg.minimum_hold_seconds_before_be;
+         bool profit_ok = profit >= be_trigger * scale;
+         bool spread_ok = IsSpreadNormal();
+         if(!g_track_be_enabled[idx] && hold_ok && profit_ok && spread_ok)
+         {
+            double be_dist = MoneyToPriceDistance(g_cfg.breakeven_offset_usd_001_lot, volume);
+            candidate_sl = (type == POSITION_TYPE_BUY) ? open + be_dist : open - be_dist;
+            g_track_be_enabled[idx] = true;
+            g_track_be_trigger_price[idx] = price;
+            g_track_be_trigger_profit_usd[idx] = profit;
+            g_track_be_trigger_time[idx] = TimeCurrent();
+            g_track_be_trigger_after_seconds[idx] = open_seconds;
+            g_track_be_sl_price[idx] = candidate_sl;
+            g_track_be_offset_usd[idx] = g_cfg.breakeven_offset_usd_001_lot;
+            g_track_max_profit_after_be_trigger[idx] = profit;
+            Print(StringFormat("NOISE_SAFE_BE_TRIGGER ticket=%I64u profit=%.2f trigger=%.2f hold=%d spread_ok=%s sl=%.5f", ticket, profit, be_trigger * scale, open_seconds, spread_ok ? "true" : "false", candidate_sl));
+         }
       }
       if(g_cfg.trailing_enable && profit >= g_cfg.trailing_start_usd_001_lot * (volume / 0.01))
       {
