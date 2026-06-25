@@ -1175,7 +1175,9 @@ void RecordCompletedTrade(const ulong position_id, const ulong exit_deal)
       return;
    }
    FileSeek(handle, 0, SEEK_END);
-   string row = StringFormat("%s,%I64u,%s,%s,%s,%s,%s,%.5f,%.5f,%.5f,%.5f,%s,%s,%s,%s,%s,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%s,%.0f,%.0f,%.2f,%.2f,%s,%s,%s,%s,%.2f,%.5f,%.2f,%.5f,%.2f,%.2f,%.2f,%.2f,%s,%s,%s,%s,%.2f,%.5f,%s,%.2f,%.5f,%.2f,%.2f,%.2f,%d,%s,%.2f,%.2f,%d,%d,%.5f,%.5f,%.2f,%.2f,%.2f,%.2f,%.2f,%.4f,%.2f,%.2f,%.2f,%.2f,%d,%s,%d,%.5f,%.2f,%s,%d,%.5f,%.2f,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%s,%.2f,%s,%d,%.4f\n",
+   string be_stop_out_text = (be_stop_out ? "true" : "false");
+   string be_false_trigger_text = (be_false_trigger ? "true" : "false");
+   string row = StringFormat("%s,%I64u,%s,%s,%s,%s,%s,%.5f,%.5f,%.5f,%.5f,%s,%s,%s,%s,%s,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%s,%.0f,%.0f,%.2f,%.2f,%s,%s,%s,%s,%.2f,%.5f,%.2f,%.5f,%.2f,%.2f,%.2f,%.2f,%s,%s,%s,%s,%.2f,%.5f,%s,%.2f,%.5f,%.2f,%.2f,%.2f,%d,%s,",
       TRADE_STATS_SCHEMA_VERSION, position_id, CsvEscape(symbol), CsvEscape(direction), CsvEscape(g_cfg.runner_enable ? "RUNNER/TRAIL" : "PROTECT"),
       CsvEscape(TimeToString(entry_time, TIME_DATE | TIME_SECONDS)), CsvEscape(TimeToString(exit_time, TIME_DATE | TIME_SECONDS)),
       entry_price, exit_price, position_sl_at_close, position_tp_at_close, CsvEscape(exit_reason), CsvEscape(close_source), CsvEscape(exit_reason), CsvEscape(dashboard_reason), CsvEscape(exit_owner),
@@ -1184,12 +1186,13 @@ void RecordCompletedTrade(const ulong position_id, const ulong exit_deal)
       CsvEscape(idx >= 0 ? g_track_action[idx] : ""), CsvEscape(idx >= 0 ? g_track_bias[idx] : ""), CsvEscape(idx >= 0 ? g_track_mode[idx] : ""), CsvEscape(idx >= 0 ? g_track_bb_state[idx] : ""), idx >= 0 ? g_track_rsi[idx] : 0.0, idx >= 0 ? g_track_macd_hist[idx] : 0.0, idx >= 0 ? g_track_adx[idx] : 0.0, idx >= 0 ? g_track_atr[idx] : 0.0,
       idx >= 0 ? g_track_spread_points_entry[idx] : 0.0, idx >= 0 ? g_track_buy_score[idx] : 0.0, idx >= 0 ? g_track_sell_score[idx] : 0.0, idx >= 0 ? g_track_score_gap[idx] : 0.0,
       CsvEscape(idx >= 0 ? g_track_dominant_direction[idx] : ""), CsvEscape(idx >= 0 ? g_track_execution_state[idx] : ""), CsvEscape(idx >= 0 ? g_track_management_mode[idx] : ""), CsvEscape(idx >= 0 ? g_track_dashboard_profile_at_entry[idx] : ""),
-      spread_points_exit, atr_exit, CsvEscape(bb_state_exit), rsi_exit, macd_hist_exit, adx_exit, floating_profit_before_close, floating_loss_before_close, position_age_seconds_at_close, CsvEscape(g_cfg.active_profile),
+      spread_points_exit, atr_exit, CsvEscape(bb_state_exit), rsi_exit, macd_hist_exit, adx_exit, floating_profit_before_close, floating_loss_before_close, position_age_seconds_at_close, CsvEscape(g_cfg.active_profile));
+   row += StringFormat("%.2f,%.2f,%d,%d,%.5f,%.5f,%.2f,%.2f,%.2f,%.2f,%.2f,%.4f,%.2f,%.2f,%.2f,%.2f,%d,%s,%d,%.5f,%.2f,%s,%d,%.5f,%.2f,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%s,%.2f,%s,%d,%.4f\n",
       mfe, mae, time_to_mfe_seconds, time_to_mae_seconds, idx >= 0 ? g_track_price_at_mfe[idx] : 0.0, idx >= 0 ? g_track_price_at_mae[idx] : 0.0, mfe, mae,
       max_profit_usd, realized_profit_usd, lost_opportunity_usd, profit_capture_ratio, entry_quality_score, exit_quality_score, trade_quality_score, net_profit, (int)(exit_time - entry_time), CsvEscape(g_cfg.active_profile),
       be_enabled ? 1 : 0, be_trigger_price, be_trigger_profit, CsvEscape(be_trigger_time > 0 ? TimeToString(be_trigger_time, TIME_DATE | TIME_SECONDS) : ""),
-      be_after_seconds, be_sl_price, be_offset, be_stop_out ? "true" : "false", net_profit, profit_before_be_stop_out, max_profit_after_be, maximum_drawdown_after_be, lost_opportunity_after_be,
-      be_false_trigger ? "true" : "false", false_distance, CsvEscape(be_false_trigger ? TimeToString(exit_time, TIME_DATE | TIME_SECONDS) : ""), be_survival_seconds, capture_ratio_after_be);
+      be_after_seconds, be_sl_price, be_offset, be_stop_out_text, net_profit, profit_before_be_stop_out, max_profit_after_be, maximum_drawdown_after_be, lost_opportunity_after_be,
+      be_false_trigger_text, false_distance, CsvEscape(be_false_trigger ? TimeToString(exit_time, TIME_DATE | TIME_SECONDS) : ""), be_survival_seconds, capture_ratio_after_be);
    row = StringSubstr(row, 0, StringLen(row) - 1) + ",\"\"\n";
    FileWriteString(handle, row);
    FileClose(handle);
