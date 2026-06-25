@@ -16,7 +16,7 @@ input int    InpX                 = 12;
 input int    InpY                 = 24;
 input int    InpTimerSeconds      = 2;
 input bool   InpManageOpenTrades  = true;
-input string InpTradeStatisticsCsv = "trade_statistics.csv";
+input string InpTradeStatisticsCsv = "D:\\RP_AI_EA\\analysis\\trade_statistics.csv";
 input double InpBeFalseTriggerThresholdUsd = 0.20;
 
 #define RP_DASH_SCHEMA "V27_TRADE_MANAGEMENT_DASHBOARD_SCHEMA_1"
@@ -817,6 +817,7 @@ string CsvEscape(const string value)
 void EnsureTradeStatisticsHeader()
 {
    int read = FileOpen(InpTradeStatisticsCsv, FILE_READ | FILE_TXT | FILE_COMMON | FILE_ANSI);
+   if(read == INVALID_HANDLE) read = FileOpen(InpTradeStatisticsCsv, FILE_READ | FILE_TXT | FILE_ANSI);
    if(read != INVALID_HANDLE)
    {
       bool empty = FileIsEnding(read);
@@ -824,14 +825,23 @@ void EnsureTradeStatisticsHeader()
       if(!empty) return;
    }
    int handle = FileOpen(InpTradeStatisticsCsv, FILE_WRITE | FILE_TXT | FILE_COMMON | FILE_ANSI);
-   if(handle == INVALID_HANDLE) return;
-   FileWriteString(handle, "Ticket,Symbol,Direction,Mode,Entry Time,Exit Time,Entry Price,Exit Price,Stop Loss,Take Profit,Exit Reason,MFE,MAE,Net Profit,Duration,Dashboard Profile,be_trigger_count,be_trigger_price,be_trigger_profit,be_trigger_time,be_trigger_age_seconds,be_sl_price,be_offset_usd,be_stop_out,realized_profit,profit_before_be,maximum_profit_after_be,maximum_drawdown_after_be,lost_opportunity_after_be,be_false_trigger,be_false_trigger_distance,be_false_trigger_time,be_survival_time_seconds,capture_ratio_after_be\n");
+   if(handle == INVALID_HANDLE) handle = FileOpen(InpTradeStatisticsCsv, FILE_WRITE | FILE_TXT | FILE_ANSI);
+   if(handle == INVALID_HANDLE)
+   {
+      Print(StringFormat("COMPLETED_TRADE_RECORD_FAILED | reason=header_file_open_failed path=%s error=%d", InpTradeStatisticsCsv, GetLastError()));
+      return;
+   }
+   FileWriteString(handle, "ticket,symbol,direction,mode,entry_time,exit_time,entry_price,exit_price,stop_loss,take_profit,exit_reason,mfe,mae,net_profit,duration,dashboard_profile,be_trigger_count,be_trigger_price,be_trigger_profit,be_trigger_time,be_trigger_age_seconds,be_sl_price,be_offset_usd,be_stop_out,realized_profit,profit_before_be,maximum_profit_after_be,maximum_drawdown_after_be,lost_opportunity_after_be,be_false_trigger,be_false_trigger_distance,be_false_trigger_time,be_survival_time_seconds,capture_ratio_after_be,post_sl_continuation_direction\n");
    FileClose(handle);
 }
 
 void RecordCompletedTrade(const ulong position_id, const ulong exit_deal)
 {
-   if(!HistoryDealSelect(exit_deal)) return;
+   if(!HistoryDealSelect(exit_deal))
+   {
+      Print("COMPLETED_TRADE_RECORD_FAILED | reason=history_deal_select_failed");
+      return;
+   }
    string symbol = HistoryDealGetString(exit_deal, DEAL_SYMBOL);
    if(symbol != _Symbol) return;
    datetime exit_time = (datetime)HistoryDealGetInteger(exit_deal, DEAL_TIME);
@@ -878,7 +888,12 @@ void RecordCompletedTrade(const ulong position_id, const ulong exit_deal)
    double capture_ratio_after_be = (be_enabled && max_profit_after_be > 0.0) ? net_profit / max_profit_after_be : 0.0;
    EnsureTradeStatisticsHeader();
    int handle = FileOpen(InpTradeStatisticsCsv, FILE_READ | FILE_WRITE | FILE_TXT | FILE_COMMON | FILE_ANSI);
-   if(handle == INVALID_HANDLE) return;
+   if(handle == INVALID_HANDLE) handle = FileOpen(InpTradeStatisticsCsv, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI);
+   if(handle == INVALID_HANDLE)
+   {
+      Print(StringFormat("COMPLETED_TRADE_RECORD_FAILED | reason=file_open_failed path=%s error=%d", InpTradeStatisticsCsv, GetLastError()));
+      return;
+   }
    FileSeek(handle, 0, SEEK_END);
    string row = StringFormat("%I64u,%s,%s,%s,%s,%s,%.5f,%.5f,%.5f,%.5f,%s,%.2f,%.2f,%.2f,%d,%s,%d,%.5f,%.2f,%s,%d,%.5f,%.2f,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%s,%.2f,%s,%d,%.4f\n",
       position_id, CsvEscape(symbol), CsvEscape(direction), CsvEscape(g_cfg.runner_enable ? "RUNNER/TRAIL" : "PROTECT"),
@@ -887,8 +902,10 @@ void RecordCompletedTrade(const ulong position_id, const ulong exit_deal)
       be_enabled ? 1 : 0, be_trigger_price, be_trigger_profit, CsvEscape(be_trigger_time > 0 ? TimeToString(be_trigger_time, TIME_DATE | TIME_SECONDS) : ""),
       be_after_seconds, be_sl_price, be_offset, be_stop_out ? "true" : "false", net_profit, profit_before_be_stop_out, max_profit_after_be, maximum_drawdown_after_be, lost_opportunity_after_be,
       be_false_trigger ? "true" : "false", false_distance, CsvEscape(be_false_trigger ? TimeToString(exit_time, TIME_DATE | TIME_SECONDS) : ""), be_survival_seconds, capture_ratio_after_be);
+   row = StringSubstr(row, 0, StringLen(row) - 1) + ",\"\"\n";
    FileWriteString(handle, row);
    FileClose(handle);
+   Print(StringFormat("COMPLETED_TRADE_RECORDED | ticket=%I64u | pnl=%.2f | profile=%s | exit_reason=%s", position_id, net_profit, g_cfg.active_profile, exit_reason));
    RemoveTrack(position_id);
 }
 
@@ -985,6 +1002,8 @@ int OnInit()
 {
    LoadDashboardProfile();
    Print("DASHBOARD_SINGLE_SOURCE_OF_TRUTH_PASS");
+   Print(StringFormat("TRADE_STATISTICS_CSV_PATH = %s", InpTradeStatisticsCsv));
+   EnsureTradeStatisticsHeader();
    DrawDashboard();
    EventSetTimer(MathMax(1, InpTimerSeconds));
    return INIT_SUCCEEDED;
