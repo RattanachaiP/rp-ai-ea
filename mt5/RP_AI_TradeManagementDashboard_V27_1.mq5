@@ -17,6 +17,7 @@ input int    InpY                 = 24;
 input int    InpTimerSeconds      = 2;
 input bool   InpManageOpenTrades  = true;
 input string InpTradeStatisticsCsv = "trade_statistics.csv";
+input double InpBeFalseTriggerThresholdUsd = 0.20;
 
 #define RP_DASH_SCHEMA "V27_TRADE_MANAGEMENT_DASHBOARD_SCHEMA_1"
 #define RP_PREFIX      "RP_V273_TMD_"
@@ -87,6 +88,7 @@ double g_track_be_offset_usd[];
 bool g_track_be_stop_out[];
 double g_track_profit_before_be_stop_out[];
 double g_track_max_profit_after_be_trigger[];
+double g_track_min_profit_after_be_trigger[];
 double g_track_lost_opportunity_after_be[];
 
 double EffectiveBeTriggerUsd001Lot();
@@ -116,6 +118,7 @@ int EnsureTrack(const ulong ticket)
    ArrayResize(g_track_be_stop_out, n + 1);
    ArrayResize(g_track_profit_before_be_stop_out, n + 1);
    ArrayResize(g_track_max_profit_after_be_trigger, n + 1);
+   ArrayResize(g_track_min_profit_after_be_trigger, n + 1);
    ArrayResize(g_track_lost_opportunity_after_be, n + 1);
    g_track_tickets[n] = ticket;
    g_track_mfe[n] = 0.0;
@@ -130,6 +133,7 @@ int EnsureTrack(const ulong ticket)
    g_track_be_stop_out[n] = false;
    g_track_profit_before_be_stop_out[n] = 0.0;
    g_track_max_profit_after_be_trigger[n] = 0.0;
+   g_track_min_profit_after_be_trigger[n] = 0.0;
    g_track_lost_opportunity_after_be[n] = 0.0;
    return n;
 }
@@ -154,6 +158,7 @@ void RemoveTrack(const ulong ticket)
       g_track_be_stop_out[idx] = g_track_be_stop_out[last];
       g_track_profit_before_be_stop_out[idx] = g_track_profit_before_be_stop_out[last];
       g_track_max_profit_after_be_trigger[idx] = g_track_max_profit_after_be_trigger[last];
+      g_track_min_profit_after_be_trigger[idx] = g_track_min_profit_after_be_trigger[last];
       g_track_lost_opportunity_after_be[idx] = g_track_lost_opportunity_after_be[last];
    }
    ArrayResize(g_track_tickets, last);
@@ -169,6 +174,7 @@ void RemoveTrack(const ulong ticket)
    ArrayResize(g_track_be_stop_out, last);
    ArrayResize(g_track_profit_before_be_stop_out, last);
    ArrayResize(g_track_max_profit_after_be_trigger, last);
+   ArrayResize(g_track_min_profit_after_be_trigger, last);
    ArrayResize(g_track_lost_opportunity_after_be, last);
 }
 
@@ -574,13 +580,84 @@ void DrawDashboard()
    DrawControl("REMAIN_RUNNER", "Remaining Runner %", IntegerToString(g_cfg.remaining_runner_percent) + "%", x3, y); y += 22;
 
    CreateLabel(RP_PREFIX + "BODY", InpX, InpY + 292);
-   CreateLabel(RP_PREFIX + "POSITIONS", InpX, InpY + 372);
+   CreateLabel(RP_PREFIX + "BE_KPI", InpX, InpY + 372);
+   CreateLabel(RP_PREFIX + "POSITIONS", InpX, InpY + 438);
    UpdateDashboardText();
 }
 
 string CurrentProfitLockLevel()
 {
    return StringFormat("L1 %.2f/%.2f | L2 %.2f/%.2f | L3 %.2f/%.2f", g_cfg.lock1_trigger, g_cfg.lock1_lock, g_cfg.lock2_trigger, g_cfg.lock2_lock, g_cfg.lock3_trigger, g_cfg.lock3_lock);
+}
+
+
+string BeRollingKpiLine(const int window)
+{
+   int handle = FileOpen(InpTradeStatisticsCsv, FILE_READ | FILE_TXT | FILE_COMMON | FILE_ANSI);
+   if(handle == INVALID_HANDLE)
+      return StringFormat("BE KPI last %d: no completed-trade evidence yet", window);
+
+   string rows[];
+   while(!FileIsEnding(handle))
+   {
+      string line = FileReadString(handle);
+      if(line == "" || StringFind(line, "Ticket,") == 0) continue;
+      int n = ArraySize(rows);
+      ArrayResize(rows, n + 1);
+      rows[n] = line;
+   }
+   FileClose(handle);
+
+   int start = MathMax(0, ArraySize(rows) - window);
+   int be_triggers = 0, be_stop_outs = 0, be_false = 0, survival_count = 0, lost_count = 0, capture_count = 0;
+   double lost_sum = 0.0, capture_sum = 0.0, survival_sum = 0.0;
+   double survival_values[];
+
+   for(int i = start; i < ArraySize(rows); ++i)
+   {
+      string cols[];
+      int col_count = StringSplit(rows[i], ',', cols);
+      if(col_count < 34) continue;
+      int be_count = (int)StringToInteger(cols[16]);
+      bool triggered = be_count > 0;
+      if(!triggered) continue;
+      be_triggers += be_count;
+      string stopped_text = cols[23];
+      string false_text = cols[29];
+      StringToLower(stopped_text);
+      StringToLower(false_text);
+      bool stopped = StringFind(stopped_text, "true") >= 0 || cols[23] == "1";
+      bool false_trigger = StringFind(false_text, "true") >= 0 || cols[29] == "1";
+      double lost = StringToDouble(cols[28]);
+      double survival = StringToDouble(cols[32]);
+      double capture = StringToDouble(cols[33]);
+      if(stopped) be_stop_outs++;
+      if(false_trigger) be_false++;
+      lost_sum += lost; lost_count++;
+      capture_sum += capture; capture_count++;
+      if(survival > 0.0)
+      {
+         survival_sum += survival; survival_count++;
+         int n = ArraySize(survival_values);
+         ArrayResize(survival_values, n + 1);
+         survival_values[n] = survival;
+      }
+   }
+
+   ArraySort(survival_values);
+   double median = 0.0;
+   int surv_n = ArraySize(survival_values);
+   if(surv_n > 0)
+      median = (surv_n % 2 == 1) ? survival_values[surv_n / 2] : (survival_values[surv_n / 2 - 1] + survival_values[surv_n / 2]) / 2.0;
+
+   return StringFormat("BE KPI last %d: triggers=%d stop-outs=%d stop-rate=%.1f%% false-rate=%.1f%% avg-lost=%.2f avg-capture=%.2f avg-survival=%.0fs median-survival=%.0fs",
+                       window, be_triggers, be_stop_outs,
+                       be_triggers > 0 ? 100.0 * be_stop_outs / be_triggers : 0.0,
+                       be_stop_outs > 0 ? 100.0 * be_false / be_stop_outs : 0.0,
+                       lost_count > 0 ? lost_sum / lost_count : 0.0,
+                       capture_count > 0 ? capture_sum / capture_count : 0.0,
+                       survival_count > 0 ? survival_sum / survival_count : 0.0,
+                       median);
 }
 
 void UpdateDashboardText()
@@ -593,6 +670,8 @@ void UpdateDashboardText()
                                 g_cfg.enabled ? "ENABLED" : "DISABLED", g_status,
                                 "Exit Authority Manager (single-owner priority)", g_cfg.runner_enable ? "RUNNER/TRAIL/LOCK" : "SCALP_PROTECTION",
                                 g_cfg.breakeven_trigger_usd_001_lot, EffectiveBeTriggerUsd001Lot(), g_cfg.minimum_hold_seconds_before_be, g_cfg.trailing_distance_usd_001_lot, g_cfg.hard_loss_cap_usd_001_lot, CurrentProfitLockLevel()));
+
+   ObjectSetString(0, RP_PREFIX + "BE_KPI", OBJPROP_TEXT, BeRollingKpiLine(20) + "\n" + BeRollingKpiLine(50) + "\n" + BeRollingKpiLine(100));
 
    string pos = "Open positions (ticket dir lot profit MFE mode owner state profile):\n";
    for(int i = PositionsTotal() - 1; i >= 0; --i)
@@ -718,8 +797,13 @@ void UpdateOpenTradeExcursions()
       double profit = PositionGetDouble(POSITION_PROFIT);
       if(profit > g_track_mfe[idx]) g_track_mfe[idx] = profit;
       if(profit < g_track_mae[idx]) g_track_mae[idx] = profit;
-      if(g_track_be_enabled[idx] && profit > g_track_max_profit_after_be_trigger[idx])
-         g_track_max_profit_after_be_trigger[idx] = profit;
+      if(g_track_be_enabled[idx])
+      {
+         if(profit > g_track_max_profit_after_be_trigger[idx])
+            g_track_max_profit_after_be_trigger[idx] = profit;
+         if(g_track_min_profit_after_be_trigger[idx] == 0.0 || profit < g_track_min_profit_after_be_trigger[idx])
+            g_track_min_profit_after_be_trigger[idx] = profit;
+      }
    }
 }
 
@@ -741,7 +825,7 @@ void EnsureTradeStatisticsHeader()
    }
    int handle = FileOpen(InpTradeStatisticsCsv, FILE_WRITE | FILE_TXT | FILE_COMMON | FILE_ANSI);
    if(handle == INVALID_HANDLE) return;
-   FileWriteString(handle, "Ticket,Symbol,Direction,Mode,Entry Time,Exit Time,Entry Price,Exit Price,Stop Loss,Take Profit,Exit Reason,MFE,MAE,Net Profit,Duration,Dashboard Profile,be_enabled,be_trigger_price,be_trigger_profit_usd,be_trigger_time,be_trigger_after_seconds,be_sl_price,be_offset_usd,be_stop_out,profit_before_be_stop_out,max_profit_after_be_trigger,lost_opportunity_after_be\n");
+   FileWriteString(handle, "Ticket,Symbol,Direction,Mode,Entry Time,Exit Time,Entry Price,Exit Price,Stop Loss,Take Profit,Exit Reason,MFE,MAE,Net Profit,Duration,Dashboard Profile,be_trigger_count,be_trigger_price,be_trigger_profit,be_trigger_time,be_trigger_age_seconds,be_sl_price,be_offset_usd,be_stop_out,realized_profit,profit_before_be,maximum_profit_after_be,maximum_drawdown_after_be,lost_opportunity_after_be,be_false_trigger,be_false_trigger_distance,be_false_trigger_time,be_survival_time_seconds,capture_ratio_after_be\n");
    FileClose(handle);
 }
 
@@ -785,17 +869,24 @@ void RecordCompletedTrade(const ulong position_id, const ulong exit_deal)
    bool be_stop_out = be_enabled && reason_code == DEAL_REASON_SL;
    double profit_before_be_stop_out = be_stop_out ? be_trigger_profit : 0.0;
    double max_profit_after_be = idx >= 0 ? g_track_max_profit_after_be_trigger[idx] : 0.0;
+   double min_profit_after_be = idx >= 0 ? g_track_min_profit_after_be_trigger[idx] : 0.0;
+   double maximum_drawdown_after_be = be_enabled ? MathMin(0.0, min_profit_after_be - be_trigger_profit) : 0.0;
    double lost_opportunity_after_be = be_stop_out ? MathMax(0.0, max_profit_after_be - net_profit) : 0.0;
+   double false_distance = be_stop_out ? MathMax(0.0, max_profit_after_be - be_trigger_profit - InpBeFalseTriggerThresholdUsd) : 0.0;
+   bool be_false_trigger = false_distance > 0.0;
+   int be_survival_seconds = (be_stop_out && be_trigger_time > 0) ? (int)(exit_time - be_trigger_time) : 0;
+   double capture_ratio_after_be = (be_enabled && max_profit_after_be > 0.0) ? net_profit / max_profit_after_be : 0.0;
    EnsureTradeStatisticsHeader();
    int handle = FileOpen(InpTradeStatisticsCsv, FILE_READ | FILE_WRITE | FILE_TXT | FILE_COMMON | FILE_ANSI);
    if(handle == INVALID_HANDLE) return;
    FileSeek(handle, 0, SEEK_END);
-   string row = StringFormat("%I64u,%s,%s,%s,%s,%s,%.5f,%.5f,%.5f,%.5f,%s,%.2f,%.2f,%.2f,%d,%s,%s,%.5f,%.2f,%s,%d,%.5f,%.2f,%s,%.2f,%.2f,%.2f\n",
+   string row = StringFormat("%I64u,%s,%s,%s,%s,%s,%.5f,%.5f,%.5f,%.5f,%s,%.2f,%.2f,%.2f,%d,%s,%d,%.5f,%.2f,%s,%d,%.5f,%.2f,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%s,%.2f,%s,%d,%.4f\n",
       position_id, CsvEscape(symbol), CsvEscape(direction), CsvEscape(g_cfg.runner_enable ? "RUNNER/TRAIL" : "PROTECT"),
       CsvEscape(TimeToString(entry_time, TIME_DATE | TIME_SECONDS)), CsvEscape(TimeToString(exit_time, TIME_DATE | TIME_SECONDS)),
       entry_price, exit_price, 0.0, 0.0, CsvEscape(exit_reason), mfe, mae, net_profit, (int)(exit_time - entry_time), CsvEscape(g_cfg.active_profile),
-      be_enabled ? "true" : "false", be_trigger_price, be_trigger_profit, CsvEscape(be_trigger_time > 0 ? TimeToString(be_trigger_time, TIME_DATE | TIME_SECONDS) : ""),
-      be_after_seconds, be_sl_price, be_offset, be_stop_out ? "true" : "false", profit_before_be_stop_out, max_profit_after_be, lost_opportunity_after_be);
+      be_enabled ? 1 : 0, be_trigger_price, be_trigger_profit, CsvEscape(be_trigger_time > 0 ? TimeToString(be_trigger_time, TIME_DATE | TIME_SECONDS) : ""),
+      be_after_seconds, be_sl_price, be_offset, be_stop_out ? "true" : "false", net_profit, profit_before_be_stop_out, max_profit_after_be, maximum_drawdown_after_be, lost_opportunity_after_be,
+      be_false_trigger ? "true" : "false", false_distance, CsvEscape(be_false_trigger ? TimeToString(exit_time, TIME_DATE | TIME_SECONDS) : ""), be_survival_seconds, capture_ratio_after_be);
    FileWriteString(handle, row);
    FileClose(handle);
    RemoveTrack(position_id);
@@ -867,6 +958,7 @@ void ManageOpenPositions()
             g_track_be_sl_price[idx] = candidate_sl;
             g_track_be_offset_usd[idx] = g_cfg.breakeven_offset_usd_001_lot;
             g_track_max_profit_after_be_trigger[idx] = profit;
+            g_track_min_profit_after_be_trigger[idx] = profit;
             Print(StringFormat("NOISE_SAFE_BE_TRIGGER ticket=%I64u profit=%.2f trigger=%.2f hold=%d spread_ok=%s sl=%.5f", ticket, profit, be_trigger * scale, open_seconds, spread_ok ? "true" : "false", candidate_sl));
          }
       }
