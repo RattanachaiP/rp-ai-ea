@@ -1,4 +1,4 @@
-"""Trade recorder and exit-profile statistics for V27.3.
+"""Trade recorder and execution-consistency audit statistics for V27.4.
 
 This module is intentionally post-entry only. It records completed trades and
 compares dashboard exit profiles without changing direction, bias, entry,
@@ -29,10 +29,37 @@ def resolve_trade_statistics_csv_path(csv_path: Path | str | None = None) -> Pat
     return Path(csv_path)
 
 
-CSV_SCHEMA_VERSION = "V27_3_5_EXIT_EVIDENCE_AUDIT"
+CSV_SCHEMA_VERSION = "V27_4_EXECUTION_CONSISTENCY_AUDIT"
 
-CSV_FIELDS = [
-    "csv_schema_version", "ticket", "symbol", "direction", "mode", "entry_time", "exit_time",
+AUDIT_FIELDS = [
+    "trade_uuid", "decision_uuid", "decision_sequence_id", "market_state_sequence_id",
+    "order_ticket", "position_ticket", "deal_ticket",
+    "ai_intended_action", "ai_intended_bias", "ai_intended_mode", "ai_intended_bb_state",
+    "ai_intended_management", "ai_intended_execution_state", "ai_intended_entry_price",
+    "ai_intended_stop_loss", "ai_intended_take_profit", "ai_intended_tp1",
+    "ai_intended_risk_distance", "ai_intended_planned_rr", "ai_intended_exit_style",
+    "ai_intended_runner_enabled", "ai_intended_be_policy", "ai_intended_trail_policy",
+    "ai_intended_position_size_factor",
+    "executor_received_decision", "executor_received_action", "executor_received_sl",
+    "executor_received_tp", "executor_received_management", "executor_payload_valid",
+    "executor_final_gate_pass", "executor_broker_safety_pass", "executor_order_send_attempted",
+    "executor_order_send_result", "executor_order_send_error",
+    "dashboard_profile_at_entry", "dashboard_profile_at_exit",
+    "dashboard_trade_management_enabled", "dashboard_be_enabled", "dashboard_trail_enabled",
+    "dashboard_runner_enabled", "dashboard_profit_lock_enabled", "dashboard_time_exit_enabled",
+    "dashboard_fixed_tp_enabled", "dashboard_runtime_sl_distance", "dashboard_runtime_tp_target",
+    "dashboard_last_close_intent", "dashboard_effective_exit_owner",
+    "broker_order_open_price", "broker_order_sl", "broker_order_tp",
+    "broker_position_sl_at_close", "broker_position_tp_at_close", "broker_close_price",
+    "broker_deal_reason", "broker_close_source", "actual_holding_seconds", "actual_profit_usd",
+    "intent_vs_executor_match", "executor_vs_broker_sl_match", "executor_vs_broker_tp_match",
+    "ai_management_vs_dashboard_match", "intended_exit_vs_actual_exit_match",
+    "exit_timing_consistency", "rr_intent_vs_realized_ratio", "execution_drift_detected",
+    "execution_drift_reason",
+]
+
+LEGACY_FIELDS = [
+    "ticket", "symbol", "direction", "mode", "entry_time", "exit_time",
     "entry_price", "exit_price", "stop_loss", "take_profit", "exit_reason",
     "mfe", "mae", "net_profit", "duration", "dashboard_profile",
     "be_trigger_count", "be_trigger_price", "be_trigger_profit", "be_trigger_time",
@@ -40,9 +67,10 @@ CSV_FIELDS = [
     "realized_profit", "profit_before_be", "maximum_profit_after_be",
     "maximum_drawdown_after_be", "lost_opportunity_after_be", "be_false_trigger",
     "be_false_trigger_distance", "be_false_trigger_time", "be_survival_time_seconds",
-    "capture_ratio_after_be",
-    "post_sl_continuation_direction",
+    "capture_ratio_after_be", "post_sl_continuation_direction",
 ]
+
+CSV_FIELDS = ["csv_schema_version", *AUDIT_FIELDS, *LEGACY_FIELDS]
 
 
 @dataclass(frozen=True)
@@ -82,6 +110,16 @@ class CompletedTrade:
     be_survival_time_seconds: float = 0.0
     capture_ratio_after_be: float = 0.0
     post_sl_continuation_direction: str = ""
+
+    trade_uuid: str = ""
+    decision_uuid: str = ""
+    execution_drift_detected: bool = False
+    execution_drift_reason: str = "NO_DRIFT"
+    ai_intended_planned_rr: float = 0.0
+    rr_intent_vs_realized_ratio: float = 0.0
+    dashboard_effective_exit_owner: str = ""
+    broker_close_source: str = ""
+    actual_holding_seconds: float = 0.0
 
 
 def append_completed_trade(trade: CompletedTrade, csv_path: Path | str | None = None) -> None:
@@ -152,6 +190,15 @@ def _load_completed_trades_from_file(path: Path) -> list[CompletedTrade]:
                     be_survival_time_seconds=_row_float(row, "be_survival_time_seconds"),
                     capture_ratio_after_be=_row_float(row, "capture_ratio_after_be"),
                     post_sl_continuation_direction=row.get("post_sl_continuation_direction", ""),
+                    trade_uuid=row.get("trade_uuid", ""),
+                    decision_uuid=row.get("decision_uuid", ""),
+                    execution_drift_detected=_row_bool(row, "execution_drift_detected"),
+                    execution_drift_reason=row.get("execution_drift_reason", "NO_DRIFT"),
+                    ai_intended_planned_rr=_row_float(row, "ai_intended_planned_rr"),
+                    rr_intent_vs_realized_ratio=_row_float(row, "rr_intent_vs_realized_ratio"),
+                    dashboard_effective_exit_owner=row.get("dashboard_effective_exit_owner", ""),
+                    broker_close_source=row.get("broker_close_source", row.get("close_source", "")),
+                    actual_holding_seconds=_row_float(row, "actual_holding_seconds") or _row_float(row, "duration"),
                 )
             )
         return trades
@@ -235,3 +282,39 @@ def evidence_gate(metrics: dict[str, dict[str, object]], min_trades_per_profile:
     if underpowered:
         return False, "INSUFFICIENT_SAMPLE_SIZE:" + ",".join(sorted(underpowered))
     return True, "STATISTICAL_EVIDENCE_READY"
+
+
+def execution_consistency_metrics(trades: Iterable[CompletedTrade]) -> dict[str, object]:
+    """Compute V27.4 execution consistency audit metrics without changing trading behavior."""
+    items = list(trades)
+    total = len(items)
+    drifted = [t for t in items if t.execution_drift_detected or (t.execution_drift_reason and t.execution_drift_reason != "NO_DRIFT")]
+    reason_counts = Counter(t.execution_drift_reason or "UNKNOWN_DRIFT" for t in drifted)
+    owner_mismatches = [t for t in items if "EXIT_OWNER" in (t.execution_drift_reason or "")]
+    sltp_mismatches = [t for t in items if "SL_TP" in (t.execution_drift_reason or "") or "BROKER" in (t.execution_drift_reason or "")]
+    early_exits = [t for t in items if (t.execution_drift_reason or "") == "EARLY_EXIT_DRIFT"]
+    profile_mismatches = [t for t in items if (t.execution_drift_reason or "") == "DASHBOARD_PROFILE_DRIFT"]
+    management_mismatches = [t for t in items if (t.execution_drift_reason or "") == "MANAGEMENT_MODE_DRIFT"]
+    realized_rr = [t.rr_intent_vs_realized_ratio for t in items if t.rr_intent_vs_realized_ratio]
+    intended_rr = [t.ai_intended_planned_rr for t in items if t.ai_intended_planned_rr]
+    layer_loss = defaultdict(float)
+    for t in drifted:
+        layer_loss[t.execution_drift_reason or "UNKNOWN_DRIFT"] += min(0.0, t.net_profit)
+    worst_layer = min(layer_loss.items(), key=lambda item: item[1])[0] if layer_loss else "NO_DRIFT"
+    return {
+        "trades": total,
+        "drift_rate": len(drifted) / total if total else 0.0,
+        "drift_by_type": dict(reason_counts),
+        "average_realized_rr_vs_intended_rr": _average(realized_rr),
+        "average_intended_rr": _average(intended_rr),
+        "exit_owner_mismatch_rate": len(owner_mismatches) / total if total else 0.0,
+        "sl_tp_publication_mismatch_rate": len(sltp_mismatches) / total if total else 0.0,
+        "early_exit_rate": len(early_exits) / total if total else 0.0,
+        "profile_mismatch_rate": len(profile_mismatches) / total if total else 0.0,
+        "management_mode_mismatch_rate": len(management_mismatches) / total if total else 0.0,
+        "is_ai_intent_preserved": len(drifted) == 0,
+        "executor_changing_trade": any(r in reason_counts for r in ("AI_TO_EXECUTOR_DRIFT", "EXECUTOR_TO_BROKER_DRIFT", "SL_TP_PUBLICATION_DRIFT")),
+        "dashboard_changing_trade": any(r in reason_counts for r in ("DASHBOARD_PROFILE_DRIFT", "MANAGEMENT_MODE_DRIFT", "EXIT_OWNER_DRIFT", "EARLY_EXIT_DRIFT")),
+        "broker_receiving_expected_sl_tp": not any(r in reason_counts for r in ("EXECUTOR_TO_BROKER_DRIFT", "SL_TP_PUBLICATION_DRIFT")),
+        "largest_expectancy_loss_layer": worst_layer,
+    }

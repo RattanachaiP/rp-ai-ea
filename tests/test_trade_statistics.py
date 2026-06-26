@@ -116,3 +116,28 @@ def test_loads_archives_only_when_requested(tmp_path):
 
     assert [trade.ticket for trade in load_completed_trades(path)] == ["12"]
     assert [trade.ticket for trade in load_completed_trades(path, include_archives=True)] == ["12", "13"]
+
+
+def test_execution_consistency_metrics_reports_drift_rates():
+    rows = [
+        CompletedTrade(
+            "14", "XAUUSD", "BUY", "SCALP", "t0", "t1", 2300, 2301, 2299, 2302,
+            "TP", 1.0, -0.1, 0.8, 45, "Profile_E", trade_uuid="u1",
+            execution_drift_detected=False, execution_drift_reason="NO_DRIFT", ai_intended_planned_rr=2.0,
+            rr_intent_vs_realized_ratio=0.4,
+        ),
+        CompletedTrade(
+            "15", "XAUUSD", "BUY", "SCALP", "t0", "t1", 2300, 2300.1, 2299, 2305,
+            "EXPERT", 0.2, -0.5, -0.3, 8, "Profile_E", trade_uuid="u2",
+            execution_drift_detected=True, execution_drift_reason="EARLY_EXIT_DRIFT", ai_intended_planned_rr=6.0,
+            rr_intent_vs_realized_ratio=-0.05,
+        ),
+    ]
+    from analysis.trade_statistics import execution_consistency_metrics
+
+    metrics = execution_consistency_metrics(rows)
+
+    assert metrics["drift_rate"] == 0.5
+    assert metrics["drift_by_type"] == {"EARLY_EXIT_DRIFT": 1}
+    assert metrics["early_exit_rate"] == 0.5
+    assert metrics["is_ai_intent_preserved"] is False

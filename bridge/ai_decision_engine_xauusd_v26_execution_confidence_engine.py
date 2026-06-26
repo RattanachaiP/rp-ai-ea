@@ -1,6 +1,7 @@
 import json
 import os
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -5585,6 +5586,27 @@ def write_decision(data):
                     data["final_veto_owner"] = "NONE"
                     data["effective_veto_code"] = "NONE"
                     data["final_veto_reason"] = ""
+                    if not data.get("trade_uuid"):
+                        data["trade_uuid"] = str(uuid.uuid4())
+                    data["order_send_comment_uuid"] = str(data["trade_uuid"])[:24]
+                    data["ai_intent_audit_schema"] = "V27_4_EXECUTION_CONSISTENCY_AUDIT"
+                    data["ai_intended_action"] = data.get("action", data.get("decision", ""))
+                    data["ai_intended_bias"] = data.get("bias", "")
+                    data["ai_intended_mode"] = data.get("mode", data.get("market_mode", ""))
+                    data["ai_intended_bb_state"] = data.get("bb_state", "")
+                    data["ai_intended_management"] = data.get("management_mode", data.get("management", data.get("effective_management_mode", "")))
+                    data["ai_intended_execution_state"] = data.get("execution_state", data.get("execution_window_state", ""))
+                    data["ai_intended_entry_price"] = data.get("entry_price", 0)
+                    data["ai_intended_stop_loss"] = data.get("stop_loss", data.get("sl", 0))
+                    data["ai_intended_take_profit"] = data.get("take_profit", data.get("tp", 0))
+                    data["ai_intended_tp1"] = data.get("tp1", data.get("take_profit", 0))
+                    data["ai_intended_risk_distance"] = data.get("risk_distance", data.get("planned_sl_risk_points", 0))
+                    data["ai_intended_planned_rr"] = data.get("planned_rr", data.get("reward_risk", 0))
+                    data["ai_intended_exit_style"] = data.get("exit_style", data.get("exit_authority_owner", ""))
+                    data["ai_intended_runner_enabled"] = data.get("runner_enabled", data.get("runner_enable", False))
+                    data["ai_intended_be_policy"] = data.get("breakeven_policy", data.get("be_policy", ""))
+                    data["ai_intended_trail_policy"] = data.get("trail_policy", data.get("trailing_policy", ""))
+                    data["ai_intended_position_size_factor"] = data.get("position_size_factor", data.get("position_size_multiplier", data.get("risk_fraction", 1.0)))
                 data["runtime_branch"] = RUNTIME_BRANCH
                 data["arch_version"] = ARCH_VERSION
                 data["build_tag"] = BUILD_TAG
@@ -5600,6 +5622,17 @@ def write_decision(data):
             os.replace(str(temp_path), str(OUTPUT_PATH))
             replace_latency = round(time.time() - replace_start, 6)
             total_write = round(time.time() - write_start, 6)
+
+            if str(data.get("decision", "")).upper() == "TRADE":
+                print(
+                    "AI_INTENT_SNAPSHOT_PUBLISHED",
+                    f"| trade_uuid={data.get('trade_uuid', '')}",
+                    f"| action={data.get('ai_intended_action', '')}",
+                    f"| mgmt={data.get('ai_intended_management', '')}",
+                    f"| sl={data.get('ai_intended_stop_loss', 0)}",
+                    f"| tp={data.get('ai_intended_take_profit', 0)}",
+                    f"| rr={data.get('ai_intended_planned_rr', 0)}",
+                )
 
             if data.get("executor_order_send_required"):
                 print(
