@@ -1326,14 +1326,48 @@ void RecordCompletedTrade(const ulong position_id, const ulong exit_deal)
    else if(!timing_match) drift_reason = "EARLY_EXIT_DRIFT";
    bool drift_detected = drift_reason != "NO_DRIFT";
    string bool_drift = drift_detected ? "true" : "false";
-   string row = StringFormat("%s,%s,%s,%.0f,%.0f,%I64u,%I64u,%I64u,%s,%s,%s,%s,%s,%s,%.5f,%.5f,%.5f,%.5f,%.5f,%.2f,%s,%s,%s,%s,%.2f,%s,%s,%.5f,%.5f,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%.2f,%.2f,%s,%s,%.5f,%.5f,%.5f,%.5f,%.5f,%s,%s,%d,%.2f,%s,%s,%s,%s,%s,%s,%.4f,%s,%s,%I64u,%s,%s,%s,%s,%s,%.5f,%.5f,%.5f,%.5f,%s,%.2f,%.2f,%.2f,%d,%s\n",
-      TRADE_STATS_SCHEMA_VERSION, CsvEscape(trade_uuid), CsvEscape(idx >= 0 ? g_track_decision_uuid[idx] : ""), idx >= 0 ? g_track_sequence_id[idx] : 0.0, idx >= 0 ? g_track_market_state_sequence_id[idx] : 0.0,
-      position_id, position_id, exit_deal, CsvEscape(idx >= 0 ? g_track_action[idx] : ""), CsvEscape(idx >= 0 ? g_track_bias[idx] : ""), CsvEscape(idx >= 0 ? g_track_mode[idx] : ""), CsvEscape(idx >= 0 ? g_track_bb_state[idx] : ""), CsvEscape(idx >= 0 ? g_track_management_mode[idx] : ""), CsvEscape(idx >= 0 ? g_track_execution_state[idx] : ""),
-      idx >= 0 ? g_track_ai_entry_price[idx] : entry_price, ai_sl, ai_tp, idx >= 0 ? g_track_ai_tp1[idx] : ai_tp, idx >= 0 ? g_track_ai_risk_distance[idx] : 0.0, idx >= 0 ? g_track_ai_planned_rr[idx] : 0.0, CsvEscape(idx >= 0 ? g_track_ai_exit_style[idx] : ""), CsvEscape(idx >= 0 && g_track_ai_runner_enabled[idx] ? "true" : "false"), CsvEscape(idx >= 0 ? g_track_ai_be_policy[idx] : ""), CsvEscape(idx >= 0 ? g_track_ai_trail_policy[idx] : ""), idx >= 0 ? g_track_ai_position_size_factor[idx] : 1.0,
-      CsvEscape(idx >= 0 ? g_track_action[idx] : ""), CsvEscape(idx >= 0 ? g_track_action[idx] : ""), broker_sl_price, broker_tp_price, CsvEscape(idx >= 0 ? g_track_management_mode[idx] : ""), CsvEscape(idx >= 0 && g_track_executor_payload_valid[idx] ? "true" : "false"), CsvEscape(idx >= 0 && g_track_executor_final_gate_pass[idx] ? "true" : "false"), CsvEscape("unknown"), CsvEscape("unknown"), CsvEscape("unknown"), CsvEscape(""),
-      CsvEscape(idx >= 0 ? g_track_dashboard_profile_at_entry[idx] : ""), CsvEscape(g_cfg.active_profile), CsvEscape(g_cfg.enabled ? "true" : "false"), CsvEscape(g_cfg.breakeven_enable ? "true" : "false"), CsvEscape(g_cfg.trailing_enable ? "true" : "false"), CsvEscape(g_cfg.runner_enable ? "true" : "false"), CsvEscape(g_cfg.profit_lock_enable ? "true" : "false"), CsvEscape(g_cfg.time_exit_enable ? "true" : "false"), CsvEscape(g_cfg.fixed_take_profit_enable ? "true" : "false"), g_cfg.initial_sl_usd_001_lot, g_cfg.fixed_take_profit_close_usd_001_lot, CsvEscape(dashboard_reason), CsvEscape(exit_owner),
-      entry_price, broker_sl_price, broker_tp_price, position_sl_at_close, position_tp_at_close, exit_price, CsvEscape(exit_reason), CsvEscape(close_source), position_age_seconds_at_close, net_profit, CsvEscape(intent_executor_match ? "true" : "false"), CsvEscape(sl_match ? "true" : "false"), CsvEscape(tp_match ? "true" : "false"), CsvEscape(mgmt_match ? "true" : "false"), CsvEscape(exit_match ? "true" : "false"), CsvEscape(timing_match ? "true" : "false"), rr_ratio, CsvEscape(bool_drift), CsvEscape(drift_reason),
-      position_id, CsvEscape(symbol), CsvEscape(direction), CsvEscape(g_cfg.runner_enable ? "RUNNER/TRAIL" : "PROTECT"), CsvEscape(TimeToString(entry_time, TIME_DATE | TIME_SECONDS)), CsvEscape(TimeToString(exit_time, TIME_DATE | TIME_SECONDS)), entry_price, exit_price, position_sl_at_close, position_tp_at_close, CsvEscape(exit_reason), mfe, mae, net_profit, (int)(exit_time - entry_time), CsvEscape(g_cfg.active_profile));
+   string decision_uuid_csv = CsvEscape(idx >= 0 ? g_track_decision_uuid[idx] : "");
+   string ai_action_csv = CsvEscape(idx >= 0 ? g_track_action[idx] : "");
+   string ai_bias_csv = CsvEscape(idx >= 0 ? g_track_bias[idx] : "");
+   string ai_mode_csv = CsvEscape(idx >= 0 ? g_track_mode[idx] : "");
+   string ai_bb_state_csv = CsvEscape(idx >= 0 ? g_track_bb_state[idx] : "");
+   string ai_management_csv = CsvEscape(idx >= 0 ? g_track_management_mode[idx] : "");
+   string ai_execution_state_csv = CsvEscape(idx >= 0 ? g_track_execution_state[idx] : "");
+   string ai_exit_style_csv = CsvEscape(idx >= 0 ? g_track_ai_exit_style[idx] : "");
+   string ai_runner_enabled_csv = CsvEscape((idx >= 0 && g_track_ai_runner_enabled[idx]) ? "true" : "false");
+   string ai_be_policy_csv = CsvEscape(idx >= 0 ? g_track_ai_be_policy[idx] : "");
+   string ai_trail_policy_csv = CsvEscape(idx >= 0 ? g_track_ai_trail_policy[idx] : "");
+   string executor_payload_valid_csv = CsvEscape((idx >= 0 && g_track_executor_payload_valid[idx]) ? "true" : "false");
+   string executor_final_gate_pass_csv = CsvEscape((idx >= 0 && g_track_executor_final_gate_pass[idx]) ? "true" : "false");
+   string dashboard_profile_at_entry_csv = CsvEscape(idx >= 0 ? g_track_dashboard_profile_at_entry[idx] : "");
+   string dashboard_enabled_csv = CsvEscape(g_cfg.enabled ? "true" : "false");
+   string dashboard_be_enabled_csv = CsvEscape(g_cfg.breakeven_enable ? "true" : "false");
+   string dashboard_trail_enabled_csv = CsvEscape(g_cfg.trailing_enable ? "true" : "false");
+   string dashboard_runner_enabled_csv = CsvEscape(g_cfg.runner_enable ? "true" : "false");
+   string dashboard_profit_lock_enabled_csv = CsvEscape(g_cfg.profit_lock_enable ? "true" : "false");
+   string dashboard_time_exit_enabled_csv = CsvEscape(g_cfg.time_exit_enable ? "true" : "false");
+   string dashboard_fixed_tp_enabled_csv = CsvEscape(g_cfg.fixed_take_profit_enable ? "true" : "false");
+   string intent_executor_match_csv = CsvEscape(intent_executor_match ? "true" : "false");
+   string sl_match_csv = CsvEscape(sl_match ? "true" : "false");
+   string tp_match_csv = CsvEscape(tp_match ? "true" : "false");
+   string mgmt_match_csv = CsvEscape(mgmt_match ? "true" : "false");
+   string exit_match_csv = CsvEscape(exit_match ? "true" : "false");
+   string timing_match_csv = CsvEscape(timing_match ? "true" : "false");
+   string trade_mode_csv = CsvEscape(g_cfg.runner_enable ? "RUNNER/TRAIL" : "PROTECT");
+   string entry_time_csv = CsvEscape(TimeToString(entry_time, TIME_DATE | TIME_SECONDS));
+   string exit_time_csv = CsvEscape(TimeToString(exit_time, TIME_DATE | TIME_SECONDS));
+
+   string row = StringFormat("%s,%s,%s,%.0f,%.0f,%I64u,%I64u,%I64u,%s,%s,%s,%s,%s,%s,%.5f,%.5f,%.5f,%.5f,%.5f,%.2f,%s,%s,%s,%s,%.2f,",
+      TRADE_STATS_SCHEMA_VERSION, CsvEscape(trade_uuid), decision_uuid_csv, idx >= 0 ? g_track_sequence_id[idx] : 0.0, idx >= 0 ? g_track_market_state_sequence_id[idx] : 0.0,
+      position_id, position_id, exit_deal, ai_action_csv, ai_bias_csv, ai_mode_csv, ai_bb_state_csv, ai_management_csv, ai_execution_state_csv,
+      idx >= 0 ? g_track_ai_entry_price[idx] : entry_price, ai_sl, ai_tp, idx >= 0 ? g_track_ai_tp1[idx] : ai_tp, idx >= 0 ? g_track_ai_risk_distance[idx] : 0.0, idx >= 0 ? g_track_ai_planned_rr[idx] : 0.0, ai_exit_style_csv, ai_runner_enabled_csv, ai_be_policy_csv, ai_trail_policy_csv, idx >= 0 ? g_track_ai_position_size_factor[idx] : 1.0);
+   row += StringFormat("%s,%s,%.5f,%.5f,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%.2f,%.2f,%s,%s,",
+      ai_action_csv, ai_action_csv, broker_sl_price, broker_tp_price, ai_management_csv, executor_payload_valid_csv, executor_final_gate_pass_csv, CsvEscape("unknown"), CsvEscape("unknown"), CsvEscape("unknown"), CsvEscape(""),
+      dashboard_profile_at_entry_csv, CsvEscape(g_cfg.active_profile), dashboard_enabled_csv, dashboard_be_enabled_csv, dashboard_trail_enabled_csv, dashboard_runner_enabled_csv, dashboard_profit_lock_enabled_csv, dashboard_time_exit_enabled_csv, dashboard_fixed_tp_enabled_csv, g_cfg.initial_sl_usd_001_lot, g_cfg.fixed_take_profit_close_usd_001_lot, CsvEscape(dashboard_reason), CsvEscape(exit_owner));
+   row += StringFormat("%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%s,%s,%d,%.2f,%s,%s,%s,%s,%s,%s,%.4f,%s,%s,",
+      entry_price, broker_sl_price, broker_tp_price, position_sl_at_close, position_tp_at_close, exit_price, CsvEscape(exit_reason), CsvEscape(close_source), position_age_seconds_at_close, net_profit, intent_executor_match_csv, sl_match_csv, tp_match_csv, mgmt_match_csv, exit_match_csv, timing_match_csv, rr_ratio, CsvEscape(bool_drift), CsvEscape(drift_reason));
+   row += StringFormat("%I64u,%s,%s,%s,%s,%s,%.5f,%.5f,%.5f,%.5f,%s,%.2f,%.2f,%.2f,%d,%s\n",
+      position_id, CsvEscape(symbol), CsvEscape(direction), trade_mode_csv, entry_time_csv, exit_time_csv, entry_price, exit_price, position_sl_at_close, position_tp_at_close, CsvEscape(exit_reason), mfe, mae, net_profit, (int)(exit_time - entry_time), CsvEscape(g_cfg.active_profile));
    FileWriteString(handle, row);
    FileClose(handle);
    Print(StringFormat("EXECUTION_CONSISTENCY_AUDIT | trade_uuid=%s | drift=%s | reason=%s | ai_mgmt=%s | dashboard_owner=%s | close_source=%s", trade_uuid, bool_drift, drift_reason, idx >= 0 ? g_track_management_mode[idx] : "", exit_owner, close_source));
