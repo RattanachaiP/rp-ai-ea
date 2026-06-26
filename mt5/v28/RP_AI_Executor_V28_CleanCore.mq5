@@ -113,6 +113,8 @@ void OnTick()
    if(json == "") return;
    string reason;
    if(!ContractPass(json, reason)) { Print(reason); return; }
+   string trade_uuid = JsonString(json, "trade_uuid", "");
+   Print("EXECUTOR_CONTRACT_SNAPSHOT | trade_uuid=", trade_uuid, " | decision=", JsonString(json, "decision"), " | sl=", JsonNumber(json, "stop_loss"), " | tp=", JsonNumber(json, "take_profit"), " | order_send_attempt=false");
    Print("EXECUTOR_CONTRACT_PASS profile=", JsonString(json, "dashboard_profile"), " mode=", JsonString(json, "management_mode"));
 
    string symbol = JsonString(json, "symbol", _Symbol);
@@ -123,8 +125,10 @@ void OnTick()
    double sl = JsonNumber(json, "stop_loss");
    double tp = JsonNumber(json, "take_profit");
    g_trade.SetExpertMagicNumber(InpMagic);
-   Print("ORDER_SEND_ATTEMPT direction=", direction, " lot=", lot, " sl=", sl, " tp=", tp);
-   bool ok = direction == "BUY" ? g_trade.Buy(lot, symbol, 0.0, sl, tp, "RP_V28") : g_trade.Sell(lot, symbol, 0.0, sl, tp, "RP_V28");
+   string comment = trade_uuid == "" ? "RP_V28" : StringSubstr(trade_uuid, 0, 24);
+   Print("EXECUTOR_CONTRACT_SNAPSHOT | trade_uuid=", trade_uuid, " | decision=", JsonString(json, "decision"), " | sl=", sl, " | tp=", tp, " | order_send_attempt=true");
+   Print("ORDER_SEND_ATTEMPT direction=", direction, " lot=", lot, " sl=", sl, " tp=", tp, " comment=", comment);
+   bool ok = direction == "BUY" ? g_trade.Buy(lot, symbol, 0.0, sl, tp, comment) : g_trade.Sell(lot, symbol, 0.0, sl, tp, comment);
    if(ok) Print("ORDER_SEND_OK ticket=", g_trade.ResultOrder());
    else Print("ORDER_SEND_FAIL retcode=", g_trade.ResultRetcode(), " description=", g_trade.ResultRetcodeDescription());
 }
