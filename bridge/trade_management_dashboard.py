@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, Mapping
 
 SCHEMA_VERSION = "V27_TRADE_MANAGEMENT_DASHBOARD_SCHEMA_1"
-PRODUCTION_PROFILE_FALLBACK_ORDER = ("Profile_A", "Profile_B", "Profile_C", "Profile_D", "Profile_E_SWING_SAFE_SHORT_TP", "Balanced", "Conservative", "Aggressive")
+PRODUCTION_PROFILE_FALLBACK_ORDER = ("Profile_F_MARKET_CLOSE_ONLY", "Profile_A", "Profile_B", "Profile_C", "Profile_D", "Profile_E_SWING_SAFE_SHORT_TP", "Balanced", "Conservative", "Aggressive")
 VALIDATION_ONLY_PROFILES = {"TP_ONLY_1USD_TEST"}
 
 DEFAULT_DASHBOARD: Dict[str, Any] = {

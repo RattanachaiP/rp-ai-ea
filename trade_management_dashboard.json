@@ -1,6 +1,6 @@
 {
   "schema_version": "V27_TRADE_MANAGEMENT_DASHBOARD_SCHEMA_1",
-  "active_profile": "Profile_E_SWING_SAFE_SHORT_TP",
+  "active_profile": "Profile_F_MARKET_CLOSE_ONLY",
   "enabled": true,
-  "description": "V27.3.2 Profile_E Swing-Safe Short TP Test. AI Decision Engine remains frozen; only post-entry exit geometry is changed for a controlled Profile_A vs Profile_E comparison."
+  "description": "V27.4.1 Profile_F MARKET_CLOSE_ONLY loss containment test. AI Decision Engine remains frozen; only Dashboard exit containment is changed."
 }
