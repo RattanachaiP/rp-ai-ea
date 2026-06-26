@@ -3,8 +3,8 @@
 //| On-chart MT5 dashboard for post-entry trade management only.      |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "27.40"
-#property description "V27.4 Execution Consistency Audit Dashboard - post-entry management only"
+#property version   "27.41"
+#property description "V27.4.1 Profile_F MARKET_CLOSE_ONLY Loss Containment Dashboard - post-entry management only"
 
 #include <Trade/Trade.mqh>
 
@@ -22,7 +22,7 @@ input double InpBeFalseTriggerThresholdUsd = 0.20;
 #define RP_DASH_SCHEMA "V27_TRADE_MANAGEMENT_DASHBOARD_SCHEMA_1"
 #define RP_PREFIX      "RP_V273_TMD_"
 #define TRADE_STATS_RELATIVE_PATH "RP_AI_EA\\analysis\\trade_statistics.csv"
-#define TRADE_STATS_SCHEMA_VERSION "V27_4_EXECUTION_CONSISTENCY_AUDIT"
+#define TRADE_STATS_SCHEMA_VERSION "V27_4_1_PROFILE_F_MARKET_CLOSE_ONLY_AUDIT"
 #define DECISION_JSON_FILE "decision.json"
 #define MARKET_STATE_JSON_FILE "market_state.json"
 
@@ -144,6 +144,7 @@ double EffectiveBeTriggerUsd001Lot();
 string ReadCommonFile(const string file_name);
 string JsonString(const string json, const string key, const string fallback);
 double JsonNumber(const string json, const string key, const double fallback);
+void EmitProfileFValidation();
 
 int TrackIndex(const ulong ticket)
 {
@@ -601,6 +602,10 @@ void OverlayJson(DashboardConfig &cfg, const string json)
    string breakeven = JsonSection(json, "breakeven");
    string trailing = JsonSection(json, "trailing");
    string locks = JsonSection(json, "profit_locks");
+   string fixed_tp = JsonSection(json, "fixed_take_profit");
+   string runner = JsonSection(json, "runner");
+   string time_exits = JsonSection(json, "time_exits");
+   string partial_exits = JsonSection(json, "partial_exits");
    cfg.initial_sl_usd_001_lot = JsonNumber(risk, "initial_sl_usd_001_lot", cfg.initial_sl_usd_001_lot);
    cfg.hard_loss_cap_usd_001_lot = JsonNumber(risk, "hard_loss_cap_usd_001_lot", cfg.hard_loss_cap_usd_001_lot);
    cfg.max_floating_loss_usd_001_lot = JsonNumber(risk, "max_floating_loss_usd_001_lot", cfg.max_floating_loss_usd_001_lot);
@@ -628,20 +633,20 @@ void OverlayJson(DashboardConfig &cfg, const string json)
    cfg.lock3_trigger = JsonNumber(json, "lock3_trigger", cfg.lock3_trigger);
    cfg.lock3_lock = JsonNumber(json, "lock3_lock", cfg.lock3_lock);
    cfg.minimum_locked_profit_usd_001_lot = JsonNumber(json, "minimum_locked_profit_usd_001_lot", cfg.minimum_locked_profit_usd_001_lot);
-   cfg.fixed_take_profit_enable = JsonBool(json, "fixed_take_profit_enable", cfg.fixed_take_profit_enable);
-   cfg.fixed_take_profit_close_usd_001_lot = JsonNumber(json, "close_profit_usd_001_lot", cfg.fixed_take_profit_close_usd_001_lot);
-   cfg.runner_enable = JsonBool(json, "enable_runner", cfg.runner_enable);
-   cfg.runner_timeout_seconds = (int)JsonNumber(json, "runner_timeout_seconds", cfg.runner_timeout_seconds);
-   cfg.runner_sl_usd_001_lot = JsonNumber(json, "runner_sl_usd_001_lot", cfg.runner_sl_usd_001_lot);
-   cfg.runner_trail = JsonString(json, "runner_trail", cfg.runner_trail);
-   cfg.momentum_confirmation = JsonBool(json, "momentum_confirmation", cfg.momentum_confirmation);
-   cfg.time_exit_enable = JsonBool(json, "time_exit_enable", cfg.time_exit_enable);
-   cfg.maximum_seconds = (int)JsonNumber(json, "maximum_seconds", cfg.maximum_seconds);
-   cfg.maximum_bars = (int)JsonNumber(json, "maximum_bars", cfg.maximum_bars);
-   cfg.partial_enable = JsonBool(json, "partial_exits_enable", cfg.partial_enable);
-   cfg.partial_level_1_percent = (int)JsonNumber(json, "partial_level_1_percent", cfg.partial_level_1_percent);
-   cfg.partial_level_2_percent = (int)JsonNumber(json, "partial_level_2_percent", cfg.partial_level_2_percent);
-   cfg.remaining_runner_percent = (int)JsonNumber(json, "remaining_runner_percent", cfg.remaining_runner_percent);
+   cfg.fixed_take_profit_enable = JsonBool(fixed_tp, "enable", JsonBool(fixed_tp, "fixed_take_profit_enable", JsonBool(json, "fixed_take_profit_enable", cfg.fixed_take_profit_enable)));
+   cfg.fixed_take_profit_close_usd_001_lot = JsonNumber(fixed_tp, "close_profit_usd_001_lot", JsonNumber(json, "close_profit_usd_001_lot", cfg.fixed_take_profit_close_usd_001_lot));
+   cfg.runner_enable = JsonBool(runner, "enable_runner", JsonBool(json, "enable_runner", cfg.runner_enable));
+   cfg.runner_timeout_seconds = (int)JsonNumber(runner, "runner_timeout_seconds", JsonNumber(json, "runner_timeout_seconds", cfg.runner_timeout_seconds));
+   cfg.runner_sl_usd_001_lot = JsonNumber(runner, "runner_sl_usd_001_lot", JsonNumber(json, "runner_sl_usd_001_lot", cfg.runner_sl_usd_001_lot));
+   cfg.runner_trail = JsonString(runner, "runner_trail", JsonString(json, "runner_trail", cfg.runner_trail));
+   cfg.momentum_confirmation = JsonBool(runner, "momentum_confirmation", JsonBool(json, "momentum_confirmation", cfg.momentum_confirmation));
+   cfg.time_exit_enable = JsonBool(time_exits, "time_exit_enable", JsonBool(json, "time_exit_enable", cfg.time_exit_enable));
+   cfg.maximum_seconds = (int)JsonNumber(time_exits, "maximum_seconds", JsonNumber(json, "maximum_seconds", cfg.maximum_seconds));
+   cfg.maximum_bars = (int)JsonNumber(time_exits, "maximum_bars", JsonNumber(json, "maximum_bars", cfg.maximum_bars));
+   cfg.partial_enable = JsonBool(partial_exits, "enable", JsonBool(json, "partial_exits_enable", cfg.partial_enable));
+   cfg.partial_level_1_percent = (int)JsonNumber(partial_exits, "partial_level_1_percent", JsonNumber(json, "partial_level_1_percent", cfg.partial_level_1_percent));
+   cfg.partial_level_2_percent = (int)JsonNumber(partial_exits, "partial_level_2_percent", JsonNumber(json, "partial_level_2_percent", cfg.partial_level_2_percent));
+   cfg.remaining_runner_percent = (int)JsonNumber(partial_exits, "remaining_runner_percent", JsonNumber(json, "remaining_runner_percent", cfg.remaining_runner_percent));
    ValidateConfig(cfg);
 }
 
@@ -664,6 +669,7 @@ bool LoadDashboardProfile()
       g_cfg.fallback_defaults_used = false;
    }
    g_last_load = TimeCurrent();
+   EmitProfileFValidation();
    return !g_cfg.fallback_defaults_used;
 }
 
@@ -940,10 +946,11 @@ void AdjustControl(const string id, const int dir)
 
 void CycleProfile()
 {
-   if(g_cfg.active_profile == "Profile_A") g_cfg.active_profile = "Profile_B";
+   if(g_cfg.active_profile == "Profile_F_MARKET_CLOSE_ONLY") g_cfg.active_profile = "Profile_A";
+   else if(g_cfg.active_profile == "Profile_A") g_cfg.active_profile = "Profile_B";
    else if(g_cfg.active_profile == "Profile_B") g_cfg.active_profile = "Profile_C";
    else if(g_cfg.active_profile == "Profile_C") g_cfg.active_profile = "Profile_D";
-   else g_cfg.active_profile = "Profile_A";
+   else g_cfg.active_profile = "Profile_F_MARKET_CLOSE_ONLY";
    g_status = "profile selected in-memory - click Reload JSON to load file or Save JSON to create it";
 }
 
@@ -1319,8 +1326,14 @@ void RecordCompletedTrade(const ulong position_id, const ulong exit_deal)
    bool exit_match = (idx < 0) || g_track_ai_exit_style[idx] == "" || StringFind(close_source, g_track_ai_exit_style[idx]) >= 0 || close_source != "UNKNOWN";
    bool timing_match = !(position_age_seconds_at_close < 30 && (idx >= 0 ? g_track_ai_planned_rr[idx] : 0.0) > 5.0);
    double rr_ratio = (idx >= 0 && g_track_ai_planned_rr[idx] > 0.0 && MathAbs(ai_sl - (idx >= 0 ? g_track_ai_entry_price[idx] : entry_price)) > 0.0) ? (net_profit / g_track_ai_planned_rr[idx]) : 0.0;
+   bool audit_complete = idx >= 0 && g_track_action[idx] != "" && g_track_bias[idx] != "" && g_track_management_mode[idx] != "" && g_track_executor_payload_valid[idx] && g_track_dashboard_profile_at_entry[idx] != "";
    string drift_reason = "NO_DRIFT";
-   if(!sl_match || !tp_match) drift_reason = "SL_TP_PUBLICATION_DRIFT";
+   if(!audit_complete)
+   {
+      drift_reason = "EXECUTION_AUDIT_EVIDENCE_INCOMPLETE";
+      Print("EXECUTION_AUDIT_EVIDENCE_INCOMPLETE");
+   }
+   else if(!sl_match || !tp_match) drift_reason = "SL_TP_PUBLICATION_DRIFT";
    else if(!mgmt_match) drift_reason = "MANAGEMENT_MODE_DRIFT";
    else if(!exit_match) drift_reason = "EXIT_OWNER_DRIFT";
    else if(!timing_match) drift_reason = "EARLY_EXIT_DRIFT";
@@ -1467,6 +1480,19 @@ void ManageOpenPositions()
          g_trade.PositionModify(ticket, NormalizeDouble(candidate_sl, _Digits), tp);
       }
    }
+}
+
+void EmitProfileFValidation()
+{
+   if(g_cfg.active_profile != "Profile_F_MARKET_CLOSE_ONLY") return;
+   Print("PROFILE_F_MARKET_CLOSE_ONLY_ACTIVE");
+   Print(g_cfg.breakeven_enable ? "PROFILE_F_BE_ENABLED_ERROR" : "PROFILE_F_BE_DISABLED");
+   Print(g_cfg.trailing_enable ? "PROFILE_F_TRAIL_ENABLED_ERROR" : "PROFILE_F_TRAIL_DISABLED");
+   Print(g_cfg.runner_enable ? "PROFILE_F_RUNNER_ENABLED_ERROR" : "PROFILE_F_RUNNER_DISABLED");
+   Print(g_cfg.profit_lock_enable ? "PROFILE_F_PROFIT_LOCK_ENABLED_ERROR" : "PROFILE_F_PROFIT_LOCK_DISABLED");
+   Print("PROFILE_F_ONE_SLOT_ONLY");
+   Print(StringFormat("PROFILE_F_TP_TARGET_USD=%.2f", g_cfg.fixed_take_profit_close_usd_001_lot));
+   Print(StringFormat("PROFILE_F_HARD_LOSS_CAP_USD=%.2f", g_cfg.hard_loss_cap_usd_001_lot));
 }
 
 int OnInit()

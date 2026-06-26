@@ -141,3 +141,16 @@ def test_execution_consistency_metrics_reports_drift_rates():
     assert metrics["drift_by_type"] == {"EARLY_EXIT_DRIFT": 1}
     assert metrics["early_exit_rate"] == 0.5
     assert metrics["is_ai_intent_preserved"] is False
+
+
+def test_mae_mfe_distribution_metrics():
+    from analysis.trade_statistics import mae_mfe_distribution_metrics
+    rows = [
+        CompletedTrade("1", "XAUUSD", "BUY", "PROTECT", "t0", "t1", 1, 2, 0, 0, "TP", 1.5, -0.3, 1.0, 60, "Profile_F_MARKET_CLOSE_ONLY"),
+        CompletedTrade("2", "XAUUSD", "BUY", "PROTECT", "t0", "t1", 1, 0, 0, 0, "HARD_LOSS_CAP", 0.4, -1.2, -1.2, 90, "Profile_F_MARKET_CLOSE_ONLY", broker_close_source="DASHBOARD_MARKET_CLOSE", dashboard_effective_exit_owner="HARD_LOSS_CAP"),
+    ]
+    metrics = mae_mfe_distribution_metrics(rows)
+    assert metrics["trades"] == 2
+    assert metrics["average_mfe"] == 0.95
+    assert metrics["winning_trades_average_mae"] == 0.3
+    assert metrics["losing_trades_mfe_before_sl_or_hard_loss"]["samples"] == 1

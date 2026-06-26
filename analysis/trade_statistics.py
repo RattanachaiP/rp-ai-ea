@@ -270,9 +270,79 @@ def profile_success_metrics(trades: Iterable[CompletedTrade]) -> dict[str, dict[
             "AVERAGE_BE_SURVIVAL_TIME": _average([t.be_survival_time_seconds for t in be_stop_outs if t.be_survival_time_seconds > 0]),
             "MEDIAN_BE_SURVIVAL_TIME": median([t.be_survival_time_seconds for t in be_stop_outs if t.be_survival_time_seconds > 0]) if any(t.be_survival_time_seconds > 0 for t in be_stop_outs) else 0.0,
             "exit_reason_distribution": dict(Counter(t.exit_reason for t in items)),
+            "close_source_distribution": dict(Counter((t.broker_close_source or t.exit_reason) for t in items)),
+            "runner_exit_count": sum(1 for t in items if "RUNNER" in (t.broker_close_source + " " + t.exit_reason + " " + t.dashboard_effective_exit_owner).upper()),
+            "trail_exit_count": sum(1 for t in items if "TRAIL" in (t.broker_close_source + " " + t.exit_reason + " " + t.dashboard_effective_exit_owner).upper()),
+            "mae_mfe_distribution": mae_mfe_distribution_metrics(items),
+            "virtual_exit_analysis": virtual_exit_analysis_metrics(items),
         }
     return metrics
 
+
+
+def _percentile(values: list[float], pct: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    rank = (len(ordered) - 1) * pct
+    lo = int(rank)
+    hi = min(lo + 1, len(ordered) - 1)
+    frac = rank - lo
+    return ordered[lo] + (ordered[hi] - ordered[lo]) * frac
+
+
+def mae_mfe_distribution_metrics(trades: Iterable[CompletedTrade]) -> dict[str, object]:
+    """Compute V27.4.1 path-distribution evidence for loss-cap sizing."""
+    items = list(trades)
+    winners = [t for t in items if t.net_profit > 0]
+    losers = [t for t in items if t.net_profit < 0]
+    mfe = [t.mfe for t in items]
+    mae_abs = [abs(t.mae) for t in items]
+    winner_mae_abs = [abs(t.mae) for t in winners]
+    loser_mfe = [t.mfe for t in losers]
+    sl_or_hard_loss = [
+        t.mfe for t in losers
+        if any(token in (t.exit_reason + " " + t.broker_close_source + " " + t.dashboard_effective_exit_owner).upper() for token in ("SL", "HARD_LOSS"))
+    ]
+    return {
+        "trades": len(items),
+        "average_mfe": _average(mfe),
+        "median_mfe": median(mfe) if mfe else 0.0,
+        "p80_mfe": _percentile(mfe, 0.80),
+        "p95_mfe": _percentile(mfe, 0.95),
+        "average_mae": _average(mae_abs),
+        "median_mae": median(mae_abs) if mae_abs else 0.0,
+        "p80_mae": _percentile(mae_abs, 0.80),
+        "p95_mae": _percentile(mae_abs, 0.95),
+        "winning_trades_average_mae": _average(winner_mae_abs),
+        "winning_trades_median_mae": median(winner_mae_abs) if winner_mae_abs else 0.0,
+        "winning_trades_p80_mae": _percentile(winner_mae_abs, 0.80),
+        "winning_trades_p95_mae": _percentile(winner_mae_abs, 0.95),
+        "losing_trades_average_mfe_before_loss": _average(loser_mfe),
+        "losing_trades_median_mfe_before_loss": median(loser_mfe) if loser_mfe else 0.0,
+        "losing_trades_mfe_before_sl_or_hard_loss": {
+            "average": _average(sl_or_hard_loss),
+            "median": median(sl_or_hard_loss) if sl_or_hard_loss else 0.0,
+            "samples": len(sl_or_hard_loss),
+        },
+    }
+
+
+def virtual_exit_analysis_metrics(trades: Iterable[CompletedTrade]) -> dict[str, object]:
+    """Summarize optional post-close virtual-exit fields when a CSV supplies them."""
+    items = list(trades)
+    return {
+        "available": False,
+        "reason": "VIRTUAL_EXIT_PATH_DATA_NOT_AVAILABLE_IN_COMPLETED_TRADE_MODEL",
+        "trades_checked": len(items),
+        "fields": [
+            "virtual_profit_after_30s", "virtual_profit_after_60s", "virtual_profit_after_180s",
+            "virtual_profit_after_300s", "virtual_max_profit_after_exit",
+            "virtual_max_loss_after_exit", "false_exit_flag",
+        ],
+    }
 
 def evidence_gate(metrics: dict[str, dict[str, object]], min_trades_per_profile: int = 30) -> tuple[bool, str]:
     """Require statistical evidence before making any optimization decision."""

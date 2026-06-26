@@ -2008,8 +2008,41 @@ def apply_trade_management_dashboard_v27(decision):
         "expectancy", "sl_hit_count", "tp_hit_count", "be_count", "average_holding_time",
         "mfe", "mae", "mfe_capture_ratio", "post_sl_continuation_direction"
     ]
+    profile_f_market_close_only = str(dashboard.get("active_profile", "")).upper() == "PROFILE_F_MARKET_CLOSE_ONLY"
+    decision["profile_f_market_close_only_active"] = profile_f_market_close_only
+    if profile_f_market_close_only:
+        decision["dashboard_profile_at_entry"] = "Profile_F_MARKET_CLOSE_ONLY"
+        decision["dashboard_profile_at_exit"] = "Profile_F_MARKET_CLOSE_ONLY"
+        decision["dashboard_be_enabled"] = False
+        decision["dashboard_trail_enabled"] = False
+        decision["dashboard_runner_enabled"] = False
+        decision["dashboard_profit_lock_enabled"] = False
+        decision["dashboard_fixed_tp_enabled"] = True
+        decision["dashboard_runtime_tp_target"] = 1.00
+        decision["dashboard_runtime_sl_distance"] = hard_cap
+        decision["profile_f_runtime_validation"] = [
+            "PROFILE_F_MARKET_CLOSE_ONLY_ACTIVE",
+            "PROFILE_F_BE_DISABLED",
+            "PROFILE_F_TRAIL_DISABLED",
+            "PROFILE_F_RUNNER_DISABLED",
+            "PROFILE_F_PROFIT_LOCK_DISABLED",
+            "PROFILE_F_ONE_SLOT_ONLY",
+            "PROFILE_F_TP_TARGET_USD=1.00",
+            f"PROFILE_F_HARD_LOSS_CAP_USD={hard_cap:.2f}",
+        ]
+        print("PROFILE_F_MARKET_CLOSE_ONLY_ACTIVE")
+        print("PROFILE_F_BE_DISABLED")
+        print("PROFILE_F_TRAIL_DISABLED")
+        print("PROFILE_F_RUNNER_DISABLED")
+        print("PROFILE_F_PROFIT_LOCK_DISABLED")
+        print("PROFILE_F_ONE_SLOT_ONLY")
+        print("PROFILE_F_TP_TARGET_USD=1.00")
+        print(f"PROFILE_F_HARD_LOSS_CAP_USD={hard_cap:.2f}")
     decision["broker_sl_required"] = not tp_only_profile
     decision["broker_tp_required"] = not tp_only_profile
+    if profile_f_market_close_only:
+        decision["broker_tp_required"] = True
+        decision["broker_tp_policy"] = "FAIL_SAFE_MIRROR_PROFILE_F_FIXED_TP_IF_EXECUTOR_SUPPORTS_WITHOUT_CONFLICT"
     decision["runner_enabled_by_dashboard"] = runner_enabled
     decision["runner_momentum_timeout_sec"] = safe_int(runner.get("runner_timeout_seconds", 0), 0) if runner_enabled else 0
     decision["runner_exit_mode"] = runner.get("runner_exit_mode", "DISABLED_BY_DASHBOARD") if runner_enabled else "DISABLED_BY_DASHBOARD"
