@@ -982,28 +982,26 @@ string TradeStatisticsResolvedPath()
    return TerminalInfoString(TERMINAL_COMMONDATA_PATH) + "\\Files\\" + TradeStatisticsRelativePath();
 }
 
-bool EnsureTradeStatisticsFolders()
+bool EnsureCommonFolder(const string folder)
 {
    ResetLastError();
-   if(!FolderCreate("RP_AI_EA", FILE_COMMON))
+   if(!FolderCreate(folder, FILE_COMMON))
    {
       int err = GetLastError();
       if(err != 5016)
       {
-         Print(StringFormat("TRADE_STATS_FOLDER_CREATE_FAILED | folder=RP_AI_EA | error=%d", err));
+         Print(StringFormat("TRADE_STATS_FOLDER_CREATE_FAILED | folder=%s | error=%d", folder, err));
          return false;
       }
    }
-   ResetLastError();
-   if(!FolderCreate("RP_AI_EA\\analysis", FILE_COMMON))
-   {
-      int err = GetLastError();
-      if(err != 5016)
-      {
-         Print(StringFormat("TRADE_STATS_FOLDER_CREATE_FAILED | folder=RP_AI_EA\\analysis | error=%d", err));
-         return false;
-      }
-   }
+   return true;
+}
+
+bool EnsureTradeStatisticsFolders()
+{
+   if(!EnsureCommonFolder("RP_AI_EA")) return false;
+   if(!EnsureCommonFolder("RP_AI_EA\\analysis")) return false;
+   if(!EnsureCommonFolder("RP_AI_EA\\analysis\\archive")) return false;
    return true;
 }
 
@@ -1049,12 +1047,56 @@ double QualityScore(const double numerator, const double denominator)
    return ClampDouble((numerator / denominator) * 100.0, 0.0, 100.0);
 }
 
-bool EnsureTradeStatisticsHeader()
+string TrimCsvLineEnding(string value)
 {
-   if(!EnsureTradeStatisticsFolders()) return false;
+   StringReplace(value, "\r", "");
+   StringReplace(value, "\n", "");
+   return value;
+}
+
+int CsvColumnCount(const string line)
+{
+   int columns = 1;
+   bool in_quotes = false;
+   for(int i = 0; i < StringLen(line); ++i)
+   {
+      ushort ch = StringGetCharacter(line, i);
+      if(ch == 34)
+      {
+         if(in_quotes && i + 1 < StringLen(line) && StringGetCharacter(line, i + 1) == 34)
+         {
+            ++i;
+            continue;
+         }
+         in_quotes = !in_quotes;
+      }
+      else if(ch == ',' && !in_quotes)
+      {
+         ++columns;
+      }
+   }
+   return columns;
+}
+
+bool IsTradeStatisticsHeaderV2735Compatible(const string header)
+{
+   string expected = TrimCsvLineEnding(TradeStatisticsHeaderV2735());
+   string detected = TrimCsvLineEnding(header);
+   return detected == expected && StringFind(detected, "csv_schema_version") == 0 && StringFind(detected, TRADE_STATS_SCHEMA_VERSION) < 0;
+}
+
+string TradeStatisticsArchivePath()
+{
+   MqlDateTime ts;
+   TimeToStruct(TimeCurrent(), ts);
+   return StringFormat("RP_AI_EA\\analysis\\archive\\trade_statistics_legacy_%04d%02d%02d_%02d%02d%02d.csv", ts.year, ts.mon, ts.day, ts.hour, ts.min, ts.sec);
+}
+
+bool CreateFreshTradeStatisticsFile()
+{
    string path = TradeStatisticsRelativePath();
    ResetLastError();
-   int handle = FileOpen(path, FILE_READ | FILE_WRITE | FILE_CSV | FILE_ANSI | FILE_COMMON);
+   int handle = FileOpen(path, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
    if(handle == INVALID_HANDLE)
    {
       int err = GetLastError();
@@ -1062,11 +1104,55 @@ bool EnsureTradeStatisticsHeader()
       Print(StringFormat("TRADE_STATISTICS_FILE_OPEN_FAILED | path=%s | error=%d", path, err));
       return false;
    }
-   if(FileSize(handle) == 0)
-      FileWriteString(handle, TradeStatisticsHeaderV2735());
+   FileWriteString(handle, TradeStatisticsHeaderV2735());
    FileClose(handle);
+   Print("TRADE_STATS_NEW_SCHEMA_FILE_CREATED");
    Print("CSV_HEADER_READY");
    return true;
+}
+
+bool EnsureTradeStatisticsHeader()
+{
+   Print("TRADE_STATS_SCHEMA_CHECK_START");
+   if(!EnsureTradeStatisticsFolders()) return false;
+   string path = TradeStatisticsRelativePath();
+   ResetLastError();
+   int handle = FileOpen(path, FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON);
+   if(handle == INVALID_HANDLE)
+   {
+      int err = GetLastError();
+      if(err == 5004 || err == 5019 || err == 5024)
+         return CreateFreshTradeStatisticsFile();
+      Print(StringFormat("TRADE_STATISTICS_FILE_OPEN_FAILED | path=%s | error=%d", path, err));
+      return false;
+   }
+   if(FileSize(handle) == 0)
+   {
+      FileClose(handle);
+      return CreateFreshTradeStatisticsFile();
+   }
+
+   string existing_header = FileReadString(handle);
+   FileClose(handle);
+   Print(StringFormat("TRADE_STATS_EXISTING_HEADER_DETECTED | header_columns=%d", CsvColumnCount(existing_header)));
+   if(IsTradeStatisticsHeaderV2735Compatible(existing_header))
+   {
+      Print("TRADE_STATS_SCHEMA_COMPATIBLE");
+      Print("CSV_HEADER_READY");
+      return true;
+   }
+
+   Print(StringFormat("TRADE_STATS_SCHEMA_MISMATCH_DETECTED | active_columns=%d | expected_columns=%d", CsvColumnCount(existing_header), CsvColumnCount(TradeStatisticsHeaderV2735())));
+   string archive_path = TradeStatisticsArchivePath();
+   ResetLastError();
+   if(!FileMove(path, FILE_COMMON, archive_path, FILE_COMMON))
+   {
+      int move_err = GetLastError();
+      Print(StringFormat("TRADE_STATS_LEGACY_ARCHIVE_FAILED | source=%s | archive=%s | error=%d", path, archive_path, move_err));
+      return false;
+   }
+   Print(StringFormat("TRADE_STATS_LEGACY_ARCHIVED | archive=%s", archive_path));
+   return CreateFreshTradeStatisticsFile();
 }
 
 void RecordCompletedTrade(const ulong position_id, const ulong exit_deal)
@@ -1194,9 +1280,15 @@ void RecordCompletedTrade(const ulong position_id, const ulong exit_deal)
       be_after_seconds, be_sl_price, be_offset, be_stop_out_text, net_profit, profit_before_be_stop_out, max_profit_after_be, maximum_drawdown_after_be, lost_opportunity_after_be,
       be_false_trigger_text, false_distance, CsvEscape(be_false_trigger ? TimeToString(exit_time, TIME_DATE | TIME_SECONDS) : ""), be_survival_seconds, capture_ratio_after_be);
    row = StringSubstr(row, 0, StringLen(row) - 1) + ",\"\"\n";
+   int row_columns = CsvColumnCount(row);
+   int header_columns = CsvColumnCount(TradeStatisticsHeaderV2735());
+   if(row_columns == header_columns)
+      Print(StringFormat("TRADE_STATS_ROW_COLUMN_COUNT_PASS | ticket=%I64u | columns=%d", position_id, row_columns));
+   else
+      Print(StringFormat("TRADE_STATS_ROW_COLUMN_COUNT_FAIL | ticket=%I64u | row_columns=%d | header_columns=%d", position_id, row_columns, header_columns));
    FileWriteString(handle, row);
    FileClose(handle);
-   Print(StringFormat("COMPLETED_TRADE_RECORDED | ticket=%I64u | pnl=%.2f | profile=%s | close_source=%s | exit_quality=%.2f", position_id, net_profit, g_cfg.active_profile, close_source, exit_quality_score));
+   Print(StringFormat("COMPLETED_TRADE_RECORDED | ticket=%I64u | pnl=%.2f | profile=%s | close_source=%s | exit_quality=%.2f | schema_version=%s", position_id, net_profit, g_cfg.active_profile, close_source, exit_quality_score, TRADE_STATS_SCHEMA_VERSION));
    RemoveTrack(position_id);
 }
 

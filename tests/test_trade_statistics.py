@@ -86,3 +86,33 @@ def test_profile_e_required_exit_geometry_metrics():
     assert metrics["be_count"] == 0
     assert metrics["average_holding_time"] == 300
     assert metrics["post_sl_continuation_direction"] == {"WITH_ORIGINAL_DIRECTION": 1}
+
+
+def test_skips_duplicate_v2735_header_with_warning(tmp_path):
+    path = tmp_path / "trade_statistics.csv"
+    header = "csv_schema_version,ticket,symbol,direction,trade_mode,entry_time,exit_time,entry_price,exit_price,stop_loss,take_profit,exit_reason,mfe,mae,net_profit,duration,dashboard_profile\n"
+    path.write_text(
+        header
+        + "V27_3_5_EXIT_EVIDENCE_AUDIT,10,XAUUSD,BUY,PROTECT,t0,t1,2300,2301,2299,2302,TP,1.2,-0.1,0.8,60,Profile_E\n"
+        + header
+        + "V27_3_5_EXIT_EVIDENCE_AUDIT,11,XAUUSD,SELL,PROTECT,t0,t1,2301,2300,2302,2299,TP,1.0,-0.2,0.7,70,Profile_E\n",
+        encoding="utf-8",
+    )
+
+    import pytest
+
+    with pytest.warns(RuntimeWarning, match="DUPLICATE_CSV_HEADER_DETECTED"):
+        trades = load_completed_trades(path)
+
+    assert [trade.ticket for trade in trades] == ["10", "11"]
+
+
+def test_loads_archives_only_when_requested(tmp_path):
+    path = tmp_path / "trade_statistics.csv"
+    append_completed_trade(trade(12, "Active", 1.0, 1.2, -0.1), path)
+    archive_dir = tmp_path / "archive"
+    archive_dir.mkdir()
+    append_completed_trade(trade(13, "Archived", -0.5, 0.2, -0.7), archive_dir / "trade_statistics_legacy_20260626_113500.csv")
+
+    assert [trade.ticket for trade in load_completed_trades(path)] == ["12"]
+    assert [trade.ticket for trade in load_completed_trades(path, include_archives=True)] == ["12", "13"]

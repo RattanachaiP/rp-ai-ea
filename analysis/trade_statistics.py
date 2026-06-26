@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import os
+import warnings
 from collections import Counter, defaultdict
 from statistics import median
 from dataclasses import dataclass, asdict
@@ -28,8 +29,10 @@ def resolve_trade_statistics_csv_path(csv_path: Path | str | None = None) -> Pat
     return Path(csv_path)
 
 
+CSV_SCHEMA_VERSION = "V27_3_5_EXIT_EVIDENCE_AUDIT"
+
 CSV_FIELDS = [
-    "ticket", "symbol", "direction", "mode", "entry_time", "exit_time",
+    "csv_schema_version", "ticket", "symbol", "direction", "mode", "entry_time", "exit_time",
     "entry_price", "exit_price", "stop_loss", "take_profit", "exit_reason",
     "mfe", "mae", "net_profit", "duration", "dashboard_profile",
     "be_trigger_count", "be_trigger_price", "be_trigger_profit", "be_trigger_time",
@@ -90,7 +93,10 @@ def append_completed_trade(trade: CompletedTrade, csv_path: Path | str | None = 
         writer = csv.DictWriter(handle, fieldnames=CSV_FIELDS)
         if write_header:
             writer.writeheader()
-        writer.writerow(asdict(trade))
+        row = {field: "" for field in CSV_FIELDS}
+        row.update(asdict(trade))
+        row["csv_schema_version"] = CSV_SCHEMA_VERSION
+        writer.writerow(row)
 
 
 def _row_bool(row: dict[str, str], key: str) -> bool:
@@ -104,43 +110,64 @@ def _row_float(row: dict[str, str], key: str) -> float:
         return 0.0
 
 
-def load_completed_trades(csv_path: Path | str | None = None) -> list[CompletedTrade]:
+def _load_completed_trades_from_file(path: Path) -> list[CompletedTrade]:
+    with path.open("r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        if reader.fieldnames is None:
+            return []
+        header_signature = [name.strip() for name in reader.fieldnames]
+        trades: list[CompletedTrade] = []
+        for row in reader:
+            row_values = [str(value).strip() for value in row.values() if value is not None]
+            if row_values[: len(header_signature)] == header_signature:
+                warnings.warn("DUPLICATE_CSV_HEADER_DETECTED", RuntimeWarning, stacklevel=2)
+                continue
+            if row.get("csv_schema_version", CSV_SCHEMA_VERSION) not in {"", CSV_SCHEMA_VERSION}:
+                warnings.warn(f"UNKNOWN_CSV_SCHEMA_VERSION:{row.get('csv_schema_version')}", RuntimeWarning, stacklevel=2)
+            trades.append(
+                CompletedTrade(
+                    ticket=row.get("ticket", ""), symbol=row.get("symbol", ""), direction=row.get("direction", ""), mode=row.get("mode", row.get("trade_mode", "")),
+                    entry_time=row.get("entry_time", ""), exit_time=row.get("exit_time", ""),
+                    entry_price=_row_float(row, "entry_price"), exit_price=_row_float(row, "exit_price"),
+                    stop_loss=_row_float(row, "stop_loss"), take_profit=_row_float(row, "take_profit"),
+                    exit_reason=row.get("exit_reason", row.get("broker_exit_reason", "")), mfe=_row_float(row, "mfe"), mae=_row_float(row, "mae"),
+                    net_profit=_row_float(row, "net_profit") or _row_float(row, "realized_profit_usd"), duration=_row_float(row, "duration"),
+                    dashboard_profile=row.get("dashboard_profile", row.get("dashboard_profile_at_entry", "")),
+                    be_trigger_count=int(_row_float(row, "be_trigger_count") or (1 if _row_bool(row, "be_enabled") else 0)),
+                    be_trigger_price=_row_float(row, "be_trigger_price"),
+                    be_trigger_profit=_row_float(row, "be_trigger_profit") or _row_float(row, "be_trigger_profit_usd"),
+                    be_trigger_time=row.get("be_trigger_time", ""),
+                    be_trigger_age_seconds=_row_float(row, "be_trigger_age_seconds") or _row_float(row, "be_trigger_after_seconds"),
+                    be_sl_price=_row_float(row, "be_sl_price"),
+                    be_offset_usd=_row_float(row, "be_offset_usd"),
+                    be_stop_out=_row_bool(row, "be_stop_out"),
+                    realized_profit=_row_float(row, "realized_profit") or _row_float(row, "net_profit"),
+                    profit_before_be=_row_float(row, "profit_before_be") or _row_float(row, "profit_before_be_stop_out"),
+                    maximum_profit_after_be=_row_float(row, "maximum_profit_after_be") or _row_float(row, "max_profit_after_be_trigger"),
+                    maximum_drawdown_after_be=_row_float(row, "maximum_drawdown_after_be"),
+                    lost_opportunity_after_be=_row_float(row, "lost_opportunity_after_be"),
+                    be_false_trigger=_row_bool(row, "be_false_trigger"),
+                    be_false_trigger_distance=_row_float(row, "be_false_trigger_distance"),
+                    be_false_trigger_time=row.get("be_false_trigger_time", ""),
+                    be_survival_time_seconds=_row_float(row, "be_survival_time_seconds"),
+                    capture_ratio_after_be=_row_float(row, "capture_ratio_after_be"),
+                    post_sl_continuation_direction=row.get("post_sl_continuation_direction", ""),
+                )
+            )
+        return trades
+
+
+def load_completed_trades(csv_path: Path | str | None = None, *, include_archives: bool = False) -> list[CompletedTrade]:
     path = resolve_trade_statistics_csv_path(csv_path)
     if not path.exists():
         return []
-    with path.open("r", newline="", encoding="utf-8") as handle:
-        rows = csv.DictReader(handle)
-        return [
-            CompletedTrade(
-                ticket=row.get("ticket", ""), symbol=row.get("symbol", ""), direction=row.get("direction", ""), mode=row.get("mode", row.get("trade_mode", "")),
-                entry_time=row.get("entry_time", ""), exit_time=row.get("exit_time", ""),
-                entry_price=_row_float(row, "entry_price"), exit_price=_row_float(row, "exit_price"),
-                stop_loss=_row_float(row, "stop_loss"), take_profit=_row_float(row, "take_profit"),
-                exit_reason=row.get("exit_reason", row.get("broker_exit_reason", "")), mfe=_row_float(row, "mfe"), mae=_row_float(row, "mae"),
-                net_profit=_row_float(row, "net_profit") or _row_float(row, "realized_profit_usd"), duration=_row_float(row, "duration"),
-                dashboard_profile=row.get("dashboard_profile", row.get("dashboard_profile_at_entry", "")),
-                be_trigger_count=int(_row_float(row, "be_trigger_count") or (1 if _row_bool(row, "be_enabled") else 0)),
-                be_trigger_price=_row_float(row, "be_trigger_price"),
-                be_trigger_profit=_row_float(row, "be_trigger_profit") or _row_float(row, "be_trigger_profit_usd"),
-                be_trigger_time=row.get("be_trigger_time", ""),
-                be_trigger_age_seconds=_row_float(row, "be_trigger_age_seconds") or _row_float(row, "be_trigger_after_seconds"),
-                be_sl_price=_row_float(row, "be_sl_price"),
-                be_offset_usd=_row_float(row, "be_offset_usd"),
-                be_stop_out=_row_bool(row, "be_stop_out"),
-                realized_profit=_row_float(row, "realized_profit") or _row_float(row, "net_profit"),
-                profit_before_be=_row_float(row, "profit_before_be") or _row_float(row, "profit_before_be_stop_out"),
-                maximum_profit_after_be=_row_float(row, "maximum_profit_after_be") or _row_float(row, "max_profit_after_be_trigger"),
-                maximum_drawdown_after_be=_row_float(row, "maximum_drawdown_after_be"),
-                lost_opportunity_after_be=_row_float(row, "lost_opportunity_after_be"),
-                be_false_trigger=_row_bool(row, "be_false_trigger"),
-                be_false_trigger_distance=_row_float(row, "be_false_trigger_distance"),
-                be_false_trigger_time=row.get("be_false_trigger_time", ""),
-                be_survival_time_seconds=_row_float(row, "be_survival_time_seconds"),
-                capture_ratio_after_be=_row_float(row, "capture_ratio_after_be"),
-                post_sl_continuation_direction=row.get("post_sl_continuation_direction", ""),
-            )
-            for row in rows
-        ]
+    paths = [path]
+    if include_archives:
+        paths.extend(sorted((path.parent / "archive").glob("trade_statistics_legacy_*.csv")))
+    trades: list[CompletedTrade] = []
+    for item in paths:
+        trades.extend(_load_completed_trades_from_file(item))
+    return trades
 
 
 def _average(values: list[float]) -> float:
