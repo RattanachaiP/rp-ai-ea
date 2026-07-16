@@ -1,15 +1,20 @@
 {
   "schema_version": "V28_DASHBOARD_CONTRACT_1",
   "trade_enabled": true,
-  "active_profile": "Balanced",
+  "active_profile": "V28_VALIDATION_SYMMETRIC",
   "management_mode": "DASHBOARD_MANAGED",
-  "fixed_tp": {"enabled": false, "points": 100.0},
+  "point": 0.01,
+  "fixed_tp_close_usd_per_001_lot": 1.0,
+  "risk_hard_loss_cap_usd_per_001_lot": 1.0,
+  "fixed_tp": {"enabled": true, "points": 100.0},
   "broker_sl": {"enabled": true, "points": 100.0},
-  "breakeven": {"enabled": true, "trigger_points": 50.0, "offset_points": 0.0},
-  "trailing": {"enabled": true, "start_points": 80.0, "distance_points": 30.0, "step_points": 10.0},
-  "profit_lock": {"enabled": true, "levels": [{"trigger_points": 80.0, "lock_points": 10.0}]},
-  "runner": {"enabled": true, "timeout_seconds": 45},
-  "emergency": {"close_all": false, "entries_disabled": false},
+  "breakeven": {"enabled": false, "trigger_points": 0.0, "offset_points": 0.0},
+  "trailing": {"enabled": false, "start_points": 0.0, "distance_points": 0.0, "step_points": 0.0},
+  "profit_lock": {"enabled": false, "levels": []},
+  "runner": {"enabled": false, "timeout_seconds": 0},
   "time_exit": {"enabled": false, "maximum_seconds": 0},
-  "partial_close": {"enabled": false, "levels": []}
+  "partial_close": {"enabled": false, "levels": []},
+  "scaling": {"enabled": false},
+  "pyramiding": {"enabled": false},
+  "emergency": {"close_all": false, "entries_disabled": false}
 }
