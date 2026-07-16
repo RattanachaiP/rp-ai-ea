@@ -54,3 +54,33 @@ def test_stale_market_data_blocks_with_reason():
     payload = decide(fresh_market(heartbeat_unix=int(time.time()) - 999), dashboard(), score_min_required=3)
     assert payload["decision"] == "NO_TRADE"
     assert payload["trade_block_reason"] == "STALE_MARKET_DATA"
+
+
+def test_strong_tier_uses_existing_supportive_evidence_only():
+    payload = decide(
+        fresh_market(market_mode="TREND", bb_state="WALK_UP", rsi=60, macd_histogram=0.2),
+        dashboard(), score_min_required=3,
+    )
+    assert payload["decision"] == "TRADE"
+    assert payload["confidence_tier"] == "A"
+    assert payload["risk_multiplier"] == 1.0
+
+
+def test_participation_tier_reduces_size_without_a_second_veto():
+    payload = decide(
+        fresh_market(market_mode="RANGE", bb_state="MIDDLE", rsi=45, macd_histogram=-0.2),
+        dashboard(), score_min_required=3,
+    )
+    assert payload["decision"] == "TRADE"
+    assert payload["confidence_tier"] == "B"
+    assert payload["lot"] == 0.005
+
+
+def test_symmetric_validation_contract_has_complete_tp_and_sl():
+    payload = decide(fresh_market(), dashboard(), score_min_required=3)
+    assert payload["broker_sl_required"] is True
+    assert payload["broker_tp_required"] is True
+    assert payload["risk_hard_loss_cap_usd_per_001_lot"] == 1.0
+    assert payload["fixed_tp_close_usd_per_001_lot"] == 1.0
+    assert payload["stop_loss"] > 0
+    assert payload["take_profit"] > 0

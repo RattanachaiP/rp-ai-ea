@@ -15,17 +15,21 @@ SCHEMA_VERSION = "V28_DASHBOARD_CONTRACT_1"
 DEFAULT_DASHBOARD: Dict[str, Any] = {
     "schema_version": SCHEMA_VERSION,
     "trade_enabled": True,
-    "active_profile": "Balanced",
+    "active_profile": "V28_VALIDATION_SYMMETRIC",
     "management_mode": "DASHBOARD_MANAGED",
-    "fixed_tp": {"enabled": False, "points": 100.0},
+    "fixed_tp": {"enabled": True, "points": 100.0},
     "broker_sl": {"enabled": True, "points": 100.0},
-    "breakeven": {"enabled": True, "trigger_points": 50.0, "offset_points": 0.0},
-    "trailing": {"enabled": True, "start_points": 80.0, "distance_points": 30.0, "step_points": 10.0},
-    "profit_lock": {"enabled": True, "levels": [{"trigger_points": 80.0, "lock_points": 10.0}]},
-    "runner": {"enabled": True, "timeout_seconds": 45},
+    "breakeven": {"enabled": False, "trigger_points": 0.0, "offset_points": 0.0},
+    "trailing": {"enabled": False, "start_points": 0.0, "distance_points": 0.0, "step_points": 0.0},
+    "profit_lock": {"enabled": False, "levels": []},
+    "runner": {"enabled": False, "timeout_seconds": 0},
     "emergency": {"close_all": False, "entries_disabled": False},
     "time_exit": {"enabled": False, "maximum_seconds": 0},
     "partial_close": {"enabled": False, "levels": []},
+    "risk_hard_loss_cap_usd_per_001_lot": 1.0,
+    "fixed_tp_close_usd_per_001_lot": 1.0,
+    "scaling": {"enabled": False},
+    "pyramiding": {"enabled": False},
 }
 
 
