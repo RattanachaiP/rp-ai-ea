@@ -36,7 +36,8 @@ def market_is_fresh(market: Dict[str, Any], max_age_seconds: int = 15, now: int 
     if "market_state_fresh" in market and not bool(market["market_state_fresh"]):
         return False
     heartbeat = int(_num(market, "heartbeat_unix", 0))
-    return heartbeat > 0 and ((now if now is not None else int(time.time())) - heartbeat) <= max_age_seconds
+    age = (now if now is not None else int(time.time())) - heartbeat
+    return heartbeat > 0 and 0 <= age <= max_age_seconds
 
 
 def calculate_direction_and_gap(market: Dict[str, Any]) -> tuple[str | None, float, str]:
@@ -48,27 +49,6 @@ def calculate_direction_and_gap(market: Dict[str, Any]) -> tuple[str | None, flo
     if sell_score > buy_score:
         return "SELL", gap, "SELL_SCORE_DOMINANCE"
     return None, 0.0, "NO_DIRECTIONAL_EDGE"
-
-
-def _supportive_momentum(direction: str, market: Dict[str, Any]) -> bool:
-    """Use existing RSI/MACD/MA fields only to separate normal from strong size."""
-    rsi = _num(market, "rsi", _num(market, "RSI", 50.0))
-    macd = _num(market, "macd_histogram", _num(market, "macd_hist", 0.0))
-    ma_context = str(market.get("moving_average_context", market.get("ma_context", ""))).upper()
-    if direction == "BUY":
-        return rsi >= 50 and macd >= 0 and "BEAR" not in ma_context
-    return rsi <= 50 and macd <= 0 and "BULL" not in ma_context
-
-
-def classify_confidence(direction: str, score_gap: float, market: Dict[str, Any]) -> tuple[str, float, str]:
-    """Return A/B only; C is reserved for the explicit no-edge/safety path."""
-    mode = str(market.get("market_mode", "UNKNOWN")).upper()
-    bb_state = str(market.get("bb_state", "UNKNOWN")).upper()
-    compatible_mode = mode not in {"UNKNOWN", "INVALID"}
-    direct_opposition = "OPPOS" in bb_state
-    if score_gap >= 4.0 and compatible_mode and not direct_opposition and _supportive_momentum(direction, market):
-        return "A", 1.0, "STRONG_DIRECTIONAL_DOMINANCE_WITH_SUPPORTIVE_MOMENTUM"
-    return "B", 0.5, "VALID_DIRECTIONAL_EDGE_PARTICIPATION_SIZE"
 
 
 def build_risk_package(direction: str, entry_price: float, dashboard: Dict[str, Any]) -> Dict[str, Any]:
@@ -105,8 +85,8 @@ def decide(market: Dict[str, Any], dashboard: Dict[str, Any], score_min_required
         "schema_version": SCHEMA_VERSION, "runtime_version": "V28_CLEAN_EXPECTANCY_CORE",
         "symbol": market.get("symbol", "XAUUSD"), "sequence_id": sequence_id, "heartbeat_unix": heartbeat,
         "score_gap": score_gap, "score_min_required": score_min_required,
-        "market_evidence": {key: market.get(key) for key in ("buy_score", "sell_score", "market_mode", "bb_state", "rsi", "RSI", "macd_histogram", "macd_hist", "moving_average_context", "ma_context", "spread", "price", "bid")},
-        "final_authority": "PYTHON_AI_V28_CLEAN_CORE", "dashboard_profile": dashboard.get("active_profile", "V28_VALIDATION_SYMMETRIC"),
+        "market_evidence": {key: market.get(key) for key in ("buy_score", "sell_score", "spread", "price", "bid")},
+        "final_authority": "PYTHON_AI_V28_CLEAN_CORE", "dashboard_profile": dashboard.get("active_profile", "Profile_F_MARKET_CLOSE_ONLY"),
         "management_mode": dashboard.get("management_mode", "DASHBOARD_MANAGED"), "dashboard_contract": dashboard,
         "executor_contract_status": "NOT_EVALUATED",
     }
@@ -122,17 +102,19 @@ def decide(market: Dict[str, Any], dashboard: Dict[str, Any], score_min_required
     elif int(_num(market, "open_positions", 0)) >= int(_num(market, "max_open_positions", 1)):
         block = "OPEN_POSITION_LIMIT"
     if block:
-        base.update({"decision": "NO_TRADE", "direction": direction or "NONE", "bias": direction or "NEUTRAL", "confidence_tier": "C", "reason": block, "trade_block_reason": block, "payload_valid": False, "log_event": "NO_TRADE_REASON"})
+        base.update({"decision": "NO_TRADE", "direction": direction or "NONE", "bias": direction or "NEUTRAL", "reason": f"NO_TRADE: {block}", "trade_block_reason": block, "payload_valid": False, "log_event": "NO_TRADE_REASON"})
         base["executor_contract_status"] = validate_payload(base)[1]
         return base
-    tier, multiplier, tier_reason = classify_confidence(direction, score_gap, market)
     entry_price = _num(market, "price", _num(market, "bid", 0.0))
-    payload = {**base, "decision": "TRADE", "direction": direction, "bias": direction, "confidence_tier": tier, "risk_multiplier": multiplier, "reason": "EXECUTABLE_TRADE_PUBLISHED", "signal_reason": tier_reason, "trade_block_reason": "NONE", "entry_price": entry_price, "lot": _num(market, "lot", DEFAULT_LOT) * multiplier, "payload_valid": True}
+    payload = {**base, "decision": "TRADE", "direction": direction, "bias": direction,
+               "reason": f"{direction}: {edge_reason}; SCORE_GAP {score_gap:g} >= {score_min_required:g}",
+               "entry_reason": edge_reason, "trade_block_reason": "NONE", "entry_price": entry_price,
+               "lot": _num(market, "lot", DEFAULT_LOT), "payload_valid": True}
     payload.update(build_risk_package(direction, entry_price, dashboard))
     ok, status = validate_payload(payload)
     payload["payload_valid"], payload["executor_contract_status"] = ok, status
     if not ok:
-        payload.update({"decision": "NO_TRADE", "confidence_tier": "C", "reason": "INVALID_RISK_PACKAGE", "trade_block_reason": "INVALID_RISK_PACKAGE", "log_event": "NO_TRADE_REASON"})
+        payload.update({"decision": "NO_TRADE", "reason": "NO_TRADE: INVALID_RISK_PACKAGE", "trade_block_reason": "INVALID_RISK_PACKAGE", "log_event": "NO_TRADE_REASON"})
     else:
         payload["log_event"] = "EXECUTABLE_TRADE_PUBLISHED"
     return payload

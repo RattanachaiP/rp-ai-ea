@@ -29,6 +29,10 @@ def validate_payload(payload: Dict[str, Any]) -> Tuple[bool, str]:
         return False, "INVALID_DIRECTION"
     if not payload.get("payload_valid"):
         return False, "PAYLOAD_VALID_FALSE"
+    if int(payload.get("sequence_id") or 0) <= 0:
+        return False, "INVALID_SEQUENCE_ID"
+    if int(payload.get("heartbeat_unix") or 0) <= 0:
+        return False, "INVALID_HEARTBEAT"
     if float(payload.get("entry_price") or 0) <= 0:
         return False, "INVALID_ENTRY_PRICE"
     if float(payload.get("lot") or 0) <= 0:
@@ -43,4 +47,17 @@ def validate_payload(payload: Dict[str, Any]) -> Tuple[bool, str]:
         return False, "MISSING_REQUIRED_TAKE_PROFIT"
     if (not tp_required) and payload.get("tp_contract_reason") != "DASHBOARD_TP_MANAGED_OR_DISABLED":
         return False, "MISSING_APPROVED_TP_CONTRACT"
+    entry_price = float(payload["entry_price"])
+    stop_loss = float(payload.get("stop_loss") or 0)
+    take_profit = float(payload.get("take_profit") or 0)
+    if payload["direction"] == "BUY":
+        if sl_required and stop_loss >= entry_price:
+            return False, "INVALID_BUY_STOP_LOSS_SIDE"
+        if tp_required and take_profit <= entry_price:
+            return False, "INVALID_BUY_TAKE_PROFIT_SIDE"
+    else:
+        if sl_required and stop_loss <= entry_price:
+            return False, "INVALID_SELL_STOP_LOSS_SIDE"
+        if tp_required and take_profit >= entry_price:
+            return False, "INVALID_SELL_TAKE_PROFIT_SIDE"
     return True, "EXECUTOR_CONTRACT_PASS"

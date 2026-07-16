@@ -13,8 +13,8 @@ The Market State Writer remains market-data-only. Python owns direction, entry, 
 | Concern | V27 | V28 |
 | --- | --- | --- |
 | Decision path | Layered legacy/patch lineage | One core decision function |
-| Entry classification | Multiple waits, gates, and normalizers | A strong, B participation, or C no-edge outcome |
-| Risk profile | Historical profile-dependent behavior | Fixed initial validation profile: +$1 TP and -$1 hard-loss cap per 0.01 lot |
+| Entry classification | Multiple waits, gates, and normalizers | Directional score-gap entry or explicit no-trade |
+| Risk profile | Historical profile-dependent behavior | Deterministic Profile_F validation baseline: +$1 TP and -$1.20 hard-loss cap per 0.01 lot |
 | Exit ownership | Dashboard | Dashboard; V28 does not tune exits |
 | Publication | `decision.json` | Separate V28 shadow path until isolated demo validation |
 | Executor role | Legacy compatibility concerns | Contract + broker safety + OrderSend only |
@@ -31,7 +31,7 @@ The Market State Writer remains market-data-only. Python owns direction, entry, 
 ## Validation and promotion
 
 1. Run `python -m bridge.v28.shadow_launcher` against the market-state feed; it only writes `RP_AI_EA/shared/XAUUSD/v28_shadow_decision.json`.
-2. Compare V27/V28 candidate timestamps, direction, trade rate, tier, and risk-contract validity.
+2. Compare V27/V28 candidate timestamps, direction, trade rate, explicit decision reason, and risk-contract validity.
 3. Use the isolated demo launcher only with `--demo-confirmation` and the V28 executor.
 4. Check reliability at 30 trades; evaluate expectancy at 100; require repeatability at 300.
 5. Promote only if PF > 1, expectancy > 0, gross profit exceeds gross loss, participation is at least 70%, average loss does not materially exceed average win, and equity slope is positive.

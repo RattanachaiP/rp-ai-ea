@@ -15,10 +15,11 @@ SCHEMA_VERSION = "V28_DASHBOARD_CONTRACT_1"
 DEFAULT_DASHBOARD: Dict[str, Any] = {
     "schema_version": SCHEMA_VERSION,
     "trade_enabled": True,
-    "active_profile": "V28_VALIDATION_SYMMETRIC",
+    "active_profile": "Profile_F_MARKET_CLOSE_ONLY",
+    "validation_baseline_profile": "Profile_F_MARKET_CLOSE_ONLY",
     "management_mode": "DASHBOARD_MANAGED",
     "fixed_tp": {"enabled": True, "points": 100.0},
-    "broker_sl": {"enabled": True, "points": 100.0},
+    "broker_sl": {"enabled": True, "points": 120.0},
     "breakeven": {"enabled": False, "trigger_points": 0.0, "offset_points": 0.0},
     "trailing": {"enabled": False, "start_points": 0.0, "distance_points": 0.0, "step_points": 0.0},
     "profit_lock": {"enabled": False, "levels": []},
@@ -26,7 +27,7 @@ DEFAULT_DASHBOARD: Dict[str, Any] = {
     "emergency": {"close_all": False, "entries_disabled": False},
     "time_exit": {"enabled": False, "maximum_seconds": 0},
     "partial_close": {"enabled": False, "levels": []},
-    "risk_hard_loss_cap_usd_per_001_lot": 1.0,
+    "risk_hard_loss_cap_usd_per_001_lot": 1.2,
     "fixed_tp_close_usd_per_001_lot": 1.0,
     "scaling": {"enabled": False},
     "pyramiding": {"enabled": False},
@@ -73,6 +74,7 @@ def load_dashboard_contract(repo_root: Path | None = None) -> Dict[str, Any]:
 
     cfg["schema_version"] = SCHEMA_VERSION
     cfg["active_profile"] = str(cfg.get("active_profile") or profile)
+    cfg["validation_baseline_profile"] = "Profile_F_MARKET_CLOSE_ONLY"
     cfg["load_sources"] = sources
     cfg["load_warnings"] = warnings
     cfg["fallback_defaults_used"] = sources == ["embedded_v28_defaults"] or bool(warnings)
