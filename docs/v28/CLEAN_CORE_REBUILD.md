@@ -15,7 +15,9 @@ Soft Lock, Transition Wait, Weak Gap hard NO_TRADE, Entry Location hard block, L
 
 ## Clean decision flow
 
-`Market State Writer -> Python AI V28 clean_core.decide -> Dashboard Contract -> Payload Contract -> Executor Broker Safety -> OrderSend`
+`Market State Writer -> Direction -> Entry Decision -> Risk Package -> Publish -> Executor Broker Safety -> OrderSend`
+
+The entry decision has exactly one measured rule: the existing directional score gap must meet the configured minimum. The core does not apply momentum-based confidence tiers, size multipliers, weak-gap participation, transition waits, or hidden penalty paths. A valid entry uses the input lot unchanged; its initial SL/TP package is deterministically calculated once from the selected dashboard contract.
 
 Only these V28 blocks may publish `NO_TRADE`: missing BUY/SELL direction, `score_gap` below configurable minimum, stale market data, dashboard trade disabled, open-position limit, or invalid risk package.
 
@@ -23,17 +25,19 @@ Only these V28 blocks may publish `NO_TRADE`: missing BUY/SELL direction, `score
 
 Executable `TRADE` payloads use `V28_EXECUTABLE_PAYLOAD_1` and require: `decision`, `direction`, `bias`, `entry_price`, `lot`, `dashboard_profile`, `management_mode`, `broker_sl_required`, `broker_tp_required`, `stop_loss` or approved SL suppression, `take_profit` or approved dashboard TP contract, `payload_valid=true`, `sequence_id`, and `heartbeat_unix`.
 
-Every cycle publishes `decision`, `reason`, `score_gap`, `score_min_required`, `final_authority`, `payload_valid`, `trade_block_reason`, `dashboard_profile`, and `executor_contract_status`.
+Every cycle publishes `decision`, deterministic `reason`, `entry_reason` (for trades), `score_gap`, `score_min_required`, `final_authority`, `payload_valid`, `trade_block_reason`, `dashboard_profile`, and `executor_contract_status`.
 
 ## Executor contract
 
 The V28 executor validates only schema/contract and broker safety before `OrderSend`. It does not reinterpret strategy and does not contain V15/V16/V17 quality, alignment, cooldown, location, soft-lock, transition, or legacy final strategy gates.
 
-Required executor logs are `EXECUTOR_CONTRACT_PASS`, `ORDER_SEND_ATTEMPT`, and exactly one of `ORDER_SEND_OK` or `ORDER_SEND_FAIL` for accepted trade payloads.
+Required executor logs are `EXECUTOR_CONTRACT_PASS`, `ORDER_SEND_ATTEMPT`, and exactly one of `ORDER_SEND_OK` or `ORDER_SEND_FAIL` for accepted trade payloads. It also rejects stale sequence-bearing payloads and SL/TP values that are on the wrong side of the entry price; these are payload/broker safety checks, not strategy reinterpretation.
 
 ## Dashboard contract
 
 The dashboard owns fixed TP, broker SL on/off, BE, trailing, profit lock, runner, emergency entry/close toggles, time exit, and partial close settings. Python publishes the loaded dashboard contract; executor logs the selected profile and management mode.
+
+`Profile_F_MARKET_CLOSE_ONLY` is the V28 validation baseline. V28 records that baseline in every loaded contract and does not create or mutate a dashboard profile.
 
 ## Known limitations
 

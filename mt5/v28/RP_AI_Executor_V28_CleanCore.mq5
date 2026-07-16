@@ -97,12 +97,24 @@ bool ContractPass(const string json, string &reason)
    if(JsonString(json, "decision") != "TRADE") { reason = "NO_TRADE_PAYLOAD"; return false; }
    string direction = JsonString(json, "direction");
    if(direction != "BUY" && direction != "SELL") { reason = "INVALID_CONTRACT_DIRECTION"; return false; }
+   if(JsonString(json, "bias") != direction) { reason = "INVALID_CONTRACT_BIAS"; return false; }
+   if(JsonString(json, "dashboard_profile") == "" || JsonString(json, "management_mode") == "" || JsonString(json, "final_authority") == "") { reason = "MISSING_CONTRACT_AUTHORITY_FIELDS"; return false; }
    if(!JsonBool(json, "payload_valid")) { reason = "INVALID_CONTRACT_PAYLOAD_VALID_FALSE"; return false; }
-   if(JsonNumber(json, "entry_price") <= 0.0 || JsonNumber(json, "lot") <= 0.0) { reason = "INVALID_CONTRACT_PRICE_OR_LOT"; return false; }
+   double entry_price = JsonNumber(json, "entry_price");
+   if(entry_price <= 0.0 || JsonNumber(json, "lot") <= 0.0 || JsonNumber(json, "sequence_id") <= 0.0) { reason = "INVALID_CONTRACT_PRICE_LOT_OR_SEQUENCE"; return false; }
+   datetime heartbeat = (datetime)JsonNumber(json, "heartbeat_unix");
+   int decision_age = (int)(TimeCurrent() - heartbeat);
+   if(heartbeat <= 0 || decision_age < 0 || decision_age > InpMaxDecisionAgeSeconds) { reason = "STALE_DECISION"; return false; }
    bool sl_required = JsonBool(json, "broker_sl_required");
    bool tp_required = JsonBool(json, "broker_tp_required");
-   if(sl_required && JsonNumber(json, "stop_loss") <= 0.0) { reason = "INVALID_CONTRACT_MISSING_SL"; return false; }
-   if(tp_required && JsonNumber(json, "take_profit") <= 0.0) { reason = "INVALID_CONTRACT_MISSING_TP"; return false; }
+   double sl = JsonNumber(json, "stop_loss");
+   double tp = JsonNumber(json, "take_profit");
+   if(sl_required && sl <= 0.0) { reason = "INVALID_CONTRACT_MISSING_SL"; return false; }
+   if(tp_required && tp <= 0.0) { reason = "INVALID_CONTRACT_MISSING_TP"; return false; }
+   if(!sl_required && JsonString(json, "sl_suppression_reason") != "DASHBOARD_BROKER_SL_DISABLED") { reason = "INVALID_CONTRACT_SL_SUPPRESSION"; return false; }
+   if(!tp_required && JsonString(json, "tp_contract_reason") != "DASHBOARD_TP_MANAGED_OR_DISABLED") { reason = "INVALID_CONTRACT_TP_SUPPRESSION"; return false; }
+   if(direction == "BUY" && ((sl_required && sl >= entry_price) || (tp_required && tp <= entry_price))) { reason = "INVALID_BUY_RISK_SIDES"; return false; }
+   if(direction == "SELL" && ((sl_required && sl <= entry_price) || (tp_required && tp >= entry_price))) { reason = "INVALID_SELL_RISK_SIDES"; return false; }
    reason = "EXECUTOR_CONTRACT_PASS";
    return true;
 }

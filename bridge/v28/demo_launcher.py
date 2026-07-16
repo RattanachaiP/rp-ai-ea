@@ -21,7 +21,7 @@ def main() -> None:
     payload["execution_mode"] = "ISOLATED_DEMO"
     payload["live_execution_permitted"] = False
     write_decision(payload, args.output)
-    print(f"DEMO_DECISION_WRITTEN path={args.output} decision={payload['decision']} tier={payload['confidence_tier']}")
+    print(f"DEMO_DECISION_WRITTEN path={args.output} decision={payload['decision']} direction={payload['direction']} reason={payload['reason']}")
 
 
 if __name__ == "__main__":
