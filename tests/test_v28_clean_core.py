@@ -111,18 +111,26 @@ def test_disabled_broker_sl_contract_rejects_any_later_sl_injection():
 
 def test_executor_uses_zero_sl_for_the_disabled_broker_sl_contract():
     executor = (Path(__file__).resolve().parents[1] / "mt5/v28/RP_AI_Executor_V28_CleanCore.mq5").read_text(encoding="utf-8")
-    assert 'double sl = 0.0;' in executor
-    assert "g_trade.Buy(lot, symbol, 0.0, sl, tp, comment)" in executor
-    assert "g_trade.Sell(lot, symbol, 0.0, sl, tp, comment)" in executor
+    assert "g_trade.Buy(lot, symbol, 0, 0, tp, comment)" in executor
+    assert "g_trade.Sell(lot, symbol, 0, 0, tp, comment)" in executor
+    assert "PositionModify(" not in executor
 
 
 def test_executor_reads_the_live_common_decision_payload_and_maps_action():
     executor = (Path(__file__).resolve().parents[1] / "mt5/v28/RP_AI_Executor_V28_CleanCore.mq5").read_text(encoding="utf-8")
-    assert 'input string InpDecisionFile = "decision.json";' in executor
+    assert '"RP_AI_EA\\\\shared\\\\XAUUSD\\\\decision.json",' in executor
+    assert "FILE_READ | FILE_TXT | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE" in executor
+    assert "while(!FileIsEnding(handle)) payload += FileReadString(handle)" in executor
+    assert "TrimDecisionPayload(payload)" in executor
+    assert "IsStructurallyValidJson(payload)" in executor
+    assert "DECISION_FILE_OPEN_FAIL | error=" in executor
+    assert "DECISION_FILE_EMPTY" in executor
+    assert "DECISION_JSON_PARSE_FAIL | payload=" in executor
+    assert "DECISION_PAYLOAD_OK | decision=" in executor
     assert 'JsonString(json, "action", JsonString(json, "direction"))' in executor
-    assert 'if(!JsonBool(json, "entry_allowed")) { reason = "ENTRY_NOT_ALLOWED"; return false; }' in executor
-    assert 'if(!JsonBool(json, "market_state_fresh")) { reason = "STALE_MARKET_STATE"; return false; }' in executor
-    assert 'if(JsonString(json, "schema_version") != "V28_EXECUTABLE_PAYLOAD_1")' not in executor
+    assert 'if(decision != "TRADE" || !entry_allowed) return;' in executor
+    assert "MARKET_STATE_FILE" not in executor
+    assert "Dashboard" not in executor
 
 
 def test_zero_broker_sl_profile_is_active_with_profile_f_as_baseline():
