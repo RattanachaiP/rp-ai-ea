@@ -1,7 +1,7 @@
 {
   "schema_version": "V28_DASHBOARD_CONTRACT_1",
   "trade_enabled": true,
-  "active_profile": "Profile_F_MARKET_CLOSE_ONLY",
+  "active_profile": "ZERO_BROKER_SL_VALIDATION",
   "validation_baseline_profile": "Profile_F_MARKET_CLOSE_ONLY",
   "management_mode": "DASHBOARD_MANAGED",
   "point": 0.01,
