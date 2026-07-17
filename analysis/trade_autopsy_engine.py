@@ -13,6 +13,13 @@ LOSS_BUCKETS = {
     "BB_MIDDLE_ROTATION", "PROFIT_NOT_PROTECTED", "EXIT_TOO_LATE", "SL_TOO_WIDE", "RUNNER_FAILED",
     "THESIS_DECAY", "MOMENTUM_FADED", "EXECUTION_DELAY", "SPREAD_OR_SLIPPAGE", "UNKNOWN",
 }
+# V28's mandatory loss taxonomy.  The older, more granular buckets remain in
+# ``autopsy_primary_reason`` for diagnosis, but every losing trade is also
+# assigned exactly one of these decision-engine categories.
+LOSS_CLASSIFICATIONS = {
+    "DIRECTION_ERROR", "ENTRY_LOCATION_ERROR", "RISK_GEOMETRY_ERROR",
+    "EXIT_ERROR", "DECISION_LOGIC_ERROR",
+}
 WIN_BUCKETS = {
     "CLEAN_TREND_CAPTURE", "SCALP_CAPTURE", "RUNNER_CAPTURE", "PULLBACK_RESUMPTION_SUCCESS",
     "PROFIT_LOCK_SUCCESS", "FAST_EXIT_SUCCESS", "SHADOW_AVOIDED", "OTHER_WIN",
@@ -28,6 +35,8 @@ AUTOPSY_FIELDS = [
     "profit_given_back", "shadow_direction", "shadow_MFE", "shadow_MAE", "shadow_estimated_profit",
     "original_vs_opposite_profit", "would_opposite_have_won", "autopsy_primary_reason", "autopsy_secondary_reason",
     "autopsy_confidence", "evidence_fields_used", "autopsy_result_bucket",
+    "loss_classification", "direction_accuracy", "entry_quality", "exit_efficiency",
+    "net_expectancy_contribution",
 ]
 
 
@@ -223,6 +232,51 @@ def classify(rec):
     rec["autopsy_confidence"] = round(confidence, 2)
     rec["evidence_fields_used"] = "|".join(evidence)
     rec["autopsy_result_bucket"] = "LOSS" if profit < 0 else "WIN" if profit > 0 else "FLAT"
+    _add_v28_required_metrics(rec)
+
+
+def _add_v28_required_metrics(rec):
+    """Attach the V28 completed-trade metrics without changing live decisions.
+
+    ``net_expectancy_contribution`` is the closed P/L contribution of one
+    trade.  The mean of this field over a cohort is that cohort's expectancy;
+    keeping it per trade makes capital-damage rankings additive and auditable.
+    """
+    profit = rec["realized_profit"]
+    mfe = rec["MFE"]
+    primary = rec["autopsy_primary_reason"]
+    secondary = rec["autopsy_secondary_reason"]
+
+    rec["direction_accuracy"] = (
+        "INCORRECT" if rec["would_opposite_have_won"] or rec["original_vs_opposite_profit"] < 0
+        else "CORRECT" if profit > 0
+        else "UNKNOWN"
+    )
+    rec["entry_quality"] = (
+        "POOR" if primary in {"EXHAUSTION_ENTRY", "COUNTERTREND_ENTRY", "LATE_ENTRY", "BB_MIDDLE_ROTATION", "CHOP_ENTRY"}
+        else "GOOD" if profit > 0
+        else "UNKNOWN"
+    )
+    # A positive MFE is required before exit capture can be evaluated.  A
+    # losing trade that never turned positive is not an exit-management error.
+    rec["exit_efficiency"] = round(max(profit, 0.0) / mfe, 3) if mfe > 0 else None
+    rec["net_expectancy_contribution"] = round(profit, 2)
+
+    if profit >= 0:
+        rec["loss_classification"] = "NOT_A_LOSS"
+    elif rec["direction_accuracy"] == "INCORRECT":
+        rec["loss_classification"] = "DIRECTION_ERROR"
+    elif rec["entry_quality"] == "POOR":
+        rec["loss_classification"] = "ENTRY_LOCATION_ERROR"
+    elif primary == "SL_TOO_WIDE":
+        rec["loss_classification"] = "RISK_GEOMETRY_ERROR"
+    elif primary == "PROFIT_NOT_PROTECTED" or secondary == "PROFIT_NOT_PROTECTED":
+        rec["loss_classification"] = "EXIT_ERROR"
+    else:
+        # This is intentionally a diagnosis, not a runtime gate.  It identifies
+        # approvals that lack evidence for direction, location, geometry, or
+        # post-entry exit failure and must be investigated at the score logic.
+        rec["loss_classification"] = "DECISION_LOGIC_ERROR"
 
 
 def blank_summary(day):
@@ -253,6 +307,8 @@ def add_summary(summary, rec):
         summary["MAE_loss_total"] += abs(rec["MAE"])
         summary["loss_bucket_distribution"][rec["autopsy_primary_reason"]] += 1
         summary["loss_bucket_total_damage"][rec["autopsy_primary_reason"]] += p
+        summary.setdefault("loss_classification_distribution", Counter())[rec["loss_classification"]] += 1
+        summary.setdefault("loss_classification_total_damage", defaultdict(float))[rec["loss_classification"]] += p
         summary["late_entry_loss_count"] += int(rec["autopsy_primary_reason"] == "LATE_ENTRY")
         summary["exhaustion_entry_loss_count"] += int(rec["autopsy_primary_reason"] == "EXHAUSTION_ENTRY")
         summary["profit_not_protected_count"] += int(rec["autopsy_primary_reason"] == "PROFIT_NOT_PROTECTED" or rec["autopsy_secondary_reason"] == "PROFIT_NOT_PROTECTED")
@@ -278,9 +334,15 @@ def finalize(summary):
             ({"bucket": k, "damage": round(v, 2)} for k, v in summary["loss_bucket_total_damage"].items()),
             key=lambda item: item["damage"],
         ),
+        "mandatory_loss_classification_ranking_by_capital_damage": sorted(
+            ({"classification": k, "damage": round(v, 2)} for k, v in summary.get("loss_classification_total_damage", {}).items()),
+            key=lambda item: item["damage"],
+        ),
     })
     result["loss_bucket_distribution"] = dict(summary["loss_bucket_distribution"])
     result["loss_bucket_total_damage"] = {k: round(v, 2) for k, v in summary["loss_bucket_total_damage"].items()}
+    result["loss_classification_distribution"] = dict(summary.get("loss_classification_distribution", {}))
+    result["loss_classification_total_damage"] = {k: round(v, 2) for k, v in summary.get("loss_classification_total_damage", {}).items()}
     result["win_bucket_distribution"] = dict(summary["win_bucket_distribution"])
     for k in ("gross_win", "gross_loss", "MFE_total", "realized_positive_total", "MAE_loss_total", "realized_loss_total", "profit_given_back_total"):
         result.pop(k, None)
