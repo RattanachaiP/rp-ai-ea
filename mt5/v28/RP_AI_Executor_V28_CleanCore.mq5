@@ -2,7 +2,7 @@
 //| RP AI Executor V28 -- minimum execution path                    |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "28.02"
+#property version   "28.03"
 #property description "V28 executor: direct Common Files decision payload execution."
 
 #include <Trade/Trade.mqh>
@@ -154,12 +154,95 @@ bool IsStructurallyValidJson(const string json)
    return position == StringLen(json);
 }
 
+bool AppendUnicodeCodePoint(string &text, const uint code_point)
+{
+   if(code_point > 0x10FFFF || (code_point >= 0xD800 && code_point <= 0xDFFF)) return false;
+   if(code_point <= 0xFFFF)
+   {
+      text += CharToString((ushort)code_point);
+      return true;
+   }
+
+   uint value = code_point - 0x10000;
+   text += CharToString((ushort)(0xD800 + (value >> 10)));
+   text += CharToString((ushort)(0xDC00 + (value & 0x3FF)));
+   return true;
+}
+
+bool DecodeUtf8(const uchar &bytes[], const int start, string &text)
+{
+   text = "";
+   int length = ArraySize(bytes);
+   for(int index = start; index < length;)
+   {
+      uint code_point = 0;
+      int continuation_count = 0;
+      uchar first = bytes[index++];
+      if(first < 0x80) code_point = first;
+      else if(first >= 0xC2 && first <= 0xDF) { code_point = first & 0x1F; continuation_count = 1; }
+      else if(first >= 0xE0 && first <= 0xEF) { code_point = first & 0x0F; continuation_count = 2; }
+      else if(first >= 0xF0 && first <= 0xF4) { code_point = first & 0x07; continuation_count = 3; }
+      else return false;
+
+      if(index + continuation_count > length) return false;
+      for(int count = 0; count < continuation_count; count++)
+      {
+         uchar next = bytes[index++];
+         if((next & 0xC0) != 0x80) return false;
+         code_point = (code_point << 6) | (next & 0x3F);
+      }
+      if((continuation_count == 2 && code_point < 0x800) ||
+         (continuation_count == 3 && code_point < 0x10000) ||
+         !AppendUnicodeCodePoint(text, code_point)) return false;
+   }
+   return true;
+}
+
+bool DecodeUtf16(const uchar &bytes[], const int start, const bool little_endian, string &text)
+{
+   text = "";
+   int length = ArraySize(bytes);
+   if((length - start) % 2 != 0) return false;
+   for(int index = start; index < length; index += 2)
+   {
+      ushort unit = little_endian ? (ushort)(bytes[index] | (bytes[index + 1] << 8))
+                                  : (ushort)((bytes[index] << 8) | bytes[index + 1]);
+      if(unit >= 0xD800 && unit <= 0xDBFF)
+      {
+         if(index + 3 >= length) return false;
+         ushort low = little_endian ? (ushort)(bytes[index + 2] | (bytes[index + 3] << 8))
+                                    : (ushort)((bytes[index + 2] << 8) | bytes[index + 3]);
+         if(low < 0xDC00 || low > 0xDFFF) return false;
+         uint code_point = 0x10000 + (((uint)unit - 0xD800) << 10) + ((uint)low - 0xDC00);
+         if(!AppendUnicodeCodePoint(text, code_point)) return false;
+         index += 2;
+      }
+      else if(unit >= 0xDC00 && unit <= 0xDFFF) return false;
+      else text += CharToString(unit);
+   }
+   return true;
+}
+
+bool DecodeDecisionPayload(const uchar &bytes[], string &payload)
+{
+   int length = ArraySize(bytes);
+   if(length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+      return DecodeUtf8(bytes, 3, payload);
+   if(length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
+      return DecodeUtf16(bytes, 2, true, payload);
+   if(length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
+      return DecodeUtf16(bytes, 2, false, payload);
+
+   // decision.json is UTF-8 when no byte-order mark is present.
+   return DecodeUtf8(bytes, 0, payload);
+}
+
 bool ReadDecisionPayload(string &payload)
 {
    ResetLastError();
    int handle = FileOpen(
       "RP_AI_EA\\shared\\XAUUSD\\decision.json",
-      FILE_READ | FILE_TXT | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE
+      FILE_READ | FILE_BIN | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE
    );
    if(handle == INVALID_HANDLE)
    {
@@ -167,9 +250,23 @@ bool ReadDecisionPayload(string &payload)
       return false;
    }
 
-   payload = "";
-   while(!FileIsEnding(handle)) payload += FileReadString(handle) + "\n";
+   long file_size = FileSize(handle);
+   if(file_size <= 0 || file_size > 1048576)
+   {
+      FileClose(handle);
+      Print(file_size == 0 ? "DECISION_FILE_EMPTY" : "DECISION_FILE_SIZE_INVALID");
+      return false;
+   }
+
+   uchar bytes[];
+   int bytes_read = FileReadArray(handle, bytes, 0, (int)file_size);
    FileClose(handle);
+   if(bytes_read != (int)file_size || !DecodeDecisionPayload(bytes, payload))
+   {
+      Print("DECISION_PAYLOAD_DECODE_FAIL | bytes_read=", bytes_read, " | file_size=", file_size);
+      return false;
+   }
+
    payload = TrimDecisionPayload(payload);
    if(payload == "") { Print("DECISION_FILE_EMPTY"); return false; }
    if(!IsStructurallyValidJson(payload))
@@ -303,6 +400,7 @@ void OnTick()
    string action = JsonString(json, "action", JsonString(json, "direction"));
    StringToUpper(action);
    bool entry_allowed = JsonBool(json, "entry_allowed");
+   Print(json);
    Print("DECISION_PAYLOAD_OK | decision=", decision, " | action=", action, " | entry_allowed=", entry_allowed);
    if(decision != "TRADE" || !entry_allowed) return;
 
