@@ -2,7 +2,7 @@
 //| RP AI Executor V28 -- minimum execution path                    |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "28.03"
+#property version   "28.04"
 #property description "V28 executor: direct Common Files decision payload execution."
 
 #include <Trade/Trade.mqh>
@@ -10,6 +10,7 @@
 #define DECISION_PATH "RP_AI_EA\\shared\\XAUUSD\\decision.json"
 
 input double InpExposureCapLots           = 1.00;
+input double InpDefaultLot                = 0.01;
 input bool   InpEmergencyDisable          = false;
 input long   InpMagic                     = 2800001;
 
@@ -31,171 +32,6 @@ string TrimDecisionPayload(string payload)
    return StringSubstr(payload, first, last - first + 1);
 }
 
-void SkipJsonWhitespace(const string json, int &position)
-{
-   while(position < StringLen(json))
-   {
-      ushort character = StringGetCharacter(json, position);
-      if(character != ' ' && character != '\t' && character != '\r' && character != '\n') break;
-      position++;
-   }
-}
-
-bool ParseJsonValue(const string json, int &position);
-
-bool ParseJsonString(const string json, int &position)
-{
-   if(position >= StringLen(json) || StringGetCharacter(json, position) != '"') return false;
-   position++;
-   while(position < StringLen(json))
-   {
-      ushort character = StringGetCharacter(json, position++);
-      if(character == '"') return true;
-      if(character < 0x20) return false;
-      if(character != '\\') continue;
-      if(position >= StringLen(json)) return false;
-      ushort escaped = StringGetCharacter(json, position++);
-      if(escaped == '"' || escaped == '\\' || escaped == '/' || escaped == 'b' ||
-         escaped == 'f' || escaped == 'n' || escaped == 'r' || escaped == 't') continue;
-      if(escaped != 'u' || position + 4 > StringLen(json)) return false;
-      for(int index = 0; index < 4; index++)
-      {
-         ushort hex = StringGetCharacter(json, position++);
-         if(!((hex >= '0' && hex <= '9') || (hex >= 'a' && hex <= 'f') ||
-              (hex >= 'A' && hex <= 'F'))) return false;
-      }
-   }
-   return false;
-}
-
-bool ParseJsonNumber(const string json, int &position)
-{
-   int length = StringLen(json);
-   if(position < length && StringGetCharacter(json, position) == '-') position++;
-   int digits_start = position;
-   if(position < length && StringGetCharacter(json, position) == '0') position++;
-   else while(position < length && StringGetCharacter(json, position) >= '1' && StringGetCharacter(json, position) <= '9') position++;
-   if(position == digits_start) return false;
-   if(position < length && StringGetCharacter(json, position) == '.')
-   {
-      position++;
-      int fraction_start = position;
-      while(position < length && StringGetCharacter(json, position) >= '0' && StringGetCharacter(json, position) <= '9') position++;
-      if(position == fraction_start) return false;
-   }
-   if(position < length && (StringGetCharacter(json, position) == 'e' || StringGetCharacter(json, position) == 'E'))
-   {
-      position++;
-      if(position < length && (StringGetCharacter(json, position) == '+' || StringGetCharacter(json, position) == '-')) position++;
-      int exponent_start = position;
-      while(position < length && StringGetCharacter(json, position) >= '0' && StringGetCharacter(json, position) <= '9') position++;
-      if(position == exponent_start) return false;
-   }
-   return true;
-}
-
-bool ParseJsonObject(const string json, int &position)
-{
-   position++;
-   SkipJsonWhitespace(json, position);
-   if(position < StringLen(json) && StringGetCharacter(json, position) == '}') { position++; return true; }
-   while(position < StringLen(json))
-   {
-      if(!ParseJsonString(json, position)) return false;
-      SkipJsonWhitespace(json, position);
-      if(position >= StringLen(json) || StringGetCharacter(json, position++) != ':') return false;
-      SkipJsonWhitespace(json, position);
-      if(!ParseJsonValue(json, position)) return false;
-      SkipJsonWhitespace(json, position);
-      if(position < StringLen(json) && StringGetCharacter(json, position) == '}') { position++; return true; }
-      if(position >= StringLen(json) || StringGetCharacter(json, position++) != ',') return false;
-      SkipJsonWhitespace(json, position);
-   }
-   return false;
-}
-
-bool ParseJsonArray(const string json, int &position)
-{
-   position++;
-   SkipJsonWhitespace(json, position);
-   if(position < StringLen(json) && StringGetCharacter(json, position) == ']') { position++; return true; }
-   while(position < StringLen(json))
-   {
-      if(!ParseJsonValue(json, position)) return false;
-      SkipJsonWhitespace(json, position);
-      if(position < StringLen(json) && StringGetCharacter(json, position) == ']') { position++; return true; }
-      if(position >= StringLen(json) || StringGetCharacter(json, position++) != ',') return false;
-      SkipJsonWhitespace(json, position);
-   }
-   return false;
-}
-
-bool ParseJsonValue(const string json, int &position)
-{
-   SkipJsonWhitespace(json, position);
-   if(position >= StringLen(json)) return false;
-   ushort character = StringGetCharacter(json, position);
-   if(character == '{') return ParseJsonObject(json, position);
-   if(character == '[') return ParseJsonArray(json, position);
-   if(character == '"') return ParseJsonString(json, position);
-   if(character == '-' || (character >= '0' && character <= '9')) return ParseJsonNumber(json, position);
-   string literal = StringSubstr(json, position, 5);
-   if(StringSubstr(literal, 0, 4) == "true") { position += 4; return true; }
-   if(StringSubstr(literal, 0, 5) == "false") { position += 5; return true; }
-   if(StringSubstr(literal, 0, 4) == "null") { position += 4; return true; }
-   return false;
-}
-
-bool ParseDecisionRootObject(const string json, string &parser_error)
-{
-   int position = 0;
-   SkipJsonWhitespace(json, position);
-   if(position >= StringLen(json) || StringGetCharacter(json, position) != '{')
-   {
-      parser_error = "root_value_must_be_object";
-      return false;
-   }
-
-   if(!ParseJsonObject(json, position))
-   {
-      parser_error = StringFormat("invalid_json_at_character_%d", position);
-      return false;
-   }
-
-   SkipJsonWhitespace(json, position);
-   if(position != StringLen(json))
-   {
-      parser_error = StringFormat("unexpected_content_at_character_%d", position);
-      return false;
-   }
-   return true;
-}
-
-string PayloadEdgeHex(const uchar &bytes[], const bool first_edge)
-{
-   int length = ArraySize(bytes);
-   int count = length < 8 ? length : 8;
-   int start = first_edge ? 0 : length - count;
-   string result = "";
-   for(int index = 0; index < count; index++)
-   {
-      if(index > 0) result += " ";
-      result += StringFormat("%02X", bytes[start + index]);
-   }
-   return result;
-}
-
-void PrintPayloadDiagnostics(const string payload, const uchar &bytes[])
-{
-   int length = StringLen(payload);
-   string first_char = length > 0 ? CharToString((ushort)StringGetCharacter(payload, 0)) : "";
-   string last_char = length > 0 ? CharToString((ushort)StringGetCharacter(payload, length - 1)) : "";
-   Print("payload_length=", length);
-   Print("first_char=", first_char);
-   Print("last_char=", last_char);
-   Print("hex(first 8 bytes)=", PayloadEdgeHex(bytes, true));
-   Print("hex(last 8 bytes)=", PayloadEdgeHex(bytes, false));
-}
 
 bool AppendUnicodeCodePoint(string &text, const uint code_point)
 {
@@ -310,61 +146,106 @@ bool ReadDecisionPayload(string &payload)
       return false;
    }
 
-   PrintPayloadDiagnostics(payload, bytes);
    payload = TrimDecisionPayload(payload);
    if(payload == "") { Print("DECISION_FILE_EMPTY"); return false; }
-
-   string parser_error;
-   if(!ParseDecisionRootObject(payload, parser_error))
-   {
-      Print("DECISION_JSON_PARSE_FAIL | parser_error=", parser_error, " | payload_length=", StringLen(payload));
-      return false;
-   }
    return true;
 }
 
-string JsonString(const string json, const string key, const string fallback="")
+bool IsJsonWhitespace(const ushort character)
 {
-   string pattern = "\"" + key + "\"";
-   int pos = StringFind(json, pattern);
-   if(pos < 0) return fallback;
-   int colon = StringFind(json, ":", pos);
-   int first = StringFind(json, "\"", colon + 1);
-   int second = StringFind(json, "\"", first + 1);
-   if(colon < 0 || first < 0 || second < 0) return fallback;
-   return StringSubstr(json, first + 1, second - first - 1);
+   return character == ' ' || character == '\t' || character == '\r' || character == '\n';
 }
 
-double JsonNumber(const string json, const string key, const double fallback=0.0)
+// This is intentionally a field scanner, not a JSON parser.  It only finds a
+// quoted key at root-object depth and never validates unrelated payload data.
+bool FindTopLevelField(const string json, const string key, int &value_start)
 {
-   string pattern = "\"" + key + "\"";
-   int pos = StringFind(json, pattern);
-   if(pos < 0) return fallback;
-   int colon = StringFind(json, ":", pos);
-   if(colon < 0) return fallback;
-   int end = colon + 1;
+   int depth = 0;
+   bool in_string = false;
+   bool escaped = false;
+   int length = StringLen(json);
+   for(int index = 0; index < length; index++)
+   {
+      ushort character = StringGetCharacter(json, index);
+      if(in_string)
+      {
+         if(escaped) { escaped = false; continue; }
+         if(character == '\\') { escaped = true; continue; }
+         if(character != '"') continue;
+         in_string = false;
+         continue;
+      }
+
+      if(character == '"')
+      {
+         if(depth == 1 && StringSubstr(json, index + 1, StringLen(key)) == key &&
+            index + StringLen(key) + 1 < length && StringGetCharacter(json, index + StringLen(key) + 1) == '"')
+         {
+            int colon = index + StringLen(key) + 2;
+            while(colon < length && IsJsonWhitespace(StringGetCharacter(json, colon))) colon++;
+            if(colon < length && StringGetCharacter(json, colon) == ':')
+            {
+               value_start = colon + 1;
+               while(value_start < length && IsJsonWhitespace(StringGetCharacter(json, value_start))) value_start++;
+               return value_start < length;
+            }
+         }
+         in_string = true;
+      }
+      else if(character == '{' || character == '[') depth++;
+      else if(character == '}' || character == ']') depth--;
+   }
+   return false;
+}
+
+bool ReadFieldString(const string json, const string key, string &value)
+{
+   int start = 0;
+   if(!FindTopLevelField(json, key, start) || StringGetCharacter(json, start) != '"') return false;
+   start++;
+   int end = start;
+   bool escaped = false;
    while(end < StringLen(json))
    {
-      ushort ch = StringGetCharacter(json, end);
-      if((ch >= '0' && ch <= '9') || ch == '-' || ch == '.' || ch == 'e' || ch == 'E') end++;
-      else if(ch == ' ' || ch == '\t') end++;
-      else break;
+      ushort character = StringGetCharacter(json, end);
+      if(!escaped && character == '"')
+      {
+         value = StringSubstr(json, start, end - start);
+         return true;
+      }
+      if(!escaped && character == '\\') escaped = true;
+      else escaped = false;
+      end++;
    }
-   return StringToDouble(StringSubstr(json, colon + 1, end - colon - 1));
+   return false;
 }
 
-bool JsonBool(const string json, const string key, const bool fallback=false)
+bool ReadFieldNumber(const string json, const string key, double &value)
 {
-   string pattern = "\"" + key + "\"";
-   int pos = StringFind(json, pattern);
-   if(pos < 0) return fallback;
-   int colon = StringFind(json, ":", pos);
-   if(colon < 0) return fallback;
-   string tail = StringSubstr(json, colon + 1, 8);
-   StringToLower(tail);
-   if(StringFind(tail, "true") >= 0) return true;
-   if(StringFind(tail, "false") >= 0) return false;
-   return fallback;
+   int start = 0;
+   if(!FindTopLevelField(json, key, start)) return false;
+   int end = start;
+   while(end < StringLen(json))
+   {
+      ushort character = StringGetCharacter(json, end);
+      if((character >= '0' && character <= '9') || character == '-' || character == '+' ||
+         character == '.' || character == 'e' || character == 'E') end++;
+      else break;
+   }
+   if(end == start) return false;
+   value = StringToDouble(StringSubstr(json, start, end - start));
+   return true;
+}
+
+bool ReadFieldBool(const string json, const string key, bool &value)
+{
+   int start = 0;
+   if(!FindTopLevelField(json, key, start)) return false;
+   string literal = StringSubstr(json, start, 5);
+   StringToLower(literal);
+   if(StringSubstr(literal, 0, 4) == "true") { value = true; return true; }
+   if(literal == "false") { value = false; return true; }
+   return false;
 }
 
 bool ValidLot(const string symbol, const double lot, string &reason)
@@ -442,38 +323,59 @@ void OnTick()
    string json;
    if(!ReadDecisionPayload(json)) return;
 
-   string decision = JsonString(json, "decision");
-   string action = JsonString(json, "action", JsonString(json, "direction"));
+   string decision = "";
+   if(!ReadFieldString(json, "decision", decision))
+   {
+      Print("DECISION_REQUIRED_FIELD_MISSING | field=decision");
+      return;
+   }
+
+   string action = "";
+   if(!ReadFieldString(json, "action", action))
+      if(!ReadFieldString(json, "direction", action))
+         ReadFieldString(json, "bias", action);
    StringToUpper(action);
-   bool entry_allowed = JsonBool(json, "entry_allowed");
-   double lot = JsonNumber(json, "lot");
-   Print("DECISION_PAYLOAD_OK");
-   Print("decision=", decision);
-   Print("action=", action);
-   Print("entry_allowed=", entry_allowed);
-   Print("lot=", lot);
-   if(decision != "TRADE" || !entry_allowed) return;
+   bool entry_allowed = false;
+   ReadFieldBool(json, "entry_allowed", entry_allowed);
+
+   double lot = InpDefaultLot;
+   ReadFieldNumber(json, "lot", lot);
+   double tp = 0.0;
+   if(!ReadFieldNumber(json, "take_profit", tp))
+      if(!ReadFieldNumber(json, "tp", tp))
+         ReadFieldNumber(json, "tp1", tp);
+
+   PrintFormat("DECISION_FIELDS_OK | decision=%s | action=%s | entry_allowed=%s | lot=%s | tp=%s",
+               decision, action, entry_allowed ? "true" : "false", DoubleToString(lot, 2), DoubleToString(tp, _Digits));
+   if(decision != "TRADE" || !entry_allowed)
+   {
+      PrintFormat("DECISION_SKIP | decision=%s | entry_allowed=%s | action=%s",
+                  decision, entry_allowed ? "true" : "false", action);
+      return;
+   }
 
    if(action != "BUY" && action != "SELL") { Print("INVALID_ACTION"); return; }
 
    string reason;
-   string symbol = JsonString(json, "symbol", _Symbol);
+   string symbol = _Symbol;
    if(!BrokerSafetyPass(symbol, action, lot, reason)) { Print(reason); return; }
 
-   double tp = JsonNumber(json, "take_profit", JsonNumber(json, "tp", JsonNumber(json, "tp1")));
-   string trade_uuid = JsonString(json, "trade_uuid");
-   string comment = trade_uuid == "" ? "RP_V28" : StringSubstr(trade_uuid, 0, 24);
+   string comment = "RP_V28";
    g_trade.SetExpertMagicNumber(InpMagic);
 
    // SL is permanently disabled.  This executor never modifies a position.
+   PrintFormat("ORDER_SEND_ATTEMPT | side=%s | lot=%s | sl=0 | tp=%s",
+               action, DoubleToString(lot, 2), DoubleToString(tp, _Digits));
+   ResetLastError();
+   bool sent = false;
    if(action == "BUY")
-   {
-      if(g_trade.Buy(lot, symbol, 0, 0, tp, comment)) Print("ORDER_SEND_OK ticket=", g_trade.ResultOrder());
-      else Print("ORDER_SEND_FAIL retcode=", g_trade.ResultRetcode(), " description=", g_trade.ResultRetcodeDescription());
-   }
+      sent = g_trade.Buy(lot, symbol, 0.0, 0.0, tp, comment);
    else
-   {
-      if(g_trade.Sell(lot, symbol, 0, 0, tp, comment)) Print("ORDER_SEND_OK ticket=", g_trade.ResultOrder());
-      else Print("ORDER_SEND_FAIL retcode=", g_trade.ResultRetcode(), " description=", g_trade.ResultRetcodeDescription());
-   }
+      sent = g_trade.Sell(lot, symbol, 0.0, 0.0, tp, comment);
+
+   if(sent)
+      PrintFormat("ORDER_SEND_OK | ticket=%I64u | side=%s | sl=0", g_trade.ResultOrder(), action);
+   else
+      PrintFormat("ORDER_SEND_FAIL | retcode=%u | description=%s | last_error=%d",
+                  g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription(), GetLastError());
 }
