@@ -8,7 +8,10 @@
 
 #include <Trade/Trade.mqh>
 
-input string InpDecisionFile = "decision_v28.json";
+// The active decision writer publishes to the terminal common-files
+// decision.json.  Reading the old isolated V28 shadow filename meant OnTick
+// returned before it ever parsed the live TRADE payload.
+input string InpDecisionFile = "decision.json";
 input int    InpMaxDecisionAgeSeconds = 15;
 input int    InpMaxSpreadPoints = 250;
 input long   InpMagic = 2800001;
@@ -93,29 +96,32 @@ bool BrokerSafetyPass(const string symbol, string &reason)
 
 bool ContractPass(const string json, string &reason)
 {
-   if(JsonString(json, "schema_version") != "V28_EXECUTABLE_PAYLOAD_1") { reason = "INVALID_SCHEMA"; return false; }
    if(JsonString(json, "decision") != "TRADE") { reason = "NO_TRADE_PAYLOAD"; return false; }
-   string direction = JsonString(json, "direction");
+   // The production writer's executable direction is action.  direction is
+   // retained for the isolated V28 payload, so accept it only as a fallback.
+   string direction = JsonString(json, "action", JsonString(json, "direction"));
+   StringToUpper(direction);
    if(direction != "BUY" && direction != "SELL") { reason = "INVALID_CONTRACT_DIRECTION"; return false; }
-   if(JsonString(json, "bias") != direction) { reason = "INVALID_CONTRACT_BIAS"; return false; }
-   if(JsonString(json, "dashboard_profile") == "" || JsonString(json, "management_mode") == "" || JsonString(json, "final_authority") == "") { reason = "MISSING_CONTRACT_AUTHORITY_FIELDS"; return false; }
-   if(!JsonBool(json, "payload_valid")) { reason = "INVALID_CONTRACT_PAYLOAD_VALID_FALSE"; return false; }
-   double entry_price = JsonNumber(json, "entry_price");
-   if(entry_price <= 0.0 || JsonNumber(json, "lot") <= 0.0 || JsonNumber(json, "sequence_id") <= 0.0) { reason = "INVALID_CONTRACT_PRICE_LOT_OR_SEQUENCE"; return false; }
+   string bias = JsonString(json, "bias", direction);
+   StringToUpper(bias);
+   if(bias != direction) { reason = "INVALID_CONTRACT_BIAS"; return false; }
+   if(!JsonBool(json, "entry_allowed")) { reason = "ENTRY_NOT_ALLOWED"; return false; }
+   if(!JsonBool(json, "allowed")) { reason = "TRADE_NOT_ALLOWED"; return false; }
+   if(!JsonBool(json, "market_state_fresh")) { reason = "STALE_MARKET_STATE"; return false; }
+   string execution_state = JsonString(json, "execution_state", "EXECUTE_NORMAL");
+   StringToUpper(execution_state);
+   if(execution_state != "EXECUTE_NORMAL" && execution_state != "EXECUTE_AGGRESSIVE" && execution_state != "EXECUTE_CAUTIOUS") { reason = "NON_EXECUTABLE_STATE"; return false; }
+   if(!JsonBool(json, "payload_valid", true)) { reason = "INVALID_CONTRACT_PAYLOAD_VALID_FALSE"; return false; }
+   double lot = JsonNumber(json, "lot", JsonNumber(json, "position_size"));
+   if(lot <= 0.0) { reason = "INVALID_CONTRACT_LOT"; return false; }
    datetime heartbeat = (datetime)JsonNumber(json, "heartbeat_unix");
-   int decision_age = (int)(TimeCurrent() - heartbeat);
-   if(heartbeat <= 0 || decision_age < 0 || decision_age > InpMaxDecisionAgeSeconds) { reason = "STALE_DECISION"; return false; }
-   bool sl_required = JsonBool(json, "broker_sl_required");
-   bool tp_required = JsonBool(json, "broker_tp_required");
-   double sl = JsonNumber(json, "stop_loss");
-   double tp = JsonNumber(json, "take_profit");
-   if(sl_required && sl <= 0.0) { reason = "INVALID_CONTRACT_MISSING_SL"; return false; }
-   if(tp_required && tp <= 0.0) { reason = "INVALID_CONTRACT_MISSING_TP"; return false; }
-   if(!sl_required && JsonString(json, "sl_suppression_reason") != "DASHBOARD_BROKER_SL_DISABLED") { reason = "INVALID_CONTRACT_SL_SUPPRESSION"; return false; }
-   if(!sl_required && sl != 0.0) { reason = "INVALID_CONTRACT_DISABLED_SL_MUST_BE_ZERO"; return false; }
-   if(!tp_required && JsonString(json, "tp_contract_reason") != "DASHBOARD_TP_MANAGED_OR_DISABLED") { reason = "INVALID_CONTRACT_TP_SUPPRESSION"; return false; }
-   if(direction == "BUY" && ((sl_required && sl >= entry_price) || (tp_required && tp <= entry_price))) { reason = "INVALID_BUY_RISK_SIDES"; return false; }
-   if(direction == "SELL" && ((sl_required && sl <= entry_price) || (tp_required && tp >= entry_price))) { reason = "INVALID_SELL_RISK_SIDES"; return false; }
+   if(heartbeat > 0)
+   {
+      int decision_age = (int)(TimeCurrent() - heartbeat);
+      if(decision_age < 0 || decision_age > InpMaxDecisionAgeSeconds) { reason = "STALE_DECISION"; return false; }
+   }
+   // Validation is intentionally zero broker-SL.  Do not require legacy V28
+   // schema/authority/risk-package fields before sending a valid live intent.
    reason = "EXECUTOR_CONTRACT_PASS";
    return true;
 }
@@ -133,12 +139,13 @@ void OnTick()
    string symbol = JsonString(json, "symbol", _Symbol);
    if(!BrokerSafetyPass(symbol, reason)) { Print(reason); return; }
 
-   string direction = JsonString(json, "direction");
-   double lot = JsonNumber(json, "lot");
+   string direction = JsonString(json, "action", JsonString(json, "direction"));
+   StringToUpper(direction);
+   double lot = JsonNumber(json, "lot", JsonNumber(json, "position_size"));
    // A disabled broker SL is an explicit OrderSend invariant, not merely a
    // validation exception: no executor stage may restore or inject an SL.
-   double sl = JsonBool(json, "broker_sl_required") ? JsonNumber(json, "stop_loss") : 0.0;
-   double tp = JsonNumber(json, "take_profit");
+   double sl = 0.0;
+   double tp = JsonNumber(json, "take_profit", JsonNumber(json, "tp", JsonNumber(json, "tp1")));
    g_trade.SetExpertMagicNumber(InpMagic);
    string comment = trade_uuid == "" ? "RP_V28" : StringSubstr(trade_uuid, 0, 24);
    Print("EXECUTOR_CONTRACT_SNAPSHOT | trade_uuid=", trade_uuid, " | decision=", JsonString(json, "decision"), " | sl=", sl, " | tp=", tp, " | order_send_attempt=true");

@@ -111,10 +111,18 @@ def test_disabled_broker_sl_contract_rejects_any_later_sl_injection():
 
 def test_executor_uses_zero_sl_for_the_disabled_broker_sl_contract():
     executor = (Path(__file__).resolve().parents[1] / "mt5/v28/RP_AI_Executor_V28_CleanCore.mq5").read_text(encoding="utf-8")
-    assert 'if(!sl_required && sl != 0.0) { reason = "INVALID_CONTRACT_DISABLED_SL_MUST_BE_ZERO"; return false; }' in executor
-    assert 'double sl = JsonBool(json, "broker_sl_required") ? JsonNumber(json, "stop_loss") : 0.0;' in executor
+    assert 'double sl = 0.0;' in executor
     assert "g_trade.Buy(lot, symbol, 0.0, sl, tp, comment)" in executor
     assert "g_trade.Sell(lot, symbol, 0.0, sl, tp, comment)" in executor
+
+
+def test_executor_reads_the_live_common_decision_payload_and_maps_action():
+    executor = (Path(__file__).resolve().parents[1] / "mt5/v28/RP_AI_Executor_V28_CleanCore.mq5").read_text(encoding="utf-8")
+    assert 'input string InpDecisionFile = "decision.json";' in executor
+    assert 'JsonString(json, "action", JsonString(json, "direction"))' in executor
+    assert 'if(!JsonBool(json, "entry_allowed")) { reason = "ENTRY_NOT_ALLOWED"; return false; }' in executor
+    assert 'if(!JsonBool(json, "market_state_fresh")) { reason = "STALE_MARKET_STATE"; return false; }' in executor
+    assert 'if(JsonString(json, "schema_version") != "V28_EXECUTABLE_PAYLOAD_1")' not in executor
 
 
 def test_zero_broker_sl_profile_is_active_with_profile_f_as_baseline():
