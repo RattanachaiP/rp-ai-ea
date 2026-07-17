@@ -1,20 +1,20 @@
 //+------------------------------------------------------------------+
-//| RP AI Executor V28 Clean Core                                    |
-//| Strategy-free executor contract example for V28.                 |
+//| RP AI Executor V28 -- minimum execution path                    |
 //+------------------------------------------------------------------+
 #property strict
-#property version "28.00"
-#property description "V28 clean executor: validates payload contract, broker safety, then OrderSend. No legacy strategy gates."
+#property version   "28.01"
+#property description "V28 executor: decision.json + market_state.json + broker safety only."
 
 #include <Trade/Trade.mqh>
 
-// The active decision writer publishes to the terminal common-files
-// decision.json.  Reading the old isolated V28 shadow filename meant OnTick
-// returned before it ever parsed the live TRADE payload.
-input string InpDecisionFile = "decision.json";
-input int    InpMaxDecisionAgeSeconds = 15;
-input int    InpMaxSpreadPoints = 250;
-input long   InpMagic = 2800001;
+// Both files are intentionally read from the MT5 Common Files directory.
+#define DECISION_FILE     "decision.json"
+#define MARKET_STATE_FILE "market_state.json"
+
+input int    InpMaxMarketStateAgeSeconds = 15;
+input double InpExposureCapLots           = 1.00;
+input bool   InpEmergencyDisable          = false;
+input long   InpMagic                     = 2800001;
 
 CTrade g_trade;
 
@@ -22,6 +22,7 @@ string ReadCommonFile(const string file_name)
 {
    int handle = FileOpen(file_name, FILE_READ | FILE_TXT | FILE_COMMON | FILE_ANSI);
    if(handle == INVALID_HANDLE) return "";
+
    string text = "";
    while(!FileIsEnding(handle)) text += FileReadString(handle) + "\n";
    FileClose(handle);
@@ -72,17 +73,58 @@ bool JsonBool(const string json, const string key, const bool fallback=false)
    return fallback;
 }
 
-bool BrokerSafetyPass(const string symbol, string &reason)
+bool MarketStateFresh(string &reason)
 {
-   if(!SymbolInfoInteger(symbol, SYMBOL_SELECT) && !SymbolSelect(symbol, true))
+   string market = ReadCommonFile(MARKET_STATE_FILE);
+   if(market == "") { reason = "MARKET_STATE_UNREADABLE"; return false; }
+   if(!JsonBool(market, "market_state_fresh", true)) { reason = "STALE_MARKET_STATE"; return false; }
+
+   datetime heartbeat = (datetime)JsonNumber(market, "heartbeat_unix");
+   int age = (int)(TimeCurrent() - heartbeat);
+   if(heartbeat <= 0 || age < 0 || age > InpMaxMarketStateAgeSeconds)
    {
-      reason = "BROKER_SYMBOL_UNAVAILABLE";
+      reason = "STALE_MARKET_STATE";
       return false;
    }
-   long spread = SymbolInfoInteger(symbol, SYMBOL_SPREAD);
-   if(spread > InpMaxSpreadPoints)
+   return true;
+}
+
+bool ValidLot(const string symbol, const double lot, string &reason)
+{
+   double minimum = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
+   double maximum = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MAX);
+   double step = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
+   if(lot < minimum || lot > maximum || step <= 0.0)
    {
-      reason = "BROKER_ABNORMAL_SPREAD";
+      reason = "INVALID_LOT";
+      return false;
+   }
+   double steps = (lot - minimum) / step;
+   if(MathAbs(steps - MathRound(steps)) > 0.0000001)
+   {
+      reason = "INVALID_LOT_STEP";
+      return false;
+   }
+   return true;
+}
+
+double CurrentExposureLots(const string symbol)
+{
+   double exposure = 0.0;
+   for(int index = PositionsTotal() - 1; index >= 0; --index)
+   {
+      ulong ticket = PositionGetTicket(index);
+      if(ticket > 0 && PositionGetString(POSITION_SYMBOL) == symbol)
+         exposure += PositionGetDouble(POSITION_VOLUME);
+   }
+   return exposure;
+}
+
+bool BrokerSafetyPass(const string symbol, const string action, const double lot, string &reason)
+{
+   if(symbol == "" || symbol != _Symbol || !SymbolSelect(symbol, true))
+   {
+      reason = "INVALID_SYMBOL";
       return false;
    }
    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED))
@@ -90,67 +132,65 @@ bool BrokerSafetyPass(const string symbol, string &reason)
       reason = "BROKER_TRADING_DISABLED";
       return false;
    }
-   reason = "BROKER_SAFETY_PASS";
-   return true;
-}
-
-bool ContractPass(const string json, string &reason)
-{
-   if(JsonString(json, "decision") != "TRADE") { reason = "NO_TRADE_PAYLOAD"; return false; }
-   // The production writer's executable direction is action.  direction is
-   // retained for the isolated V28 payload, so accept it only as a fallback.
-   string direction = JsonString(json, "action", JsonString(json, "direction"));
-   StringToUpper(direction);
-   if(direction != "BUY" && direction != "SELL") { reason = "INVALID_CONTRACT_DIRECTION"; return false; }
-   string bias = JsonString(json, "bias", direction);
-   StringToUpper(bias);
-   if(bias != direction) { reason = "INVALID_CONTRACT_BIAS"; return false; }
-   if(!JsonBool(json, "entry_allowed")) { reason = "ENTRY_NOT_ALLOWED"; return false; }
-   if(!JsonBool(json, "allowed")) { reason = "TRADE_NOT_ALLOWED"; return false; }
-   if(!JsonBool(json, "market_state_fresh")) { reason = "STALE_MARKET_STATE"; return false; }
-   string execution_state = JsonString(json, "execution_state", "EXECUTE_NORMAL");
-   StringToUpper(execution_state);
-   if(execution_state != "EXECUTE_NORMAL" && execution_state != "EXECUTE_AGGRESSIVE" && execution_state != "EXECUTE_CAUTIOUS") { reason = "NON_EXECUTABLE_STATE"; return false; }
-   if(!JsonBool(json, "payload_valid", true)) { reason = "INVALID_CONTRACT_PAYLOAD_VALID_FALSE"; return false; }
-   double lot = JsonNumber(json, "lot", JsonNumber(json, "position_size"));
-   if(lot <= 0.0) { reason = "INVALID_CONTRACT_LOT"; return false; }
-   datetime heartbeat = (datetime)JsonNumber(json, "heartbeat_unix");
-   if(heartbeat > 0)
+   if(!ValidLot(symbol, lot, reason)) return false;
+   if(InpExposureCapLots <= 0.0 || CurrentExposureLots(symbol) + lot > InpExposureCapLots)
    {
-      int decision_age = (int)(TimeCurrent() - heartbeat);
-      if(decision_age < 0 || decision_age > InpMaxDecisionAgeSeconds) { reason = "STALE_DECISION"; return false; }
+      reason = "EXPOSURE_CAP_EXCEEDED";
+      return false;
    }
-   // Validation is intentionally zero broker-SL.  Do not require legacy V28
-   // schema/authority/risk-package fields before sending a valid live intent.
-   reason = "EXECUTOR_CONTRACT_PASS";
+
+   MqlTick tick;
+   if(!SymbolInfoTick(symbol, tick))
+   {
+      reason = "BROKER_TICK_UNAVAILABLE";
+      return false;
+   }
+   double margin = 0.0;
+   ENUM_ORDER_TYPE order_type = action == "BUY" ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
+   double price = action == "BUY" ? tick.ask : tick.bid;
+   if(!OrderCalcMargin(order_type, symbol, lot, price, margin) || margin <= 0.0 ||
+      AccountInfoDouble(ACCOUNT_FREEMARGIN) < margin)
+   {
+      reason = "INSUFFICIENT_MARGIN";
+      return false;
+   }
    return true;
 }
 
 void OnTick()
 {
-   string json = ReadCommonFile(InpDecisionFile);
-   if(json == "") return;
+   if(InpEmergencyDisable) { Print("EMERGENCY_DISABLE_ACTIVE"); return; }
+
+   string json = ReadCommonFile(DECISION_FILE);
+   if(json == "") { Print("DECISION_PAYLOAD_UNREADABLE"); return; }
+   if(JsonString(json, "decision") != "TRADE") return;
+   if(!JsonBool(json, "entry_allowed")) return;
+
+   string action = JsonString(json, "action");
+   StringToUpper(action);
+   if(action != "BUY" && action != "SELL") { Print("INVALID_ACTION"); return; }
+
    string reason;
-   if(!ContractPass(json, reason)) { Print(reason); return; }
-   string trade_uuid = JsonString(json, "trade_uuid", "");
-   Print("EXECUTOR_CONTRACT_SNAPSHOT | trade_uuid=", trade_uuid, " | decision=", JsonString(json, "decision"), " | sl=", JsonNumber(json, "stop_loss"), " | tp=", JsonNumber(json, "take_profit"), " | order_send_attempt=false");
-   Print("EXECUTOR_CONTRACT_PASS profile=", JsonString(json, "dashboard_profile"), " mode=", JsonString(json, "management_mode"));
+   if(!MarketStateFresh(reason)) { Print(reason); return; }
 
-   string symbol = JsonString(json, "symbol", _Symbol);
-   if(!BrokerSafetyPass(symbol, reason)) { Print(reason); return; }
-
-   string direction = JsonString(json, "action", JsonString(json, "direction"));
-   StringToUpper(direction);
+   string symbol = JsonString(json, "symbol");
    double lot = JsonNumber(json, "lot", JsonNumber(json, "position_size"));
-   // A disabled broker SL is an explicit OrderSend invariant, not merely a
-   // validation exception: no executor stage may restore or inject an SL.
-   double sl = 0.0;
+   if(!BrokerSafetyPass(symbol, action, lot, reason)) { Print(reason); return; }
+
    double tp = JsonNumber(json, "take_profit", JsonNumber(json, "tp", JsonNumber(json, "tp1")));
-   g_trade.SetExpertMagicNumber(InpMagic);
+   string trade_uuid = JsonString(json, "trade_uuid");
    string comment = trade_uuid == "" ? "RP_V28" : StringSubstr(trade_uuid, 0, 24);
-   Print("EXECUTOR_CONTRACT_SNAPSHOT | trade_uuid=", trade_uuid, " | decision=", JsonString(json, "decision"), " | sl=", sl, " | tp=", tp, " | order_send_attempt=true");
-   Print("ORDER_SEND_ATTEMPT direction=", direction, " lot=", lot, " sl=", sl, " tp=", tp, " comment=", comment);
-   bool ok = direction == "BUY" ? g_trade.Buy(lot, symbol, 0.0, sl, tp, comment) : g_trade.Sell(lot, symbol, 0.0, sl, tp, comment);
-   if(ok) Print("ORDER_SEND_OK ticket=", g_trade.ResultOrder());
-   else Print("ORDER_SEND_FAIL retcode=", g_trade.ResultRetcode(), " description=", g_trade.ResultRetcodeDescription());
+   g_trade.SetExpertMagicNumber(InpMagic);
+
+   // SL is permanently disabled.  This executor never modifies a position.
+   if(action == "BUY")
+   {
+      if(g_trade.Buy(lot, symbol, 0, 0, tp, comment)) Print("ORDER_SEND_OK ticket=", g_trade.ResultOrder());
+      else Print("ORDER_SEND_FAIL retcode=", g_trade.ResultRetcode(), " description=", g_trade.ResultRetcodeDescription());
+   }
+   else
+   {
+      if(g_trade.Sell(lot, symbol, 0, 0, tp, comment)) Print("ORDER_SEND_OK ticket=", g_trade.ResultOrder());
+      else Print("ORDER_SEND_FAIL retcode=", g_trade.ResultRetcode(), " description=", g_trade.ResultRetcodeDescription());
+   }
 }
