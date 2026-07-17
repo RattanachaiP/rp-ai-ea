@@ -1077,12 +1077,26 @@ def build_cooldown_wait_decision(decision, data, fire_reason, cycle_start):
 def enforce_final_execution_state_v28(decision):
     """Make cooldown governance and executable intent mutually exclusive.
 
-    This is deliberately applied immediately before publication because older
-    enrichment layers may preserve directional BUY/SELL telemetry while a
-    cooldown wait is active.  ``intended_action`` retains that telemetry; the
-    executor-facing fields contain exactly one authoritative state.
+    Cooldown vetoes must be resolved by their upstream owner before payload
+    validation.  This final-publish helper is intentionally *not* a veto: once
+    a TRADE has survived validation and executor-contract processing, stale
+    cooldown telemetry must be cleared rather than changing the published
+    decision to NO_TRADE.  An actual late veto must be recorded upstream with
+    an owner, code, and reason before it changes the decision.
     """
     if not isinstance(decision, dict):
+        return decision
+
+    is_trade = str(decision.get("decision", "")).upper() == "TRADE"
+    if is_trade:
+        # A TRADE at this point is the authoritative final decision.  In
+        # particular, do not let stale ``cooldown_active`` fields from an
+        # enrichment layer turn a validated payload into WAIT/NO_TRADE after
+        # all executable gates have already passed.
+        decision["cooldown_active"] = False
+        decision["cooldown_wait_active"] = False
+        decision["suppression_active"] = False
+        decision["final_publish_state_guard"] = "TRADE_PRESERVED_STALE_COOLDOWN_CLEARED"
         return decision
 
     cooldown_active = any(
@@ -1104,7 +1118,7 @@ def enforce_final_execution_state_v28(decision):
         decision["mgmt"] = "NO_TRADE"
         return decision
 
-    # An executable BUY/SELL must not carry stale cooldown suppression fields.
+    # Preserve the existing cleanup for legacy executable representations.
     if bool(decision.get("entry_allowed", False)) and str(decision.get("action", "")).upper() in ("BUY", "SELL"):
         decision["cooldown_active"] = False
         decision["cooldown_wait_active"] = False
