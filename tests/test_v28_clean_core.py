@@ -32,6 +32,9 @@ def test_trade_payload_passes_shared_contract():
     assert payload["decision"] == "TRADE"
     assert payload["reason"] == "BUY: BUY_SCORE_DOMINANCE; SCORE_GAP 4 >= 3"
     assert payload["payload_valid"] is True
+    assert payload["broker_sl_required"] is False
+    assert payload["stop_loss"] == 0.0
+    assert payload["take_profit"] == 2301.0
     assert validate_payload(payload) == (True, "EXECUTOR_CONTRACT_PASS")
 
 
@@ -47,6 +50,7 @@ def test_dashboard_can_disable_broker_sl_with_explicit_contract():
     payload = decide(fresh_market(), cfg, score_min_required=3)
     assert payload["decision"] == "TRADE"
     assert payload["broker_sl_required"] is False
+    assert payload["stop_loss"] == 0.0
     assert payload["sl_suppression_reason"] == "DASHBOARD_BROKER_SL_DISABLED"
     assert validate_payload(payload) == (True, "EXECUTOR_CONTRACT_PASS")
 
@@ -75,23 +79,41 @@ def test_non_supportive_telemetry_does_not_add_a_second_veto_or_resize():
     assert payload["lot"] == 0.01
 
 
-def test_symmetric_validation_contract_has_complete_tp_and_sl():
+def test_validation_profile_disables_broker_sl_and_retains_hard_loss_cap_and_tp():
     payload = decide(fresh_market(), dashboard(), score_min_required=3)
-    assert payload["broker_sl_required"] is True
+    assert payload["broker_sl_required"] is False
     assert payload["broker_tp_required"] is True
     assert payload["risk_hard_loss_cap_usd_per_001_lot"] == 1.2
     assert payload["fixed_tp_close_usd_per_001_lot"] == 1.0
-    assert payload["stop_loss"] > 0
-    assert payload["take_profit"] > 0
+    assert payload["stop_loss"] == 0.0
+    assert payload["take_profit"] == 2301.0
 
 
-def test_buy_risk_package_has_the_correct_price_sides():
+def test_buy_risk_package_has_no_broker_sl_and_a_100_point_tp():
     payload = decide(fresh_market(), dashboard(), score_min_required=3)
-    assert payload["stop_loss"] < payload["entry_price"] < payload["take_profit"]
-    assert round(payload["entry_price"] - payload["stop_loss"], 2) == 1.2
+    assert payload["stop_loss"] == 0.0
+    assert payload["entry_price"] < payload["take_profit"]
+    assert round(payload["take_profit"] - payload["entry_price"], 2) == 1.0
+
+
+def test_disabled_broker_sl_contract_rejects_any_later_sl_injection():
+    payload = decide(fresh_market(), dashboard(), score_min_required=3)
+    payload["stop_loss"] = 2298.8
+    assert validate_payload(payload) == (False, "BROKER_STOP_LOSS_MUST_BE_ZERO_WHEN_DISABLED")
+
+
+def test_executor_uses_zero_sl_for_the_disabled_broker_sl_contract():
+    executor = (Path(__file__).resolve().parents[1] / "mt5/v28/RP_AI_Executor_V28_CleanCore.mq5").read_text(encoding="utf-8")
+    assert 'if(!sl_required && sl != 0.0) { reason = "INVALID_CONTRACT_DISABLED_SL_MUST_BE_ZERO"; return false; }' in executor
+    assert 'double sl = JsonBool(json, "broker_sl_required") ? JsonNumber(json, "stop_loss") : 0.0;' in executor
+    assert "g_trade.Buy(lot, symbol, 0.0, sl, tp, comment)" in executor
+    assert "g_trade.Sell(lot, symbol, 0.0, sl, tp, comment)" in executor
 
 
 def test_profile_f_is_the_dashboard_validation_baseline():
     contract = load_dashboard_contract(Path(__file__).resolve().parents[1])
     assert contract["active_profile"] == "Profile_F_MARKET_CLOSE_ONLY"
     assert contract["validation_baseline_profile"] == "Profile_F_MARKET_CLOSE_ONLY"
+    assert contract["broker_sl"] == {"enabled": False, "points": 0.0}
+    assert contract["fixed_tp"] == {"enabled": True, "points": 100.0}
+    assert contract["risk_hard_loss_cap_usd_per_001_lot"] == 1.2

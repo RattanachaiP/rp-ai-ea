@@ -55,7 +55,7 @@ def build_risk_package(direction: str, entry_price: float, dashboard: Dict[str, 
     point = float(dashboard.get("point", 0.01) or 0.01)
     sl_enabled = bool(dashboard.get("broker_sl", {}).get("enabled", True))
     tp_enabled = bool(dashboard.get("fixed_tp", {}).get("enabled", True))
-    sl_points = float(dashboard.get("broker_sl", {}).get("points", 100.0) or 0.0)
+    sl_points = float(dashboard.get("broker_sl", {}).get("points", 0.0) or 0.0)
     tp_points = float(dashboard.get("fixed_tp", {}).get("points", 100.0) or 0.0)
     risk: Dict[str, Any] = {
         "broker_sl_required": sl_enabled,
