@@ -2,31 +2,182 @@
 //| RP AI Executor V28 -- minimum execution path                    |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "28.01"
-#property description "V28 executor: decision.json + market_state.json + broker safety only."
+#property version   "28.02"
+#property description "V28 executor: direct Common Files decision payload execution."
 
 #include <Trade/Trade.mqh>
 
-// Both files are intentionally read from the MT5 Common Files directory.
-#define DECISION_FILE     "decision.json"
-#define MARKET_STATE_FILE "market_state.json"
+#define DECISION_PATH "RP_AI_EA\\shared\\XAUUSD\\decision.json"
 
-input int    InpMaxMarketStateAgeSeconds = 15;
 input double InpExposureCapLots           = 1.00;
 input bool   InpEmergencyDisable          = false;
 input long   InpMagic                     = 2800001;
 
 CTrade g_trade;
 
-string ReadCommonFile(const string file_name)
+bool IsPayloadTrimCharacter(const ushort character)
 {
-   int handle = FileOpen(file_name, FILE_READ | FILE_TXT | FILE_COMMON | FILE_ANSI);
-   if(handle == INVALID_HANDLE) return "";
+   return character == ' ' || character == '\t' || character == '\r' ||
+          character == '\n' || character == 0 || character == 0xFEFF;
+}
 
-   string text = "";
-   while(!FileIsEnding(handle)) text += FileReadString(handle) + "\n";
+string TrimDecisionPayload(string payload)
+{
+   int first = 0;
+   int last = StringLen(payload) - 1;
+   while(first <= last && IsPayloadTrimCharacter(StringGetCharacter(payload, first))) first++;
+   while(last >= first && IsPayloadTrimCharacter(StringGetCharacter(payload, last))) last--;
+   if(first > last) return "";
+   return StringSubstr(payload, first, last - first + 1);
+}
+
+void SkipJsonWhitespace(const string json, int &position)
+{
+   while(position < StringLen(json))
+   {
+      ushort character = StringGetCharacter(json, position);
+      if(character != ' ' && character != '\t' && character != '\r' && character != '\n') break;
+      position++;
+   }
+}
+
+bool ParseJsonValue(const string json, int &position);
+
+bool ParseJsonString(const string json, int &position)
+{
+   if(position >= StringLen(json) || StringGetCharacter(json, position) != '"') return false;
+   position++;
+   while(position < StringLen(json))
+   {
+      ushort character = StringGetCharacter(json, position++);
+      if(character == '"') return true;
+      if(character < 0x20) return false;
+      if(character != '\\') continue;
+      if(position >= StringLen(json)) return false;
+      ushort escaped = StringGetCharacter(json, position++);
+      if(escaped == '"' || escaped == '\\' || escaped == '/' || escaped == 'b' ||
+         escaped == 'f' || escaped == 'n' || escaped == 'r' || escaped == 't') continue;
+      if(escaped != 'u' || position + 4 > StringLen(json)) return false;
+      for(int index = 0; index < 4; index++)
+      {
+         ushort hex = StringGetCharacter(json, position++);
+         if(!((hex >= '0' && hex <= '9') || (hex >= 'a' && hex <= 'f') ||
+              (hex >= 'A' && hex <= 'F'))) return false;
+      }
+   }
+   return false;
+}
+
+bool ParseJsonNumber(const string json, int &position)
+{
+   int length = StringLen(json);
+   if(position < length && StringGetCharacter(json, position) == '-') position++;
+   int digits_start = position;
+   if(position < length && StringGetCharacter(json, position) == '0') position++;
+   else while(position < length && StringGetCharacter(json, position) >= '1' && StringGetCharacter(json, position) <= '9') position++;
+   if(position == digits_start) return false;
+   if(position < length && StringGetCharacter(json, position) == '.')
+   {
+      position++;
+      int fraction_start = position;
+      while(position < length && StringGetCharacter(json, position) >= '0' && StringGetCharacter(json, position) <= '9') position++;
+      if(position == fraction_start) return false;
+   }
+   if(position < length && (StringGetCharacter(json, position) == 'e' || StringGetCharacter(json, position) == 'E'))
+   {
+      position++;
+      if(position < length && (StringGetCharacter(json, position) == '+' || StringGetCharacter(json, position) == '-')) position++;
+      int exponent_start = position;
+      while(position < length && StringGetCharacter(json, position) >= '0' && StringGetCharacter(json, position) <= '9') position++;
+      if(position == exponent_start) return false;
+   }
+   return true;
+}
+
+bool ParseJsonObject(const string json, int &position)
+{
+   position++;
+   SkipJsonWhitespace(json, position);
+   if(position < StringLen(json) && StringGetCharacter(json, position) == '}') { position++; return true; }
+   while(position < StringLen(json))
+   {
+      if(!ParseJsonString(json, position)) return false;
+      SkipJsonWhitespace(json, position);
+      if(position >= StringLen(json) || StringGetCharacter(json, position++) != ':') return false;
+      SkipJsonWhitespace(json, position);
+      if(!ParseJsonValue(json, position)) return false;
+      SkipJsonWhitespace(json, position);
+      if(position < StringLen(json) && StringGetCharacter(json, position) == '}') { position++; return true; }
+      if(position >= StringLen(json) || StringGetCharacter(json, position++) != ',') return false;
+      SkipJsonWhitespace(json, position);
+   }
+   return false;
+}
+
+bool ParseJsonArray(const string json, int &position)
+{
+   position++;
+   SkipJsonWhitespace(json, position);
+   if(position < StringLen(json) && StringGetCharacter(json, position) == ']') { position++; return true; }
+   while(position < StringLen(json))
+   {
+      if(!ParseJsonValue(json, position)) return false;
+      SkipJsonWhitespace(json, position);
+      if(position < StringLen(json) && StringGetCharacter(json, position) == ']') { position++; return true; }
+      if(position >= StringLen(json) || StringGetCharacter(json, position++) != ',') return false;
+      SkipJsonWhitespace(json, position);
+   }
+   return false;
+}
+
+bool ParseJsonValue(const string json, int &position)
+{
+   SkipJsonWhitespace(json, position);
+   if(position >= StringLen(json)) return false;
+   ushort character = StringGetCharacter(json, position);
+   if(character == '{') return ParseJsonObject(json, position);
+   if(character == '[') return ParseJsonArray(json, position);
+   if(character == '"') return ParseJsonString(json, position);
+   if(character == '-' || (character >= '0' && character <= '9')) return ParseJsonNumber(json, position);
+   string literal = StringSubstr(json, position, 5);
+   if(StringSubstr(literal, 0, 4) == "true") { position += 4; return true; }
+   if(StringSubstr(literal, 0, 5) == "false") { position += 5; return true; }
+   if(StringSubstr(literal, 0, 4) == "null") { position += 4; return true; }
+   return false;
+}
+
+bool IsStructurallyValidJson(const string json)
+{
+   int position = 0;
+   if(!ParseJsonValue(json, position)) return false;
+   SkipJsonWhitespace(json, position);
+   return position == StringLen(json);
+}
+
+bool ReadDecisionPayload(string &payload)
+{
+   ResetLastError();
+   int handle = FileOpen(
+      "RP_AI_EA\\shared\\XAUUSD\\decision.json",
+      FILE_READ | FILE_TXT | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE
+   );
+   if(handle == INVALID_HANDLE)
+   {
+      Print("DECISION_FILE_OPEN_FAIL | error=", GetLastError(), " | path=", DECISION_PATH);
+      return false;
+   }
+
+   payload = "";
+   while(!FileIsEnding(handle)) payload += FileReadString(handle) + "\n";
    FileClose(handle);
-   return text;
+   payload = TrimDecisionPayload(payload);
+   if(payload == "") { Print("DECISION_FILE_EMPTY"); return false; }
+   if(!IsStructurallyValidJson(payload))
+   {
+      Print("DECISION_JSON_PARSE_FAIL | payload=", StringSubstr(payload, 0, 300));
+      return false;
+   }
+   return true;
 }
 
 string JsonString(const string json, const string key, const string fallback="")
@@ -71,22 +222,6 @@ bool JsonBool(const string json, const string key, const bool fallback=false)
    if(StringFind(tail, "true") >= 0) return true;
    if(StringFind(tail, "false") >= 0) return false;
    return fallback;
-}
-
-bool MarketStateFresh(string &reason)
-{
-   string market = ReadCommonFile(MARKET_STATE_FILE);
-   if(market == "") { reason = "MARKET_STATE_UNREADABLE"; return false; }
-   if(!JsonBool(market, "market_state_fresh", true)) { reason = "STALE_MARKET_STATE"; return false; }
-
-   datetime heartbeat = (datetime)JsonNumber(market, "heartbeat_unix");
-   int age = (int)(TimeCurrent() - heartbeat);
-   if(heartbeat <= 0 || age < 0 || age > InpMaxMarketStateAgeSeconds)
-   {
-      reason = "STALE_MARKET_STATE";
-      return false;
-   }
-   return true;
 }
 
 bool ValidLot(const string symbol, const double lot, string &reason)
@@ -161,20 +296,21 @@ void OnTick()
 {
    if(InpEmergencyDisable) { Print("EMERGENCY_DISABLE_ACTIVE"); return; }
 
-   string json = ReadCommonFile(DECISION_FILE);
-   if(json == "") { Print("DECISION_PAYLOAD_UNREADABLE"); return; }
-   if(JsonString(json, "decision") != "TRADE") return;
-   if(!JsonBool(json, "entry_allowed")) return;
+   string json;
+   if(!ReadDecisionPayload(json)) return;
 
-   string action = JsonString(json, "action");
+   string decision = JsonString(json, "decision");
+   string action = JsonString(json, "action", JsonString(json, "direction"));
    StringToUpper(action);
+   bool entry_allowed = JsonBool(json, "entry_allowed");
+   Print("DECISION_PAYLOAD_OK | decision=", decision, " | action=", action, " | entry_allowed=", entry_allowed);
+   if(decision != "TRADE" || !entry_allowed) return;
+
    if(action != "BUY" && action != "SELL") { Print("INVALID_ACTION"); return; }
 
    string reason;
-   if(!MarketStateFresh(reason)) { Print(reason); return; }
-
-   string symbol = JsonString(json, "symbol");
-   double lot = JsonNumber(json, "lot", JsonNumber(json, "position_size"));
+   string symbol = JsonString(json, "symbol", _Symbol);
+   double lot = JsonNumber(json, "lot");
    if(!BrokerSafetyPass(symbol, action, lot, reason)) { Print(reason); return; }
 
    double tp = JsonNumber(json, "take_profit", JsonNumber(json, "tp", JsonNumber(json, "tp1")));
