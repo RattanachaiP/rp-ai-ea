@@ -10,6 +10,7 @@ All emergency exit behavior must preserve one effective exit owner and must publ
 
 The V28 thinking-model rebuild is not an emergency patch. Emergency-patch
 authority cannot be used to implement, tune, or bypass the pending V28 decision
-philosophy. Until explicit approval of `docs/v28/V28_DECISION_PHILOSOPHY.md`,
-no V28 runtime changes are authorized and no V27 filters, cooldowns, waits,
-score adjustments, patch stacks, or runtime layers may be introduced.
+philosophy. Until explicit approval of `docs/v28/V28_DECISION_PHILOSOPHY.md`
+and `docs/v28/V28_EXPECTANCY_FIRST_ARCHITECTURE_ADDENDUM.md`, no V28 runtime
+changes are authorized and no V27 filters, cooldowns, waits, score adjustments,
+patch stacks, or runtime layers may be introduced.

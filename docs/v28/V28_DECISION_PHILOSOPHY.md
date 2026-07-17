@@ -15,6 +15,11 @@ unchanged while this proposal is awaiting approval. This proposal does not
 authorize filters, cooldowns, waiting states, score adjustments, patch stacks,
 or new runtime layers.
 
+The mandatory edge-verification, traceability, self-correction, and new-rule
+requirements that extend this philosophy are defined in
+`V28_EXPECTANCY_FIRST_ARCHITECTURE_ADDENDUM.md`. Approval of V28 must include
+that addendum.
+
 ## 1. V28 decision philosophy
 
 Every decision begins with exactly one question:
@@ -77,6 +82,12 @@ Positive edge verification must produce a reviewable evidence record containing:
 - cost assumptions and the risk boundary used in the calculation; and
 - a result of `POSITIVE_EDGE` or `EDGE_NOT_ESTABLISHED`.
 
+The evidence record must also explicitly estimate expected win probability,
+expected average win, expected average loss, expected net expectancy,
+historical sample size, and statistical confidence. The mandatory addendum
+defines the traceability contract and the evidence requirements for future
+decision-logic changes.
+
 The absence of sufficient comparable evidence is `EDGE_NOT_ESTABLISHED`, not a
 reason to invent confidence, lower a threshold, wait for a different signal, or
 alter a score.
@@ -129,8 +140,10 @@ closed-trade evidence for each opportunity.
 
 ## 6. Approval required before implementation
 
-Approval must explicitly accept all five sections above: the philosophy,
-opportunity definition, positive-edge definition, decision flow, and failure
-analysis. Only then may a separate implementation plan be proposed. That plan
+Approval must explicitly accept all five sections above and
+`V28_EXPECTANCY_FIRST_ARCHITECTURE_ADDENDUM.md`: the philosophy, opportunity
+definition, positive-edge definition, decision flow, failure analysis, and
+mandatory edge-verification, traceability, self-correction, and rule-governance
+contracts. Only then may a separate implementation plan be proposed. That plan
 must preserve the prohibition on incremental V27 fixes and must not introduce
 the disallowed mechanisms unless separately and explicitly approved.
