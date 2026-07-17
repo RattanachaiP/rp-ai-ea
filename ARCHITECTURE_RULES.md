@@ -1,7 +1,18 @@
-# ARCHITECTURE_RULES — V27 Trade Management Dashboard Architecture
+# ARCHITECTURE_RULES — V27 Runtime / V28 Decision-Rebuild Governance
 
 ## Sole authority
 This document, `CURRENT_SYSTEM_STATE.md`, `DECISION_FLOW_MAP.md`, and `EMERGENCY_PATCH_POLICY.md` are the authoritative architecture documents for V27 changes.
+
+## V28 thinking-model rebuild gate
+
+V28 is a proposal-stage replacement of the AI Decision Engine's thinking model,
+not a V27 optimization. Its authoritative philosophy is documented in
+`docs/v28/V28_DECISION_PHILOSOPHY.md`. No V28 implementation may begin until
+that document is explicitly approved.
+
+Until approval, V27 retains its runtime authority and the V27 no-touch AI
+boundary below remains in force. Do not add V27 filters, cooldowns, waiting
+logic, score adjustments, patches, or runtime layers in the name of V28.
 
 ## Mandatory subsystem separation
 The runtime is separated into two independent subsystems:

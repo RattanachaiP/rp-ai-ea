@@ -3,6 +3,20 @@
 ## Authoritative lineage
 `codex-dev` (single source of truth)
 
+## V28 decision-rebuild approval flow (proposal only)
+
+`Market -> Opportunity -> Positive Edge Verification -> Decision -> Risk -> Publish`
+
+The first and controlling question is: **Does this opportunity have positive
+expectancy?** Direction is selected only after the positive-edge verification
+passes. `docs/v28/V28_DECISION_PHILOSOPHY.md` defines the required opportunity,
+positive-edge, evidence, and approval contract.
+
+This is not an active runtime path. No implementation work is authorized until
+the philosophy document receives explicit approval. V27 remains the current
+runtime path below; no V27 filters, cooldowns, waits, score adjustments, patch
+stacks, or runtime layers may be added under this directive.
+
 ## Governance flow
 1. AI room proposes reference patch
 2. Codex merges into authoritative code review stream
