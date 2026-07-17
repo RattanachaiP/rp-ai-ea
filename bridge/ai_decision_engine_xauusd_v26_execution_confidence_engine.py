@@ -1023,7 +1023,11 @@ def build_cooldown_wait_decision(decision, data, fire_reason, cycle_start):
     Cooldown suppression is represented as WAIT governance, not generic NEUTRAL collapse.
     """
     blocked_decision = no_trade(f"COOLDOWN_MAX_SIGNAL_BLOCK | {fire_reason}")
-    blocked_decision["decision"] = "TRADE"
+    # A cooldown is a final execution block.  Preserve the directional context
+    # below for diagnostics, but never publish a TRADE intent alongside it.
+    blocked_decision["decision"] = "NO_TRADE"
+    blocked_decision["allowed"] = False
+    blocked_decision["entry_allowed"] = False
     blocked_decision["market_mode"] = decision.get("market_mode", "UNKNOWN")
     blocked_decision["bb_state"] = decision.get("bb_state", "UNKNOWN")
     blocked_decision["heartbeat_unix"] = safe_int(data.get("heartbeat_unix", 0), 0)
@@ -1068,6 +1072,45 @@ def build_cooldown_wait_decision(decision, data, fire_reason, cycle_start):
     blocked_decision["loop_duration_sec"] = round(time.time() - cycle_start, 6)
     blocked_decision["stale_prevention_timing_sec"] = blocked_decision["loop_duration_sec"]
     return blocked_decision
+
+
+def enforce_final_execution_state_v28(decision):
+    """Make cooldown governance and executable intent mutually exclusive.
+
+    This is deliberately applied immediately before publication because older
+    enrichment layers may preserve directional BUY/SELL telemetry while a
+    cooldown wait is active.  ``intended_action`` retains that telemetry; the
+    executor-facing fields contain exactly one authoritative state.
+    """
+    if not isinstance(decision, dict):
+        return decision
+
+    cooldown_active = any(
+        bool(decision.get(field, False))
+        for field in ("cooldown_active", "cooldown_wait_active")
+    ) or "COOLDOWN_MAX_SIGNAL_BLOCK" in str(decision.get("reason", "")).upper()
+
+    if cooldown_active:
+        action = str(decision.get("action", decision.get("bias", "NEUTRAL"))).upper()
+        if action in ("BUY", "SELL"):
+            decision["intended_action"] = decision.get("intended_action", action)
+        decision["decision"] = "NO_TRADE"
+        decision["allowed"] = False
+        decision["entry_allowed"] = False
+        decision["action"] = "WAIT"
+        decision["execution_state"] = "WAIT"
+        decision["decision_output_state"] = "NO_TRADE"
+        decision["management"] = "NO_TRADE"
+        decision["mgmt"] = "NO_TRADE"
+        return decision
+
+    # An executable BUY/SELL must not carry stale cooldown suppression fields.
+    if bool(decision.get("entry_allowed", False)) and str(decision.get("action", "")).upper() in ("BUY", "SELL"):
+        decision["cooldown_active"] = False
+        decision["cooldown_wait_active"] = False
+        decision["suppression_active"] = False
+
+    return decision
 
 
 def read_market():
@@ -5615,6 +5658,9 @@ def write_decision(data):
                 data = attach_no_trade_explainability(data)
                 data = record_final_decision_trace_stage(data, "final_no_trade_explainability", data)
                 data = attach_score_decomposition(data)
+                _trace_before = dict(data)
+                data = enforce_final_execution_state_v28(data)
+                data = record_final_decision_trace_stage(data, "final_execution_state", _trace_before)
                 if str(data.get("decision", "")).upper() == "TRADE":
                     data["final_veto_owner"] = "NONE"
                     data["effective_veto_code"] = "NONE"
