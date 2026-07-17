@@ -1,0 +1,10 @@
+{
+  "active_profile": "ZERO_BROKER_SL_VALIDATION",
+  "comparison_baseline": "Profile_F_MARKET_CLOSE_ONLY",
+  "purpose": "Isolated replay and demo comparison of Broker Stop Loss removal; entry logic and all non-SL management remain unchanged.",
+  "broker_sl": {"enabled": false, "points": 0.0},
+  "fixed_take_profit": {"enabled": true, "close_profit_usd_001_lot": 1.0, "close_mode": "IMMEDIATE_MARKET_CLOSE"},
+  "risk_hard_loss_cap_usd_001_lot": 1.2,
+  "exit_authority_priority": ["EMERGENCY_EXIT", "HARD_LOSS_CAP", "FIXED_TAKE_PROFIT"],
+  "validation_rule": "Broker SL is not a root cause unless matched closed-trade evidence shows strictly higher expectancy than Profile_F_MARKET_CLOSE_ONLY."
+}
