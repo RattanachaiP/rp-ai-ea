@@ -9,8 +9,9 @@
 
 The first and controlling question is: **Does this opportunity have positive
 expectancy?** Direction is selected only after the positive-edge verification
-passes. `docs/v28/V28_DECISION_PHILOSOPHY.md` defines the required opportunity,
-positive-edge, evidence, and approval contract.
+passes. `docs/v28/V28_DECISION_PHILOSOPHY.md` and
+`docs/v28/V28_EXPECTANCY_FIRST_ARCHITECTURE_ADDENDUM.md` define the required
+opportunity, positive-edge, evidence, decision-lineage, and approval contract.
 
 This is not an active runtime path. No implementation work is authorized until
 the philosophy document receives explicit approval. V27 remains the current

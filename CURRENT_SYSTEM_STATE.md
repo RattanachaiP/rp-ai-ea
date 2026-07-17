@@ -7,7 +7,8 @@ Authoritative branch policy: `codex-dev`
 
 - V27 is not to be repaired or incrementally improved for this directive.
 - The V28 replacement philosophy is documented, pending approval, in
-  `docs/v28/V28_DECISION_PHILOSOPHY.md`.
+  `docs/v28/V28_DECISION_PHILOSOPHY.md` and its mandatory architecture addendum
+  `docs/v28/V28_EXPECTANCY_FIRST_ARCHITECTURE_ADDENDUM.md`.
 - No implementation is authorized by this state update. In particular, no new
   filters, cooldowns, waits, score adjustments, patch stacks, or runtime layers
   may be added before explicit approval of the V28 decision philosophy.

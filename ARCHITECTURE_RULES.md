@@ -7,8 +7,9 @@ This document, `CURRENT_SYSTEM_STATE.md`, `DECISION_FLOW_MAP.md`, and `EMERGENCY
 
 V28 is a proposal-stage replacement of the AI Decision Engine's thinking model,
 not a V27 optimization. Its authoritative philosophy is documented in
-`docs/v28/V28_DECISION_PHILOSOPHY.md`. No V28 implementation may begin until
-that document is explicitly approved.
+`docs/v28/V28_DECISION_PHILOSOPHY.md` and its mandatory extension,
+`docs/v28/V28_EXPECTANCY_FIRST_ARCHITECTURE_ADDENDUM.md`. No V28
+implementation may begin until both documents are explicitly approved.
 
 Until approval, V27 retains its runtime authority and the V27 no-touch AI
 boundary below remains in force. Do not add V27 filters, cooldowns, waiting
