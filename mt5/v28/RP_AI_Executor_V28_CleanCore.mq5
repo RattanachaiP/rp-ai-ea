@@ -112,6 +112,7 @@ bool ContractPass(const string json, string &reason)
    if(sl_required && sl <= 0.0) { reason = "INVALID_CONTRACT_MISSING_SL"; return false; }
    if(tp_required && tp <= 0.0) { reason = "INVALID_CONTRACT_MISSING_TP"; return false; }
    if(!sl_required && JsonString(json, "sl_suppression_reason") != "DASHBOARD_BROKER_SL_DISABLED") { reason = "INVALID_CONTRACT_SL_SUPPRESSION"; return false; }
+   if(!sl_required && sl != 0.0) { reason = "INVALID_CONTRACT_DISABLED_SL_MUST_BE_ZERO"; return false; }
    if(!tp_required && JsonString(json, "tp_contract_reason") != "DASHBOARD_TP_MANAGED_OR_DISABLED") { reason = "INVALID_CONTRACT_TP_SUPPRESSION"; return false; }
    if(direction == "BUY" && ((sl_required && sl >= entry_price) || (tp_required && tp <= entry_price))) { reason = "INVALID_BUY_RISK_SIDES"; return false; }
    if(direction == "SELL" && ((sl_required && sl <= entry_price) || (tp_required && tp >= entry_price))) { reason = "INVALID_SELL_RISK_SIDES"; return false; }
@@ -134,7 +135,9 @@ void OnTick()
 
    string direction = JsonString(json, "direction");
    double lot = JsonNumber(json, "lot");
-   double sl = JsonNumber(json, "stop_loss");
+   // A disabled broker SL is an explicit OrderSend invariant, not merely a
+   // validation exception: no executor stage may restore or inject an SL.
+   double sl = JsonBool(json, "broker_sl_required") ? JsonNumber(json, "stop_loss") : 0.0;
    double tp = JsonNumber(json, "take_profit");
    g_trade.SetExpertMagicNumber(InpMagic);
    string comment = trade_uuid == "" ? "RP_V28" : StringSubstr(trade_uuid, 0, 24);

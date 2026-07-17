@@ -19,7 +19,7 @@ DEFAULT_DASHBOARD: Dict[str, Any] = {
     "validation_baseline_profile": "Profile_F_MARKET_CLOSE_ONLY",
     "management_mode": "DASHBOARD_MANAGED",
     "fixed_tp": {"enabled": True, "points": 100.0},
-    "broker_sl": {"enabled": True, "points": 120.0},
+    "broker_sl": {"enabled": False, "points": 0.0},
     "breakeven": {"enabled": False, "trigger_points": 0.0, "offset_points": 0.0},
     "trailing": {"enabled": False, "start_points": 0.0, "distance_points": 0.0, "step_points": 0.0},
     "profit_lock": {"enabled": False, "levels": []},

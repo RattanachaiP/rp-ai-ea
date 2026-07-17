@@ -43,6 +43,8 @@ def validate_payload(payload: Dict[str, Any]) -> Tuple[bool, str]:
         return False, "MISSING_REQUIRED_STOP_LOSS"
     if (not sl_required) and payload.get("sl_suppression_reason") != "DASHBOARD_BROKER_SL_DISABLED":
         return False, "MISSING_APPROVED_SL_SUPPRESSION"
+    if (not sl_required) and float(payload.get("stop_loss") or 0) != 0.0:
+        return False, "BROKER_STOP_LOSS_MUST_BE_ZERO_WHEN_DISABLED"
     if tp_required and float(payload.get("take_profit") or 0) <= 0:
         return False, "MISSING_REQUIRED_TAKE_PROFIT"
     if (not tp_required) and payload.get("tp_contract_reason") != "DASHBOARD_TP_MANAGED_OR_DISABLED":
