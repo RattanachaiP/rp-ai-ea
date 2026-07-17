@@ -57,3 +57,31 @@ def test_executable_buy_clears_stale_cooldown_suppression():
     assert final["decision"] == "TRADE"
     assert final["entry_allowed"] is True
     assert final["suppression_active"] is False
+
+
+def test_final_publish_does_not_downgrade_validated_trade_from_stale_cooldown():
+    """Regression: final publication may clean telemetry but may not veto TRADE."""
+    final = enforce_final_execution_state_v28(
+        {
+            "decision": "TRADE",
+            "allowed": True,
+            "entry_allowed": True,
+            "payload_valid": True,
+            "action": "BUY",
+            "execution_state": "EXECUTE_AGGRESSIVE",
+            # These are stale fields injected by an earlier enrichment layer.
+            "cooldown_active": True,
+            "cooldown_wait_active": True,
+            "suppression_active": True,
+        }
+    )
+
+    assert final["decision"] == "TRADE"
+    assert final["allowed"] is True
+    assert final["entry_allowed"] is True
+    assert final["action"] == "BUY"
+    assert final["execution_state"] == "EXECUTE_AGGRESSIVE"
+    assert final["cooldown_active"] is False
+    assert final["cooldown_wait_active"] is False
+    assert final["suppression_active"] is False
+    assert final["final_publish_state_guard"] == "TRADE_PRESERVED_STALE_COOLDOWN_CLEARED"
