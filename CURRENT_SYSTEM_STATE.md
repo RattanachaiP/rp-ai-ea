@@ -3,6 +3,16 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## V28 mandatory thinking-model rebuild — proposal state
+
+- V27 is not to be repaired or incrementally improved for this directive.
+- The V28 replacement philosophy is documented, pending approval, in
+  `docs/v28/V28_DECISION_PHILOSOPHY.md`.
+- No implementation is authorized by this state update. In particular, no new
+  filters, cooldowns, waits, score adjustments, patch stacks, or runtime layers
+  may be added before explicit approval of the V28 decision philosophy.
+- V27 remains the active runtime while the proposed V28 philosophy is reviewed.
+
 ## Governance posture
 - Single authoritative runtime lineage must be maintained on `codex-dev`.
 - AI-room patch chains are reference inputs only and are not runtime authorities.
