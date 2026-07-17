@@ -16,6 +16,7 @@ from .dashboard_contract import load_dashboard_contract
 from .payload_contract import SCHEMA_VERSION, validate_payload
 
 DEFAULT_LOT = 0.01
+V26_6_2_MIN_SCORE_GAP = 3
 
 
 def _num(data: Dict[str, Any], key: str, default: float = 0.0) -> float:
@@ -91,6 +92,12 @@ def decide(market: Dict[str, Any], dashboard: Dict[str, Any], score_min_required
         "schema_version": SCHEMA_VERSION, "runtime_version": "V28_CLEAN_EXPECTANCY_CORE",
         "symbol": market.get("symbol", "XAUUSD"), "sequence_id": sequence_id, "heartbeat_unix": heartbeat,
         "score_gap": score_gap, "score_min_required": None,
+        # Compatibility telemetry only: V28 never grants the retired V26.6.2
+        # score-gap rule execution-veto authority.
+        "expectancy_gap_advisory": "WEAK_GAP" if score_gap < V26_6_2_MIN_SCORE_GAP else "GAP_ACCEPTABLE",
+        "expectancy_gap_value": score_gap,
+        "expectancy_gap_minimum": V26_6_2_MIN_SCORE_GAP,
+        "expectancy_gap_execution_blocked": False,
         "market_evidence": {key: market.get(key) for key in ("buy_score", "sell_score", "spread", "price", "bid")},
         "final_authority": "PYTHON_AI_V28_CLEAN_CORE", "dashboard_profile": dashboard.get("active_profile", "Profile_F_MARKET_CLOSE_ONLY"),
         "management_mode": dashboard.get("management_mode", "DASHBOARD_MANAGED"), "dashboard_contract": dashboard,
@@ -116,7 +123,8 @@ def decide(market: Dict[str, Any], dashboard: Dict[str, Any], score_min_required
     payload = {**base, "decision": "TRADE", "direction": direction, "bias": direction,
                "reason": f"{direction}: {edge_reason}; V28_IMMEDIATE_EXECUTION",
                "entry_reason": edge_reason, "trade_block_reason": "NONE", "entry_price": entry_price,
-               "lot": _num(market, "lot", DEFAULT_LOT), "payload_valid": True}
+               "lot": _num(market, "lot", DEFAULT_LOT), "payload_valid": True,
+               "entry_allowed": True, "execution_state": "TRADE"}
     payload.update(build_risk_package(direction, entry_price, dashboard))
     ok, status = validate_payload(payload)
     payload["payload_valid"], payload["executor_contract_status"] = ok, status

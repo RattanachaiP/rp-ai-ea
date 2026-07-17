@@ -2472,6 +2472,34 @@ def _emergency_gap2_recovered_participation_active(decision):
     return not hard_block
 
 
+def _is_v28_publication_payload(decision):
+    """Return whether this payload is on the isolated V28 publication path.
+
+    V26/V27 decisions deliberately retain their historical V26.6.2 emergency
+    behavior.  V28 payloads carry a versioned identity, so this boundary does
+    not infer V28 from score, direction, or a caller-specific flag.
+    """
+    if not isinstance(decision, dict):
+        return False
+    identities = (
+        decision.get("schema_version", ""),
+        decision.get("runtime_version", ""),
+        decision.get("arch_version", ""),
+    )
+    return any(str(identity or "").upper().startswith("V28") for identity in identities)
+
+
+def _record_v28_expectancy_gap_advisory(decision, score_gap):
+    """Publish V26.6.2 gap telemetry without granting it V28 veto authority."""
+    decision["expectancy_gap_advisory"] = (
+        "WEAK_GAP" if score_gap < V26_6_2_MIN_SCORE_GAP else "GAP_ACCEPTABLE"
+    )
+    decision["expectancy_gap_value"] = score_gap
+    decision["expectancy_gap_minimum"] = V26_6_2_MIN_SCORE_GAP
+    decision["expectancy_gap_execution_blocked"] = False
+    return decision
+
+
 def apply_expectancy_entry_filters_v26_6_2(decision):
     """Emergency expectancy filters: no weak gaps, stricter transition-normal, no BB-mid chop."""
     if not isinstance(decision, dict):
@@ -2490,6 +2518,13 @@ def apply_expectancy_entry_filters_v26_6_2(decision):
     bb_upper = safe_float(decision.get("bb_upper", decision.get("bb_upper2", 0)), 0.0)
     bb_middle = safe_float(decision.get("bb_middle", decision.get("bb_mid", 0)), 0.0)
     bb_lower = safe_float(decision.get("bb_lower", decision.get("bb_lower2", 0)), 0.0)
+
+    # V28 has already established executable decision authority before this
+    # compatibility hook can run.  Keep the legacy weak-gap signal visible to
+    # operators, but never turn a V28 TRADE into NO_TRADE or replace an
+    # independently-recorded hard-safety veto owner.
+    if _is_v28_publication_payload(decision):
+        return _record_v28_expectancy_gap_advisory(decision, score_gap)
 
     decision["expectancy_emergency_filter"] = "V26.6.2_ACTIVE"
     decision["minimum_score_gap_required"] = V26_6_2_MIN_SCORE_GAP

@@ -40,11 +40,18 @@ def test_trade_payload_passes_shared_contract():
 
 
 def test_score_gap_below_legacy_minimum_still_publishes_immediately():
-    payload = decide(fresh_market(buy_score=5, sell_score=3), dashboard(), score_min_required=3)
+    payload = decide(fresh_market(buy_score=4, sell_score=3), dashboard(), score_min_required=3)
     assert payload["decision"] == "TRADE"
     assert payload["direction"] == "BUY"
+    assert payload["entry_allowed"] is True
+    assert payload["execution_state"] == "TRADE"
     assert payload["trade_block_reason"] == "NONE"
     assert payload["log_event"] == "EXECUTABLE_TRADE_PUBLISHED"
+    assert payload["expectancy_gap_advisory"] == "WEAK_GAP"
+    assert payload["expectancy_gap_value"] == 1
+    assert payload["expectancy_gap_minimum"] == 3
+    assert payload["expectancy_gap_execution_blocked"] is False
+    assert validate_payload(payload) == (True, "EXECUTOR_CONTRACT_PASS")
 
 
 def test_dashboard_trade_toggle_is_not_a_v28_entry_gate():

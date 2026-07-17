@@ -9,6 +9,7 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "bridge"))
 
 from ai_decision_engine_xauusd_v26_execution_confidence_engine import (  # noqa: E402
+    apply_expectancy_entry_filters_v26_6_2,
     build_cooldown_wait_decision,
     enforce_final_execution_state_v28,
 )
@@ -85,3 +86,70 @@ def test_final_publish_does_not_downgrade_validated_trade_from_stale_cooldown():
     assert final["cooldown_wait_active"] is False
     assert final["suppression_active"] is False
     assert final["final_publish_state_guard"] == "TRADE_PRESERVED_STALE_COOLDOWN_CLEARED"
+
+
+def _v28_trade(score_gap):
+    return {
+        "schema_version": "V28_EXECUTABLE_PAYLOAD_1",
+        "runtime_version": "V28_CLEAN_EXPECTANCY_CORE",
+        "decision": "TRADE",
+        "action": "BUY",
+        "bias": "BUY",
+        "score_gap": score_gap,
+        "entry_allowed": True,
+        "allowed": True,
+        "execution_state": "TRADE",
+        "payload_valid": True,
+    }
+
+
+def test_v28_gap1_is_advisory_and_reaches_executable_final_state():
+    final = enforce_final_execution_state_v28(apply_expectancy_entry_filters_v26_6_2(_v28_trade(1)))
+
+    assert final["decision"] == "TRADE"
+    assert final["entry_allowed"] is True
+    assert final["execution_state"] == "TRADE"
+    assert final.get("effective_veto_code") != "V26_6_2_WEAK_GAP_NO_TRADE"
+    assert final["expectancy_gap_advisory"] == "WEAK_GAP"
+    assert final["expectancy_gap_execution_blocked"] is False
+
+
+def test_v28_gap2_is_executable_without_legacy_emergency_recovery():
+    result = apply_expectancy_entry_filters_v26_6_2(_v28_trade(2))
+
+    assert result["decision"] == "TRADE"
+    assert result["entry_allowed"] is True
+    assert result["execution_state"] == "TRADE"
+    assert "EMERGENCY_GAP2_APPROVED" not in result
+
+
+def test_v28_gap3_trade_is_unchanged_except_for_advisory_telemetry():
+    result = apply_expectancy_entry_filters_v26_6_2(_v28_trade(3))
+
+    assert result["decision"] == "TRADE"
+    assert result["entry_allowed"] is True
+    assert result["execution_state"] == "TRADE"
+    assert result["expectancy_gap_advisory"] == "GAP_ACCEPTABLE"
+
+
+def test_v28_preexisting_no_trade_is_unchanged_by_legacy_filter():
+    payload = _v28_trade(1)
+    payload.update({"decision": "NO_TRADE", "entry_allowed": False, "execution_state": "NO_TRADE"})
+
+    assert apply_expectancy_entry_filters_v26_6_2(payload) == payload
+
+
+def test_v28_explicit_hard_safety_veto_remains_authoritative():
+    payload = _v28_trade(1)
+    payload.update({
+        "final_veto_owner": "BROKER_SAFETY",
+        "effective_veto_code": "ABNORMAL_SPREAD",
+        "final_veto_reason": "Spread exceeds hard safety limit",
+    })
+
+    result = apply_expectancy_entry_filters_v26_6_2(payload)
+
+    assert result["final_veto_owner"] == "BROKER_SAFETY"
+    assert result["effective_veto_code"] == "ABNORMAL_SPREAD"
+    assert result["final_veto_reason"] == "Spread exceeds hard safety limit"
+    assert result["expectancy_gap_execution_blocked"] is False
