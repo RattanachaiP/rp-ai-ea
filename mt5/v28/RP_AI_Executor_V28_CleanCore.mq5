@@ -146,12 +146,55 @@ bool ParseJsonValue(const string json, int &position)
    return false;
 }
 
-bool IsStructurallyValidJson(const string json)
+bool ParseDecisionRootObject(const string json, string &parser_error)
 {
    int position = 0;
-   if(!ParseJsonValue(json, position)) return false;
    SkipJsonWhitespace(json, position);
-   return position == StringLen(json);
+   if(position >= StringLen(json) || StringGetCharacter(json, position) != '{')
+   {
+      parser_error = "root_value_must_be_object";
+      return false;
+   }
+
+   if(!ParseJsonObject(json, position))
+   {
+      parser_error = StringFormat("invalid_json_at_character_%d", position);
+      return false;
+   }
+
+   SkipJsonWhitespace(json, position);
+   if(position != StringLen(json))
+   {
+      parser_error = StringFormat("unexpected_content_at_character_%d", position);
+      return false;
+   }
+   return true;
+}
+
+string PayloadEdgeHex(const uchar &bytes[], const bool first_edge)
+{
+   int length = ArraySize(bytes);
+   int count = length < 8 ? length : 8;
+   int start = first_edge ? 0 : length - count;
+   string result = "";
+   for(int index = 0; index < count; index++)
+   {
+      if(index > 0) result += " ";
+      result += StringFormat("%02X", bytes[start + index]);
+   }
+   return result;
+}
+
+void PrintPayloadDiagnostics(const string payload, const uchar &bytes[])
+{
+   int length = StringLen(payload);
+   string first_char = length > 0 ? CharToString((ushort)StringGetCharacter(payload, 0)) : "";
+   string last_char = length > 0 ? CharToString((ushort)StringGetCharacter(payload, length - 1)) : "";
+   Print("payload_length=", length);
+   Print("first_char=", first_char);
+   Print("last_char=", last_char);
+   Print("hex(first 8 bytes)=", PayloadEdgeHex(bytes, true));
+   Print("hex(last 8 bytes)=", PayloadEdgeHex(bytes, false));
 }
 
 bool AppendUnicodeCodePoint(string &text, const uint code_point)
@@ -267,11 +310,14 @@ bool ReadDecisionPayload(string &payload)
       return false;
    }
 
+   PrintPayloadDiagnostics(payload, bytes);
    payload = TrimDecisionPayload(payload);
    if(payload == "") { Print("DECISION_FILE_EMPTY"); return false; }
-   if(!IsStructurallyValidJson(payload))
+
+   string parser_error;
+   if(!ParseDecisionRootObject(payload, parser_error))
    {
-      Print("DECISION_JSON_PARSE_FAIL | payload=", StringSubstr(payload, 0, 300));
+      Print("DECISION_JSON_PARSE_FAIL | parser_error=", parser_error, " | payload_length=", StringLen(payload));
       return false;
    }
    return true;
@@ -400,15 +446,18 @@ void OnTick()
    string action = JsonString(json, "action", JsonString(json, "direction"));
    StringToUpper(action);
    bool entry_allowed = JsonBool(json, "entry_allowed");
-   Print(json);
-   Print("DECISION_PAYLOAD_OK | decision=", decision, " | action=", action, " | entry_allowed=", entry_allowed);
+   double lot = JsonNumber(json, "lot");
+   Print("DECISION_PAYLOAD_OK");
+   Print("decision=", decision);
+   Print("action=", action);
+   Print("entry_allowed=", entry_allowed);
+   Print("lot=", lot);
    if(decision != "TRADE" || !entry_allowed) return;
 
    if(action != "BUY" && action != "SELL") { Print("INVALID_ACTION"); return; }
 
    string reason;
    string symbol = JsonString(json, "symbol", _Symbol);
-   double lot = JsonNumber(json, "lot");
    if(!BrokerSafetyPass(symbol, action, lot, reason)) { Print(reason); return; }
 
    double tp = JsonNumber(json, "take_profit", JsonNumber(json, "tp", JsonNumber(json, "tp1")));
