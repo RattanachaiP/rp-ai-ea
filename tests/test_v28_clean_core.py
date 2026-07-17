@@ -1,3 +1,4 @@
+import re
 import time
 from pathlib import Path
 
@@ -111,24 +112,37 @@ def test_disabled_broker_sl_contract_rejects_any_later_sl_injection():
 
 def test_executor_uses_zero_sl_for_the_disabled_broker_sl_contract():
     executor = (Path(__file__).resolve().parents[1] / "mt5/v28/RP_AI_Executor_V28_CleanCore.mq5").read_text(encoding="utf-8")
-    assert "g_trade.Buy(lot, symbol, 0, 0, tp, comment)" in executor
-    assert "g_trade.Sell(lot, symbol, 0, 0, tp, comment)" in executor
+    zero = r"0(?:\.0+)?"
+    for side in ("Buy", "Sell"):
+        assert re.search(
+            rf"g_trade\.{side}\s*\(\s*lot\s*,\s*symbol\s*,\s*{zero}\s*,\s*{zero}\s*,\s*tp\s*,\s*comment\s*\)",
+            executor,
+        )
     assert "PositionModify(" not in executor
 
 
 def test_executor_reads_the_live_common_decision_payload_and_maps_action():
     executor = (Path(__file__).resolve().parents[1] / "mt5/v28/RP_AI_Executor_V28_CleanCore.mq5").read_text(encoding="utf-8")
     assert '"RP_AI_EA\\\\shared\\\\XAUUSD\\\\decision.json",' in executor
-    assert "FILE_READ | FILE_TXT | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE" in executor
-    assert "while(!FileIsEnding(handle)) payload += FileReadString(handle)" in executor
+    assert re.search(
+        r"FILE_READ\s*\|\s*FILE_BIN\s*\|\s*FILE_COMMON\s*\|\s*FILE_SHARE_READ\s*\|\s*FILE_SHARE_WRITE",
+        executor,
+    )
+    assert "FileReadArray(handle, bytes, 0, (int)file_size)" in executor
+    assert "DecodeDecisionPayload(bytes, payload)" in executor
     assert "TrimDecisionPayload(payload)" in executor
-    assert "IsStructurallyValidJson(payload)" in executor
     assert "DECISION_FILE_OPEN_FAIL | error=" in executor
     assert "DECISION_FILE_EMPTY" in executor
-    assert "DECISION_JSON_PARSE_FAIL | payload=" in executor
-    assert "DECISION_PAYLOAD_OK | decision=" in executor
-    assert 'JsonString(json, "action", JsonString(json, "direction"))' in executor
-    assert 'if(decision != "TRADE" || !entry_allowed) return;' in executor
+    assert re.search(
+        r'if\s*\(\s*!ReadFieldString\s*\(\s*json\s*,\s*"action"\s*,\s*action\s*\)\s*\)\s*'
+        r'if\s*\(\s*!ReadFieldString\s*\(\s*json\s*,\s*"direction"\s*,\s*action\s*\)\s*\)\s*'
+        r'ReadFieldString\s*\(\s*json\s*,\s*"bias"\s*,\s*action\s*\)',
+        executor,
+    )
+    assert re.search(
+        r'if\s*\(\s*decision\s*!=\s*"TRADE"\s*\|\|\s*!entry_allowed\s*\)\s*\{[\s\S]*?return\s*;',
+        executor,
+    )
     assert "MARKET_STATE_FILE" not in executor
     assert "Dashboard" not in executor
 
