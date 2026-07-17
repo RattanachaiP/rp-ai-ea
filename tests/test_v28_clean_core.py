@@ -30,7 +30,7 @@ def dashboard(**overrides):
 def test_trade_payload_passes_shared_contract():
     payload = decide(fresh_market(), dashboard(), score_min_required=3)
     assert payload["decision"] == "TRADE"
-    assert payload["reason"] == "BUY: BUY_SCORE_DOMINANCE; SCORE_GAP 4 >= 3"
+    assert payload["reason"] == "BUY: BUY_SCORE_DOMINANCE; V28_IMMEDIATE_EXECUTION"
     assert payload["payload_valid"] is True
     assert payload["broker_sl_required"] is False
     assert payload["stop_loss"] == 0.0
@@ -38,11 +38,18 @@ def test_trade_payload_passes_shared_contract():
     assert validate_payload(payload) == (True, "EXECUTOR_CONTRACT_PASS")
 
 
-def test_score_gap_below_minimum_is_explained_no_trade():
+def test_score_gap_below_legacy_minimum_still_publishes_immediately():
     payload = decide(fresh_market(buy_score=5, sell_score=3), dashboard(), score_min_required=3)
-    assert payload["decision"] == "NO_TRADE"
-    assert payload["trade_block_reason"] == "SCORE_GAP_BELOW_MINIMUM"
-    assert payload["log_event"] == "NO_TRADE_REASON"
+    assert payload["decision"] == "TRADE"
+    assert payload["direction"] == "BUY"
+    assert payload["trade_block_reason"] == "NONE"
+    assert payload["log_event"] == "EXECUTABLE_TRADE_PUBLISHED"
+
+
+def test_dashboard_trade_toggle_is_not_a_v28_entry_gate():
+    payload = decide(fresh_market(), dashboard(trade_enabled=False), score_min_required=999)
+    assert payload["decision"] == "TRADE"
+    assert payload["executor_contract_status"] == "EXECUTOR_CONTRACT_PASS"
 
 
 def test_dashboard_can_disable_broker_sl_with_explicit_contract():
@@ -110,10 +117,14 @@ def test_executor_uses_zero_sl_for_the_disabled_broker_sl_contract():
     assert "g_trade.Sell(lot, symbol, 0.0, sl, tp, comment)" in executor
 
 
-def test_profile_f_is_the_dashboard_validation_baseline():
+def test_zero_broker_sl_profile_is_active_with_profile_f_as_baseline():
     contract = load_dashboard_contract(Path(__file__).resolve().parents[1])
-    assert contract["active_profile"] == "Profile_F_MARKET_CLOSE_ONLY"
+    assert contract["active_profile"] == "ZERO_BROKER_SL_VALIDATION"
     assert contract["validation_baseline_profile"] == "Profile_F_MARKET_CLOSE_ONLY"
     assert contract["broker_sl"] == {"enabled": False, "points": 0.0}
     assert contract["fixed_tp"] == {"enabled": True, "points": 100.0}
+    assert contract["breakeven"]["enabled"] is False
+    assert contract["trailing"]["enabled"] is False
+    assert contract["runner"]["enabled"] is False
+    assert contract["profit_lock"]["enabled"] is False
     assert contract["risk_hard_loss_cap_usd_per_001_lot"] == 1.2

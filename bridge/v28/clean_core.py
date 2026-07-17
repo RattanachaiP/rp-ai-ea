@@ -15,7 +15,6 @@ from typing import Any, Dict
 from .dashboard_contract import load_dashboard_contract
 from .payload_contract import SCHEMA_VERSION, validate_payload
 
-DEFAULT_SCORE_MIN_REQUIRED = 3.0
 DEFAULT_LOT = 0.01
 
 
@@ -76,7 +75,14 @@ def build_risk_package(direction: str, entry_price: float, dashboard: Dict[str, 
     return risk
 
 
-def decide(market: Dict[str, Any], dashboard: Dict[str, Any], score_min_required: float = DEFAULT_SCORE_MIN_REQUIRED, now: int | None = None) -> Dict[str, Any]:
+def decide(market: Dict[str, Any], dashboard: Dict[str, Any], score_min_required: float | None = None, now: int | None = None) -> Dict[str, Any]:
+    """Publish every directional V28 decision unless a safety interlock blocks it.
+
+    ``score_min_required`` is retained only as a call-compatible argument for
+    older launchers.  V28 validation deliberately does not use it as an entry
+    gate: score dominance selects BUY versus SELL, and the published decision
+    is immediately executable by the MT5 executor.
+    """
     now = int(time.time()) if now is None else now
     sequence_id = int(_num(market, "sequence_id", 0))
     heartbeat = int(_num(market, "heartbeat_unix", now))
@@ -84,7 +90,7 @@ def decide(market: Dict[str, Any], dashboard: Dict[str, Any], score_min_required
     base: Dict[str, Any] = {
         "schema_version": SCHEMA_VERSION, "runtime_version": "V28_CLEAN_EXPECTANCY_CORE",
         "symbol": market.get("symbol", "XAUUSD"), "sequence_id": sequence_id, "heartbeat_unix": heartbeat,
-        "score_gap": score_gap, "score_min_required": score_min_required,
+        "score_gap": score_gap, "score_min_required": None,
         "market_evidence": {key: market.get(key) for key in ("buy_score", "sell_score", "spread", "price", "bid")},
         "final_authority": "PYTHON_AI_V28_CLEAN_CORE", "dashboard_profile": dashboard.get("active_profile", "Profile_F_MARKET_CLOSE_ONLY"),
         "management_mode": dashboard.get("management_mode", "DASHBOARD_MANAGED"), "dashboard_contract": dashboard,
@@ -93,12 +99,13 @@ def decide(market: Dict[str, Any], dashboard: Dict[str, Any], score_min_required
     block = None
     if not direction:
         block = edge_reason
-    elif score_gap < score_min_required:
-        block = "SCORE_GAP_BELOW_MINIMUM"
+    # Freshness, emergency entry disablement, and exposure capacity are safety
+    # interlocks.  V28 intentionally has no score threshold, cooldown, or
+    # strategy/telemetry veto between a directional decision and publication.
     elif not market_is_fresh(market, now=now):
         block = "STALE_MARKET_DATA"
-    elif not bool(dashboard.get("trade_enabled", True)) or bool(dashboard.get("emergency", {}).get("entries_disabled", False)):
-        block = "DASHBOARD_TRADE_DISABLED"
+    elif bool(dashboard.get("emergency", {}).get("entries_disabled", False)):
+        block = "EMERGENCY_ENTRIES_DISABLED"
     elif int(_num(market, "open_positions", 0)) >= int(_num(market, "max_open_positions", 1)):
         block = "OPEN_POSITION_LIMIT"
     if block:
@@ -107,7 +114,7 @@ def decide(market: Dict[str, Any], dashboard: Dict[str, Any], score_min_required
         return base
     entry_price = _num(market, "price", _num(market, "bid", 0.0))
     payload = {**base, "decision": "TRADE", "direction": direction, "bias": direction,
-               "reason": f"{direction}: {edge_reason}; SCORE_GAP {score_gap:g} >= {score_min_required:g}",
+               "reason": f"{direction}: {edge_reason}; V28_IMMEDIATE_EXECUTION",
                "entry_reason": edge_reason, "trade_block_reason": "NONE", "entry_price": entry_price,
                "lot": _num(market, "lot", DEFAULT_LOT), "payload_valid": True}
     payload.update(build_risk_package(direction, entry_price, dashboard))
