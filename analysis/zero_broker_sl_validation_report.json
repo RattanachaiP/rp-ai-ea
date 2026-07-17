@@ -1,0 +1,33 @@
+{
+  "report_version": "ZERO_BROKER_SL_VALIDATION_1",
+  "baseline_profile": "Profile_F_MARKET_CLOSE_ONLY_WITH_BROKER_SL",
+  "zero_broker_sl_profile": "ZERO_BROKER_SL_VALIDATION",
+  "replay": {
+    "baseline": {
+      "available": false,
+      "limitation": "No numeric realized P/L column was available; replay profitability was not calculated.",
+      "trade_count": 0
+    },
+    "zero_broker_sl": {
+      "available": false,
+      "limitation": "No numeric realized P/L column was available; replay profitability was not calculated.",
+      "trade_count": 0
+    },
+    "comparison": {
+      "available": false,
+      "conclusion": "INSUFFICIENT_CLOSED_TRADE_EVIDENCE",
+      "broker_sl_root_cause": "UNDETERMINED",
+      "required_action": "Collect matched closed-trade replay and isolated-demo outcomes for both profiles; do not claim an expectancy effect."
+    }
+  },
+  "demo_contract_validation": {
+    "available": true,
+    "isolated_demo_only": true,
+    "profile": "Profile_F_MARKET_CLOSE_ONLY",
+    "broker_sl_required": false,
+    "stop_loss": 0.0,
+    "payload_contract_valid": true,
+    "payload_contract_reason": "EXECUTOR_CONTRACT_PASS",
+    "passed": true
+  }
+}
