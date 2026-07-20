@@ -41,7 +41,7 @@ struct TicketState
 struct DecisionPayload
 {
    string decision, direction, entry_confidence, waiting_reason;
-   double lot, initial_r_points;
+   double lot, initial_r_points, base_take_profit_points;
    double entry_score;
    long   sequence_id;
    bool   entry_allowed, has_entry_allowed;
@@ -174,12 +174,17 @@ double PayloadFingerprint(const string json)
 
 bool ParsePayload(const string json, DecisionPayload &payload)
 {
-   ZeroMemory(payload); payload.lot=InpDefaultLot; payload.initial_r_points=InpInitialRPoints;
+   ZeroMemory(payload); payload.lot=InpDefaultLot; payload.initial_r_points=InpInitialRPoints; payload.base_take_profit_points=InpBaseTakeProfitPoints;
    if(!ReadFieldString(json,"decision",payload.decision)) return false;
    if(!ReadFieldString(json,"direction",payload.direction))
       if(!ReadFieldString(json,"action",payload.direction)) ReadFieldString(json,"bias",payload.direction);
    StringToUpper(payload.decision); StringToUpper(payload.direction);
    ReadFieldNumber(json,"lot",payload.lot); ReadFieldNumber(json,"initial_r_points",payload.initial_r_points);
+   // Producers use the snake-case field, while older integrations supplied
+   // the original BaseTakeProfit name.  Accept both at the payload boundary.
+   if(!ReadFieldNumber(json,"base_take_profit_points",payload.base_take_profit_points))
+      if(!ReadFieldNumber(json,"BaseTakeProfitPoints",payload.base_take_profit_points))
+         ReadFieldNumber(json,"BaseTakeProfit",payload.base_take_profit_points);
    double sequence=0.0; if(ReadFieldNumber(json,"sequence_id",sequence)) payload.sequence_id=(long)sequence;
    payload.has_entry_allowed=ReadFieldBool(json,"entry_allowed",payload.entry_allowed);
    payload.has_entry_score=ReadFieldNumber(json,"entry_score",payload.entry_score);
@@ -263,6 +268,43 @@ double CurrentExposureLots(const string symbol)
    double total=0.0; for(int i=PositionsTotal()-1;i>=0;i--) { ulong t=PositionGetTicket(i); if(t>0 && PositionGetString(POSITION_SYMBOL)==symbol) total+=PositionGetDouble(POSITION_VOLUME); } return total;
 }
 
+// The legacy executor has no adaptive contract to turn an AI target into an
+// executable price.  Always produce a positive, deterministic target: payload
+// BaseTakeProfit first, then the terminal base setting, then one initial R.
+double LegacyTakeProfitPrice(const DecisionPayload &payload, const double entry_price)
+{
+   double points=payload.base_take_profit_points;
+   if(points<=0.0) points=InpBaseTakeProfitPoints;
+   if(points<=0.0) points=payload.initial_r_points;
+   if(points<=0.0) points=InpInitialRPoints;
+   if(points<=0.0) points=1.0;
+   double target=payload.direction=="BUY" ? entry_price+points*_Point : entry_price-points*_Point;
+   return NormalizeDouble(target,_Digits);
+}
+
+bool EnsureLegacyTakeProfit(const ulong ticket, const double target_tp)
+{
+   if(ticket==0 || target_tp<=0.0 || !PositionSelectByTicket(ticket)) return false;
+   double existing_tp=PositionGetDouble(POSITION_TP);
+   if(existing_tp>0.0)
+   {
+      PrintFormat("V29_LEGACY_TP_BROKER_VERIFIED | ticket=%I64u | tp=%s",ticket,DoubleToString(existing_tp,_Digits));
+      return true;
+   }
+   if(!g_trade.PositionModify(ticket,PositionGetDouble(POSITION_SL),target_tp))
+   {
+      PrintFormat("V29_LEGACY_TP_MODIFY_FAIL | ticket=%I64u | %s",ticket,g_trade.ResultRetcodeDescription());
+      return false;
+   }
+   if(PositionSelectByTicket(ticket) && PositionGetDouble(POSITION_TP)>0.0)
+   {
+      PrintFormat("V29_LEGACY_TP_BROKER_VERIFIED | ticket=%I64u | tp=%s",ticket,DoubleToString(PositionGetDouble(POSITION_TP),_Digits));
+      return true;
+   }
+   PrintFormat("V29_LEGACY_TP_MODIFY_UNVERIFIED | ticket=%I64u",ticket);
+   return false;
+}
+
 void ExecutePayload()
 {
    if(!InpEnableEntries) return;
@@ -276,8 +318,19 @@ void ExecutePayload()
    if((payload.sequence_id>0 && StateGet(0,"last_sequence")==payload.sequence_id) || StateGet(0,"last_fingerprint")==fingerprint) return;
    if(payload.lot+CurrentExposureLots(_Symbol)>InpExposureCapLots || !TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED)) { Print("V29_BROKER_SAFETY_BLOCK"); return; }
    StateSet(0,"pending_initial_r",payload.initial_r_points);
-   g_trade.SetExpertMagicNumber(InpMagic); bool sent=payload.direction=="BUY" ? g_trade.Buy(payload.lot,_Symbol) : g_trade.Sell(payload.lot,_Symbol);
+   bool legacy_tp_required=!payload.has_adaptive_tp_be_contract && (InpEnableAIProgressiveTP || InpEnableAIProgressiveBE);
+   MqlTick entry_tick; if(!SymbolInfoTick(_Symbol,entry_tick)) return;
+   double order_tp=legacy_tp_required ? LegacyTakeProfitPrice(payload,payload.direction=="BUY" ? entry_tick.ask : entry_tick.bid) : 0.0;
+   if(legacy_tp_required)
+   {
+      PrintFormat("V29_LEGACY_TP_RECONSTRUCTED | source=BaseTakeProfit | points=%.1f | tp=%s",payload.base_take_profit_points,DoubleToString(order_tp,_Digits));
+      StateSet(0,"pending_legacy_tp",order_tp);
+   }
+   g_trade.SetExpertMagicNumber(InpMagic); bool sent=payload.direction=="BUY" ? g_trade.Buy(payload.lot,_Symbol,0.0,0.0,order_tp) : g_trade.Sell(payload.lot,_Symbol,0.0,0.0,order_tp);
    if(!sent) { PrintFormat("V29_ORDER_SEND_FAIL | %s",g_trade.ResultRetcodeDescription()); return; }
+   ulong opened_ticket=0;
+   if(g_trade.ResultDeal()>0 && HistoryDealSelect(g_trade.ResultDeal())) opened_ticket=(ulong)HistoryDealGetInteger(g_trade.ResultDeal(),DEAL_POSITION_ID);
+   if(legacy_tp_required && EnsureLegacyTakeProfit(opened_ticket,order_tp)) StateSet(0,"pending_legacy_tp",0.0);
    // On the following tick LoadState persists this payload's fallback-safe R per ticket.
    for(int i=PositionsTotal()-1;i>=0;i--) { ulong ticket=PositionGetTicket(i); if(ticket>0 && PositionGetInteger(POSITION_MAGIC)==InpMagic && !StateHas(ticket,"initial_r_points")) { TicketState state=LoadState(ticket,PositionGetDouble(POSITION_VOLUME),payload.initial_r_points); SaveState(ticket,state); } }
    if(payload.sequence_id>0) StateSet(0,"last_sequence",payload.sequence_id);
@@ -291,6 +344,8 @@ void OnTradeTransaction(const MqlTradeTransaction &transaction, const MqlTradeRe
 {
    if(transaction.type!=TRADE_TRANSACTION_DEAL_ADD || transaction.position==0) return;
    if(!HistoryDealSelect(transaction.deal) || HistoryDealGetInteger(transaction.deal,DEAL_MAGIC)!=InpMagic) return;
+   double pending_legacy_tp=StateGet(0,"pending_legacy_tp");
+   if(pending_legacy_tp>0.0 && EnsureLegacyTakeProfit(transaction.position,pending_legacy_tp)) StateSet(0,"pending_legacy_tp",0.0);
    if(!PositionSelectByTicket(transaction.position) || StateHas(transaction.position,"initial_r_points")) return;
    TicketState state=LoadState(transaction.position,PositionGetDouble(POSITION_VOLUME),StateGet(0,"pending_initial_r",InpInitialRPoints));
    SaveState(transaction.position,state);
