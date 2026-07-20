@@ -65,14 +65,39 @@ def test_mt5_legacy_fallback_reconstructs_and_verifies_a_nonzero_base_tp():
     source = Path("mt5/v29/RP_AI_ProgressiveTPBE_V29.mq5").read_text(encoding="utf-8")
     # Contract-present orders retain adaptive ownership; only its absence enters
     # the deterministic BaseTakeProfit path.
-    assert "!payload.has_adaptive_tp_be_contract" in source
+    assert "bool adaptive_present=payload.has_adaptive_tp_be_contract" in source
     assert "base_take_profit_points" in source
     assert "LegacyTakeProfitPrice" in source
     assert '"V29_LEGACY_TP_RECONSTRUCTED' in source
     assert 'g_trade.Buy(payload.lot,_Symbol,0.0,0.0,order_tp)' in source
     assert 'g_trade.Sell(payload.lot,_Symbol,0.0,0.0,order_tp)' in source
-    # A broker that accepts an entry but drops TP is immediately repaired and
-    # the resulting position is read back for execution verification.
-    assert "EnsureLegacyTakeProfit(opened_ticket,order_tp)" in source
+    # A broker that accepts an entry but drops TP is repaired on later
+    # execution cycles, with the resulting position read back for verification.
+    assert "RecoverBrokerTakeProfit" in source
     assert "g_trade.PositionModify(ticket,PositionGetDouble(POSITION_SL),target_tp)" in source
-    assert '"V29_LEGACY_TP_BROKER_VERIFIED' in source
+    assert '"V29_TP_BROKER_VERIFIED' in source
+
+
+def test_mt5_tp_source_selection_makes_adaptive_authority_and_fallbacks_explicit():
+    source = Path("mt5/v29/RP_AI_ProgressiveTPBE_V29.mq5").read_text(encoding="utf-8")
+    assert 'TP_SOURCE_ADAPTIVE_CONTRACT "ADAPTIVE_CONTRACT"' in source
+    assert 'TP_SOURCE_LEGACY_RECONSTRUCTION "LEGACY_RECONSTRUCTION"' in source
+    assert 'TP_SOURCE_TERMINAL_BASE_DEFAULT "TERMINAL_BASE_DEFAULT"' in source
+    assert "bool legacy_available=!adaptive_present" in source
+    assert "AssertAdaptiveAuthority(adaptive_present,legacy_executed,tp_source,0)" in source
+    assert '"V29_ASSERT_ADAPTIVE_OVERRIDE' in source
+    assert '"V29_ASSERT_INVALID_TP_SOURCE' in source
+    assert '"V29_TP_TRACE' in source
+
+
+def test_mt5_tp_recovery_is_per_ticket_and_bounded_to_three_attempts():
+    source = Path("mt5/v29/RP_AI_ProgressiveTPBE_V29.mq5").read_text(encoding="utf-8")
+    assert "#define V29_TP_RECOVERY_MAX_ATTEMPTS 3" in source
+    assert '"tp_recovery_attempt_count"' in source
+    assert '"tp_recovery_completed"' in source
+    assert '"tp_recovery_failed"' in source
+    assert '"V29_TP_RECOVERY_ATTEMPT' in source
+    assert '"V29_TP_RECOVERY_FAILED' in source
+    assert '"V29_TP_RECOVERY_ABORTED' in source
+    assert '"V29_ASSERT_RECOVERY_LIMIT' in source
+    assert "if(attempts>=V29_TP_RECOVERY_MAX_ATTEMPTS)" in source
