@@ -1,21 +1,23 @@
-# RP AI Brain Phase 1 data contract
+# RP AI Brain Phase 2A data contract
 
 ## Scope
 
 This contract defines **internal, in-process** boundaries for the authoritative
-V26 runtime only.  Phase 1 is a behavior-preserving extraction: it does not add
-fields, remove fields, change values, or create a second publication format.
+V26 runtime only. Phase 2A replaces the Market Perception identity wrapper with
+an observation-only object while preserving the Phase 1 publication guarantees.
 `decision.json` remains the V26 payload produced by the existing writer.
 
 ## Boundary rule
 
-Every stage accepts a Python `dict` and returns the *same* `dict` object.  A
-stage must not add a stage marker or mutate the payload merely to identify
-itself.  Existing V26 functions remain the sole owners of all calculations.
+Market Perception accepts a Python `dict` and returns a private
+`MarketPerception` object. Market Understanding returns the original dictionary
+by object identity; all later stages accept and return the same dictionary.
+No stage may add a marker or mutate the payload merely to identify itself.
+Existing V26 functions remain the sole owners of all calculations.
 
 | Stage | Input | Output | Phase 1 responsibility |
 | --- | --- | --- | --- |
-| Market Perception | Raw `market_state.json` dictionary | Unchanged market dictionary | Boundary around existing market observations. |
+| Market Perception | Raw `market_state.json` dictionary | `MarketPerception` object | Extracts observations only: trend, swing high/low, structure, liquidity sweep, volatility, ATR availability, VWAP relation, session, momentum, compression/expansion, and impulse. It carries the original market dictionary privately for the next boundary. It does not decide, score, or determine direction. |
 | Market Understanding | Perception dictionary | Unchanged market dictionary | Boundary before the existing V26 regime/classification logic. |
 | Market Reasoning | V26 candidate decision dictionary | Unchanged candidate decision | Boundary around the existing thesis/entry pipeline. |
 | Probability Engine | Candidate decision dictionary | Unchanged candidate decision | Boundary around existing confidence/probability-like telemetry only. |
@@ -32,5 +34,8 @@ The following must remain identical for a given deterministic V26 input:
   payload field.
 * The serialized `decision.json` schema and existing atomic publication path.
 
-Stage boundaries are deliberately metadata-free so they cannot alter the
-published payload or MT5/dashboard contracts.
+The perception object is deliberately not serialized, merged into a candidate
+decision, or passed to the writer. Market Understanding immediately unwraps its
+original market dictionary into the unchanged V26 path. All other stage
+boundaries are metadata-free so they cannot alter the published payload or
+MT5/dashboard contracts.

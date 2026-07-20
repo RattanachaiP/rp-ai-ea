@@ -4,8 +4,14 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
+import sys
 
 from trade_management_dashboard import load_trade_management_dashboard
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
+from brain.market_perception import MarketPerception, extract_market_perception
 
 # V25 Pullback Fallback Mode
 # V25 RP TIME SYNC STANDARD V1
@@ -9593,20 +9599,19 @@ def attach_manual_trend_report(decision, data):
 # ---------------------------------------------------------------------------
 # RP AI Brain Phase 1 internal boundaries
 #
-# These wrappers are intentionally metadata-free identity boundaries.  The V26
-# functions below and in write_decision() retain exclusive calculation and
-# mutation ownership.  This creates separable call sites without changing the
-# authoritative payload, decision.json schema, or MT5/dashboard contracts.
+# Market Perception is observation-only and returns a private in-process object.
+# Market Understanding unwraps its original market dictionary before existing V26
+# calculation begins.  The remaining boundaries are metadata-free identities.
 # See brain/DATA_CONTRACT.md.
 # ---------------------------------------------------------------------------
 def brain_market_perception(market_state):
-    """Market Perception: raw V26 market-state input -> raw V26 market-state."""
-    return market_state
+    """Market Perception: raw market state -> observation-only perception object."""
+    return extract_market_perception(market_state)
 
 
 def brain_market_understanding(perception):
     """Market Understanding: perception input -> existing V26 classification input."""
-    return perception
+    return perception.market_state if isinstance(perception, MarketPerception) else perception
 
 
 def brain_market_reasoning(candidate_decision):
