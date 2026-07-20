@@ -20,6 +20,8 @@ runtime feature, strategy migration, or decision migration.
 | Understanding | `interpret_market_understanding(perception: MarketPerception) -> MarketUnderstanding` | A `MarketPerception`; any other type raises `TypeError`. | Frozen `MarketUnderstanding`. | Descriptive context only. May read Perception; has no probability, decision, score, confidence, risk, execution, or publication dependency. |
 | Reasoning | `reason_about_market(understanding: MarketUnderstanding) -> MarketReasoning` | A `MarketUnderstanding`; any other type raises `TypeError`. | Frozen `MarketReasoning`. | Explanation/evidence only. May read Understanding; does not mutate it or produce a decision/probability/risk instruction. |
 | Probability | `estimate_market_probabilities(understanding: MarketUnderstanding, reasoning: MarketReasoning) -> ProbabilityAssessment` | Matching Understanding and Reasoning; mismatched identity raises `ValueError`, wrong types raise `TypeError`. | Frozen `ProbabilityAssessment` containing frozen `MarketStateProbability` entries. | Non-directional market-state telemetry only: continuation, reversal, range, breakout, no-trade. Never BUY/SELL, confidence, score, risk, decision, or payload output. |
+| Expected Value | `evaluate_expected_value(understanding: MarketUnderstanding, reasoning: MarketReasoning, probability_assessment: ProbabilityAssessment) -> ExpectedValueAssessment` | Matching prior lineage; mismatched identity raises `ValueError`, wrong types raise `TypeError`. | Frozen `ExpectedValueAssessment` with normalized opportunity units. | Never a price, lot, risk instruction, decision, or payload output. |
+| Position Intelligence | `assess_position_intelligence(understanding: MarketUnderstanding, reasoning: MarketReasoning, probability_assessment: ProbabilityAssessment, expected_value_assessment: ExpectedValueAssessment) -> PositionIntelligenceAssessment` | Matching prior lineage; mismatched identity raises `ValueError`, wrong types raise `TypeError`. | Frozen `PositionIntelligenceAssessment`. | Descriptive normalized structure only; never BUY/SELL, entry, sizing, SL/TP replacement, execution recommendation, or payload output. |
 
 ## Frozen record types
 
@@ -30,6 +32,9 @@ All Brain dataclasses are declared with `@dataclass(frozen=True)`:
 * `MarketReasoning`
 * `MarketStateProbability`
 * `ProbabilityAssessment`
+* `ConfidenceInterval`
+* `ExpectedValueAssessment`
+* `PositionIntelligenceAssessment`
 
 Frozen means their attributes cannot be reassigned after construction.
 `MarketPerception.market_state` is intentionally the caller-owned raw mapping
