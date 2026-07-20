@@ -9590,6 +9590,50 @@ def attach_manual_trend_report(decision, data):
     return decision
 
 
+# ---------------------------------------------------------------------------
+# RP AI Brain Phase 1 internal boundaries
+#
+# These wrappers are intentionally metadata-free identity boundaries.  The V26
+# functions below and in write_decision() retain exclusive calculation and
+# mutation ownership.  This creates separable call sites without changing the
+# authoritative payload, decision.json schema, or MT5/dashboard contracts.
+# See brain/DATA_CONTRACT.md.
+# ---------------------------------------------------------------------------
+def brain_market_perception(market_state):
+    """Market Perception: raw V26 market-state input -> raw V26 market-state."""
+    return market_state
+
+
+def brain_market_understanding(perception):
+    """Market Understanding: perception input -> existing V26 classification input."""
+    return perception
+
+
+def brain_market_reasoning(candidate_decision):
+    """Market Reasoning: existing V26 candidate decision -> candidate decision."""
+    return candidate_decision
+
+
+def brain_probability_engine(candidate_decision):
+    """Probability Engine: existing V26 confidence telemetry boundary."""
+    return candidate_decision
+
+
+def brain_expected_value_engine(candidate_decision):
+    """Expected Value Engine: existing V26 expectancy/RR telemetry boundary."""
+    return candidate_decision
+
+
+def brain_position_intelligence(candidate_decision):
+    """Position Intelligence: existing V26 risk/leg/management boundary."""
+    return candidate_decision
+
+
+def brain_decision_publication(final_payload):
+    """Decision Publication: final V26 payload -> existing atomic writer input."""
+    return final_payload
+
+
 def build_decision(data):
     # V25 RP TIME SYNC STANDARD V1 freshness guard.
     # Only blocks when Writer provides heartbeat_unix and age > 5 sec.
@@ -9918,23 +9962,31 @@ def run():
             fallback["decision_write_duration"] = 0.0
             fallback["file_write_latency"] = 0.0
             fallback["total_cycle_time"] = fallback["loop_duration_sec"]
-            write_decision(fallback)
+            write_decision(brain_decision_publication(fallback))
             time.sleep(1)
             continue
         try:
+            # Phase 1 boundaries intentionally preserve the existing object and
+            # calculations; they only make the V26 pipeline responsibilities
+            # explicit for later, parity-gated extraction.
+            data = brain_market_understanding(brain_market_perception(data))
             key, bar_time, decision = build_decision(data)
+            decision = brain_market_reasoning(decision)
+            decision = brain_probability_engine(decision)
+            decision = brain_expected_value_engine(decision)
+            decision = brain_position_intelligence(decision)
             decision = attach_manual_trend_report(decision, data)
             decision["loop_duration_sec"] = round(time.time() - cycle_start, 6)
             decision["stale_prevention_timing_sec"] = decision["loop_duration_sec"]
             fire_ok, fire_reason = can_fire_or_strong_override(key, bar_time, decision, data)
             if fire_ok:
                 decision["final_decision_build_sec"] = round(time.time() - cycle_start, 6)
-                write_decision(decision)
+                write_decision(brain_decision_publication(decision))
             else:
                 print("COOLDOWN / MAX SIGNAL BLOCK:", key, "|", fire_reason)
                 blocked_decision = build_cooldown_wait_decision(decision, data, fire_reason, cycle_start)
                 blocked_decision["final_decision_build_sec"] = round(time.time() - cycle_start, 6)
-                write_decision(blocked_decision)
+                write_decision(brain_decision_publication(blocked_decision))
         except Exception as e:
             print("LOGIC ERROR:", e)
             err_decision = no_trade(f"logic error: {e}")
@@ -9943,7 +9995,7 @@ def run():
             err_decision["decision_write_duration"] = 0.0
             err_decision["file_write_latency"] = 0.0
             err_decision["total_cycle_time"] = err_decision["loop_duration_sec"]
-            write_decision(err_decision)
+            write_decision(brain_decision_publication(err_decision))
         time.sleep(1)
 
 
