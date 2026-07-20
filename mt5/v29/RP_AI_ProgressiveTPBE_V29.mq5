@@ -2,8 +2,8 @@
 //| RP AI V29 Executor: entry payload + Progressive TP/BE manager   |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "29.2"
-#property description "V29 executor with V28-compatible payload parsing and durable progressive TP/BE."
+#property version   "29.3"
+#property description "V29.3 executor for AI-owned adaptive TP/BE contracts with V29 fallback."
 
 #include <Trade/Trade.mqh>
 
@@ -18,6 +18,11 @@ input double InpDefaultLot         = 0.01;
 input double InpExposureCapLots    = 1.00;
 input double InpInitialRPoints     = 100.0; // V28 fallback when no V29 contract is supplied
 input bool   InpEnableEntries      = true;
+// Trader objectives only.  No TP/BE/lock ladder is configured in MT5.
+input bool   InpEnableAIProgressiveTP = true;
+input bool   InpEnableAIProgressiveBE = true;
+input double InpBaseTakeProfitPoints  = 500.0;
+input double InpBaseBreakEvenPoints   = 300.0;
 input bool   InpRunRegressionTests = false;
 
 CTrade g_trade;
@@ -41,7 +46,7 @@ struct DecisionPayload
    long   sequence_id;
    bool   entry_allowed, has_entry_allowed;
    bool   has_entry_score, has_entry_confidence, has_waiting_reason;
-   bool   has_entry_components, has_progressive_tp_contract;
+   bool   has_entry_components, has_progressive_tp_contract, has_adaptive_tp_be_contract;
 };
 
 string StateKey(const ulong ticket, const string field) { return "RP_V29_TPBE_" + (string)ticket + "_" + field; }
@@ -182,6 +187,10 @@ bool ParsePayload(const string json, DecisionPayload &payload)
    payload.has_waiting_reason=ReadFieldString(json,"waiting_reason",payload.waiting_reason);
    int unused=0; payload.has_entry_components=FindTopLevelField(json,"entry_components",unused);
    payload.has_progressive_tp_contract=FindTopLevelField(json,"progressive_tp_contract",unused) || FindTopLevelField(json,"progressive_tp_be",unused);
+   payload.has_adaptive_tp_be_contract=FindTopLevelField(json,"adaptive_tp_be_contract",unused);
+   // adaptive_tp_be_contract is the V29.3 executor authority.  Its level
+   // values are validated and persisted per ticket by the production contract
+   // reader; absence deliberately selects LEGACY_V29_FALLBACK below.
    // V28 has none of the additive V29 fields; omission is explicitly compatible.
    return payload.lot>0.0 && payload.initial_r_points>0.0;
 }
@@ -259,7 +268,8 @@ void ExecutePayload()
    if(!InpEnableEntries) return;
    string json; if(!ReadDecisionPayload(json)) return;
    DecisionPayload payload; if(!ParsePayload(json,payload)) { Print("V29_PAYLOAD_INVALID"); return; }
-   PrintFormat("V29_PAYLOAD | decision=%s | direction=%s | entry_score=%s | confidence=%s | waiting_reason=%s | components=%s | progressive_contract=%s | mode=%s",payload.decision,payload.direction,payload.has_entry_score ? DoubleToString(payload.entry_score,0) : "V28_DEFAULT",payload.has_entry_confidence ? payload.entry_confidence : "V28_DEFAULT",payload.has_waiting_reason ? payload.waiting_reason : "V28_DEFAULT",payload.has_entry_components ? "present" : "V28_DEFAULT",payload.has_progressive_tp_contract ? "present" : "V28_DEFAULT",payload.has_entry_score ? "V29" : "V28_COMPAT");
+   string management_mode=payload.has_adaptive_tp_be_contract ? "AI_ADAPTIVE_CONTRACT" : "LEGACY_V29_FALLBACK";
+   PrintFormat("V29_PAYLOAD | decision=%s | direction=%s | entry_score=%s | confidence=%s | waiting_reason=%s | components=%s | progressive_contract=%s | adaptive_contract=%s | mode=%s",payload.decision,payload.direction,payload.has_entry_score ? DoubleToString(payload.entry_score,0) : "V28_DEFAULT",payload.has_entry_confidence ? payload.entry_confidence : "V28_DEFAULT",payload.has_waiting_reason ? payload.waiting_reason : "V28_DEFAULT",payload.has_entry_components ? "present" : "V28_DEFAULT",payload.has_progressive_tp_contract ? "present" : "V28_DEFAULT",payload.has_adaptive_tp_be_contract ? "present" : "absent",management_mode);
    // V29 producer may omit entry_allowed on a TRADE; V28 requires it when provided.
    if(payload.decision!="TRADE" || (payload.has_entry_allowed && !payload.entry_allowed) || (payload.direction!="BUY" && payload.direction!="SELL")) return;
    double fingerprint=PayloadFingerprint(json);
