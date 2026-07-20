@@ -26,8 +26,8 @@ input bool   InpEnableEntries      = true;
 // Trader objectives only.  No TP/BE/lock ladder is configured in MT5.
 input bool   InpEnableAIProgressiveTP = true;
 input bool   InpEnableAIProgressiveBE = true;
-input double InpBaseTakeProfitPoints  = 500.0;
-input double InpBaseBreakEvenPoints   = 300.0;
+input double InpBaseTakeProfitPoints  = 10000.0;
+input double InpBaseBreakEvenPoints   = 5000.0;
 input bool   InpRunRegressionTests = false;
 
 CTrade g_trade;
@@ -41,12 +41,15 @@ struct TicketState
    double partial_volume_closed;
    double initial_volume;
    double initial_r_points;
+   double profit_lock_trigger_points;
+   double profit_lock_points;
+   bool   profit_lock_done;
 };
 
 struct DecisionPayload
 {
    string decision, direction, entry_confidence, waiting_reason;
-   double lot, initial_r_points, base_take_profit_points;
+   double lot, initial_r_points, base_take_profit_points, profit_lock_trigger_points, profit_lock_points;
    double entry_score;
    long   sequence_id;
    bool   entry_allowed, has_entry_allowed;
@@ -104,6 +107,9 @@ TicketState LoadState(const ulong ticket, const double volume, const double init
    state.partial_volume_closed = StateGet(ticket, "partial_volume_closed");
    state.initial_volume = StateGet(ticket, "initial_volume", volume);
    state.initial_r_points = StateGet(ticket, "initial_r_points", initial_r);
+   state.profit_lock_trigger_points = StateGet(ticket, "profit_lock_trigger_points", 7000.0);
+   state.profit_lock_points = StateGet(ticket, "profit_lock_points", 5000.0);
+   state.profit_lock_done = StateGet(ticket, "profit_lock_done") > 0.5;
    if(state.initial_volume <= 0.0) state.initial_volume = volume;
    if(state.initial_r_points <= 0.0) state.initial_r_points = initial_r;
    return state;
@@ -118,6 +124,9 @@ void SaveState(const ulong ticket, const TicketState &state)
    StateSet(ticket, "partial_volume_closed", state.partial_volume_closed);
    StateSet(ticket, "initial_volume", state.initial_volume);
    StateSet(ticket, "initial_r_points", state.initial_r_points);
+   StateSet(ticket, "profit_lock_trigger_points", state.profit_lock_trigger_points);
+   StateSet(ticket, "profit_lock_points", state.profit_lock_points);
+   StateSet(ticket, "profit_lock_done", state.profit_lock_done ? 1.0 : 0.0);
 }
 
 int NextStage(const TicketState &state)
@@ -210,7 +219,7 @@ double PayloadFingerprint(const string json)
 
 bool ParsePayload(const string json, DecisionPayload &payload)
 {
-   ZeroMemory(payload); payload.lot=InpDefaultLot; payload.initial_r_points=InpInitialRPoints; payload.base_take_profit_points=InpBaseTakeProfitPoints;
+   ZeroMemory(payload); payload.lot=InpDefaultLot; payload.initial_r_points=InpInitialRPoints; payload.base_take_profit_points=InpBaseTakeProfitPoints; payload.profit_lock_trigger_points=7000.0; payload.profit_lock_points=5000.0;
    if(!ReadFieldString(json,"decision",payload.decision)) return false;
    if(!ReadFieldString(json,"direction",payload.direction))
       if(!ReadFieldString(json,"action",payload.direction)) ReadFieldString(json,"bias",payload.direction);
@@ -221,6 +230,8 @@ bool ParsePayload(const string json, DecisionPayload &payload)
    if(!ReadFieldNumber(json,"base_take_profit_points",payload.base_take_profit_points))
       if(!ReadFieldNumber(json,"BaseTakeProfitPoints",payload.base_take_profit_points))
          ReadFieldNumber(json,"BaseTakeProfit",payload.base_take_profit_points);
+   ReadFieldNumber(json,"profit_lock_trigger_points",payload.profit_lock_trigger_points);
+   ReadFieldNumber(json,"profit_lock_points",payload.profit_lock_points);
    double sequence=0.0; if(ReadFieldNumber(json,"sequence_id",sequence)) payload.sequence_id=(long)sequence;
    payload.has_entry_allowed=ReadFieldBool(json,"entry_allowed",payload.entry_allowed);
    payload.has_entry_score=ReadFieldNumber(json,"entry_score",payload.entry_score);
@@ -278,9 +289,20 @@ void ManagePosition(const ulong ticket)
    double available=PositionGetDouble(POSITION_VOLUME); TicketState state=LoadState(ticket,available,InpInitialRPoints);
    if(state.initial_r_points<=0.0) return;
    long type=PositionGetInteger(POSITION_TYPE); double open=PositionGetDouble(POSITION_PRICE_OPEN); MqlTick tick; if(!SymbolInfoTick(_Symbol,tick)) return;
-   if(!EnsureCompletedProtection(ticket,type,open,state)) { SaveState(ticket,state); return; }
    double exit_price=type==POSITION_TYPE_BUY ? tick.bid : tick.ask;
-   double current_r=(type==POSITION_TYPE_BUY ? exit_price-open : open-exit_price)/_Point/state.initial_r_points;
+   double floating_points=(type==POSITION_TYPE_BUY ? exit_price-open : open-exit_price)/_Point;
+   // Mandatory delayed profit lock: never modify the stop before +7,000
+   // points, then secure +5,000 points.  State is persisted per ticket.
+   if(!state.profit_lock_done)
+   {
+      if(floating_points<state.profit_lock_trigger_points) return;
+      double lock_price=type==POSITION_TYPE_BUY ? open+state.profit_lock_points*_Point : open-state.profit_lock_points*_Point;
+      if(!ImproveStop(ticket,type,open,lock_price,state)) { SaveState(ticket,state); return; }
+      state.profit_lock_done=true; SaveState(ticket,state);
+      PrintFormat("V29_PROFIT_LOCK_COMPLETED | ticket=%I64u | trigger=%.0f | lock=%.0f",ticket,state.profit_lock_trigger_points,state.profit_lock_points);
+   }
+   if(!EnsureCompletedProtection(ticket,type,open,state)) { SaveState(ticket,state); return; }
+   double current_r=floating_points/state.initial_r_points;
    int stage=NextStage(state); if(stage==0 || current_r<StageTriggerR(stage)) return;
 
    // Stage percentages are of ORIGINAL volume: TP1=50%, TP2=25%, TP3=all remaining.
@@ -332,10 +354,7 @@ bool RecoverBrokerTakeProfit(const ulong ticket)
    if(ticket==0 || !PositionSelectByTicket(ticket)) return false;
    string source=TPSourceForTicket(ticket);
    if(source==TP_SOURCE_ADAPTIVE_CONTRACT)
-   {
       AssertAdaptiveAuthority(true,false,source,ticket);
-      return true; // adaptive contract may not be overwritten by recovery.
-   }
    double existing_tp=PositionGetDouble(POSITION_TP);
    if(existing_tp>0.0)
    {
@@ -383,6 +402,8 @@ void ExecutePayload()
    if((payload.sequence_id>0 && StateGet(0,"last_sequence")==payload.sequence_id) || StateGet(0,"last_fingerprint")==fingerprint) return;
    if(payload.lot+CurrentExposureLots(_Symbol)>InpExposureCapLots || !TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED)) { Print("V29_BROKER_SAFETY_BLOCK"); return; }
    StateSet(0,"pending_initial_r",payload.initial_r_points);
+   StateSet(0,"pending_profit_lock_trigger_points",payload.profit_lock_trigger_points);
+   StateSet(0,"pending_profit_lock_points",payload.profit_lock_points);
    // Deterministic authority chain: adaptive -> legacy reconstruction ->
    // terminal base default.  The legacy branch is structurally unreachable
    // whenever the adaptive contract is present.
@@ -393,7 +414,12 @@ void ExecutePayload()
    MqlTick entry_tick; if(!SymbolInfoTick(_Symbol,entry_tick)) return;
    double entry_price=payload.direction=="BUY" ? entry_tick.ask : entry_tick.bid;
    double order_tp=0.0;
-   if(tp_source==TP_SOURCE_LEGACY_RECONSTRUCTION)
+   if(tp_source==TP_SOURCE_ADAPTIVE_CONTRACT)
+   {
+      // Python's authoritative base TP is sent broker-side at entry.
+      order_tp=LegacyTakeProfitPrice(payload,entry_price);
+   }
+   else if(tp_source==TP_SOURCE_LEGACY_RECONSTRUCTION)
    {
       legacy_executed=true;
       order_tp=LegacyTakeProfitPrice(payload,entry_price);
@@ -418,7 +444,7 @@ void ExecutePayload()
       StateSet(0,"pending_tp_source",tp_source==TP_SOURCE_LEGACY_RECONSTRUCTION ? 2.0 : (tp_source==TP_SOURCE_TERMINAL_BASE_DEFAULT ? 3.0 : 1.0));
    }
    // On the following tick LoadState persists this payload's fallback-safe R per ticket.
-   for(int i=PositionsTotal()-1;i>=0;i--) { ulong ticket=PositionGetTicket(i); if(ticket>0 && PositionGetInteger(POSITION_MAGIC)==InpMagic && !StateHas(ticket,"initial_r_points")) { TicketState state=LoadState(ticket,PositionGetDouble(POSITION_VOLUME),payload.initial_r_points); SaveState(ticket,state); } }
+   for(int i=PositionsTotal()-1;i>=0;i--) { ulong ticket=PositionGetTicket(i); if(ticket>0 && PositionGetInteger(POSITION_MAGIC)==InpMagic && !StateHas(ticket,"initial_r_points")) { TicketState state=LoadState(ticket,PositionGetDouble(POSITION_VOLUME),payload.initial_r_points); state.profit_lock_trigger_points=payload.profit_lock_trigger_points; state.profit_lock_points=payload.profit_lock_points; SaveState(ticket,state); } }
    if(payload.sequence_id>0) StateSet(0,"last_sequence",payload.sequence_id);
    StateSet(0,"last_fingerprint",fingerprint);
    PrintFormat("V29_ORDER_SEND_OK | order=%I64u | direction=%s | tp_source=%s",g_trade.ResultOrder(),payload.direction,tp_source);
@@ -440,6 +466,8 @@ void OnTradeTransaction(const MqlTradeTransaction &transaction, const MqlTradeRe
    }
    if(!PositionSelectByTicket(transaction.position) || StateHas(transaction.position,"initial_r_points")) return;
    TicketState state=LoadState(transaction.position,PositionGetDouble(POSITION_VOLUME),StateGet(0,"pending_initial_r",InpInitialRPoints));
+   state.profit_lock_trigger_points=StateGet(0,"pending_profit_lock_trigger_points",7000.0);
+   state.profit_lock_points=StateGet(0,"pending_profit_lock_points",5000.0);
    SaveState(transaction.position,state);
 }
 

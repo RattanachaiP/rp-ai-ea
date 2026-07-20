@@ -9,6 +9,11 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable
 
 
+TP_POINTS = 10000
+PROFIT_LOCK_TRIGGER_POINTS = 7000
+PROFIT_LOCK_POINTS = 5000
+
+
 DEFAULT_LADDER = (
     {"name": "TP1", "trigger_r": 1.0, "close_fraction": 0.50, "be_offset_r": 0.0},
     {"name": "TP2", "trigger_r": 2.0, "close_fraction": 0.25, "be_offset_r": 0.50},
@@ -42,22 +47,29 @@ def adaptive_contract(
     runner_friendly = trend_strength >= 7.0 and entry_quality >= 70.0 and volatility >= 0.0
     fractions = (0.35, 0.25, 0.40) if runner_friendly else (0.50, 0.25, 0.25)
     targets = (0.60, 1.00, 1.40) if runner_friendly else (0.50, 1.00, 1.50)
-    locks = (base_break_even_points, max(base_break_even_points, base_take_profit_points * 0.25),
-             max(base_break_even_points, base_take_profit_points * 0.60))
+    # The first protection action is deliberately a profit lock, not a
+    # conventional break-even move.  It must not be eligible before +7,000
+    # points, and it locks +5,000 points once that trigger is reached.
+    # Subsequent levels retain the existing AI-managed lifecycle.
+    locks = (PROFIT_LOCK_POINTS, max(PROFIT_LOCK_POINTS, base_take_profit_points * 0.25),
+             max(PROFIT_LOCK_POINTS, base_take_profit_points * 0.60))
+    level_triggers = (PROFIT_LOCK_TRIGGER_POINTS, base_take_profit_points, base_take_profit_points * targets[2])
     levels = [
         {
             "name": f"AI_TP{index + 1}",
-            "trigger_points": round(base_take_profit_points * target, 6),
+            "trigger_points": round(trigger, 6),
             "close_fraction": fraction,
             "lock_points": round(lock, 6),
         }
-        for index, (target, fraction, lock) in enumerate(zip(targets, fractions, locks))
+        for index, (trigger, fraction, lock) in enumerate(zip(level_triggers, fractions, locks))
     ]
     return {
         "schema_version": "V29_3_ADAPTIVE_TPBE_1",
         "enabled": True,
         "base_take_profit_points": base_take_profit_points,
         "base_break_even_points": base_break_even_points,
+        "profit_lock_trigger_points": PROFIT_LOCK_TRIGGER_POINTS,
+        "profit_lock_points": PROFIT_LOCK_POINTS,
         "risk_unit": "POINTS",
         "levels": levels,
         "stop_rule": "MOVE_ONLY_IN_FAVORABLE_DIRECTION",

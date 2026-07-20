@@ -6,7 +6,13 @@ from typing import Any, Dict
 
 from .entry_intelligence import assess_entry
 from .entry_quality_engine import evaluate_entry_quality
-from .progressive_tp_be import adaptive_contract, progressive_contract
+from .progressive_tp_be import (
+    PROFIT_LOCK_POINTS,
+    PROFIT_LOCK_TRIGGER_POINTS,
+    TP_POINTS,
+    adaptive_contract,
+    progressive_contract,
+)
 
 
 def _quality_payload(quality: Dict[str, Any]) -> Dict[str, Any]:
@@ -25,8 +31,9 @@ def decide(market: Dict[str, Any], now: int | None = None) -> Dict[str, Any]:
     now = int(time.time()) if now is None else now
     intelligence = assess_entry(market)
     initial_r_points = float(market.get("initial_r_points", 100.0) or 100.0)
-    base_tp = float(market.get("BaseTakeProfitPoints", market.get("base_take_profit_points", 500.0)) or 0.0)
-    base_be = float(market.get("BaseBreakEvenPoints", market.get("base_break_even_points", 300.0)) or 0.0)
+    # These trader-authorized values are intentionally not market-overridable.
+    base_tp = float(TP_POINTS)
+    base_be = float(PROFIT_LOCK_POINTS)
     enable_tp = bool(market.get("EnableAIProgressiveTP", market.get("enable_ai_progressive_tp", True)))
     enable_be = bool(market.get("EnableAIProgressiveBE", market.get("enable_ai_progressive_be", True)))
     contract = None
@@ -38,7 +45,9 @@ def decide(market: Dict[str, Any], now: int | None = None) -> Dict[str, Any]:
     base = {"schema_version": "V29_3_BASE_TPBE_1", "runtime_version": "V29.3", "symbol": market.get("symbol", "XAUUSD"),
             "sequence_id": int(market.get("sequence_id", 0)), "heartbeat_unix": int(market.get("heartbeat_unix", now)),
             "final_authority": "V29_3_AI_TPBE_CONTRACT", "base_take_profit_points": base_tp,
-            "base_break_even_points": base_be, "enable_ai_progressive_tp": enable_tp,
+            "base_break_even_points": base_be,
+            "profit_lock_trigger_points": PROFIT_LOCK_TRIGGER_POINTS, "profit_lock_points": PROFIT_LOCK_POINTS,
+            "enable_ai_progressive_tp": enable_tp,
             "enable_ai_progressive_be": enable_be,
             # Retained as an additive V29 compatibility field. The executor
             # selects adaptive_tp_be_contract whenever it is present.
