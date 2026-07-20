@@ -7,7 +7,7 @@
 ## Compared runtime
 
 - Baseline: `HEAD:bridge/ai_decision_engine_xauusd_v26_execution_confidence_engine.py`.
-- Candidate SHA-256: `d9932adf984378595cfd7380e3c6ed2b3014db0150616852f1a76db2e3b7c74b`.
+- Candidate SHA-256: `13b3ebf41233a98626a6b74b298349db7f61c41a59e378ca0af826da9ab6a89d`.
 - Scope: internal Python call boundaries only; no MT5 or dashboard files were changed.
 
 ## Fixture results
