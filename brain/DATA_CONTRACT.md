@@ -20,8 +20,9 @@ Market Perception accepts a Python `dict` and returns a private
 private `MarketUnderstanding` object. Market Reasoning consumes that object and
 returns a private immutable `MarketReasoning` explanation, which retains the
 understanding and therefore the original dictionary by object identity for the
-unchanged V26 path. All later stages accept and return the same candidate
-decision dictionary.
+unchanged V26 path. Probability, Expected Value, and Position Intelligence
+form a private typed analytical lineage; legacy V26 compatibility boundaries
+continue to return the same candidate decision dictionary.
 No stage may add a marker or mutate the payload merely to identify itself.
 Existing V26 functions remain the sole owners of all calculations.
 
@@ -31,15 +32,15 @@ Existing V26 functions remain the sole owners of all calculations.
 | Market Understanding | `MarketPerception` | `MarketUnderstanding` object | Interprets observations as regime, trend/structure, expansion/compression, pullback/transition, liquidity, momentum, volatility, narrative, invalid conditions, and context quality. It does not decide, score, or determine direction. The runtime unwraps the original market dictionary by identity before existing V26 regime/classification logic. |
 | Market Reasoning | `MarketUnderstanding` | `MarketReasoning` object | Explains the current state plus contextual continuation, reversal, and wait cases; records supporting, conflicting, and uncertain evidence; and creates a human-readable narrative. It does not decide, score, calculate confidence/probability/expectancy, construct risk, or determine direction. The runtime unwraps the original market dictionary by identity before existing V26 regime/classification logic. |
 | Probability Engine | `MarketUnderstanding` + `MarketReasoning` | immutable private `ProbabilityAssessment` | Estimates only continuation, reversal, range, breakout, and no-trade market-state probabilities. Every estimate records supporting/conflicting evidence and uncertainty. It never estimates BUY/SELL, changes V26 confidence/scores, or enters the decision payload. |
-| Expected Value Engine | Candidate decision dictionary | Unchanged candidate decision | Boundary around existing expectancy/RR processing only. |
-| Position Intelligence | Candidate decision dictionary | Unchanged candidate decision | Boundary around existing risk, sizing, legs, and management processing only. |
+| Expected Value Engine | `MarketUnderstanding` + `MarketReasoning` + `ProbabilityAssessment` | immutable private `ExpectedValueAssessment` | Evaluates normalized non-directional opportunity risk/reward, expected value, and uncertainty only. It never constructs risk, selects direction, or enters a payload. |
+| Position Intelligence | `MarketUnderstanding` + `MarketReasoning` + `ProbabilityAssessment` + `ExpectedValueAssessment` | immutable private `PositionIntelligenceAssessment` | Describes normalized eligibility, risk-budget class, stop/target context, feasibility, style, suitability, invalidation, uncertainty, and quality only. It never fabricates executable prices/lots, recommends execution, or enters a payload. |
 | Decision Publication | Final V26 payload dictionary | Unchanged final payload dictionary | Boundary immediately before the existing atomic writer. |
 
 ## V1 interface and ownership rules
 
-The four typed Brain layers have one permitted dependency direction:
+The six typed Brain layers have one permitted dependency direction:
 
-`raw market-state Mapping -> MarketPerception -> MarketUnderstanding -> MarketReasoning -> ProbabilityAssessment`
+`raw market-state Mapping -> MarketPerception -> MarketUnderstanding -> MarketReasoning -> ProbabilityAssessment -> ExpectedValueAssessment -> PositionIntelligenceAssessment`
 
 * Each typed output is a `@dataclass(frozen=True)`. Its fields cannot be
   reassigned after construction. Evidence collections are tuples.
@@ -48,17 +49,19 @@ The four typed Brain layers have one permitted dependency direction:
   exact mapping. Brain layers never mutate it; ownership remains with the V26
   market reader/runtime.
 * Understanding may read Perception only; Reasoning may read Understanding
-  only; Probability may read Understanding and its matching Reasoning only.
-  Probability validates that `reasoning.understanding is understanding`.
+  only; Probability may read matching Understanding and Reasoning; Expected
+  Value may read matching Understanding, Reasoning, and Probability; Position
+  Intelligence may read matching Understanding, Reasoning, Probability, and
+  Expected Value only. Each later layer validates object-identity lineage.
 * No typed Brain layer imports the V26 engine, MT5, dashboard, writer,
   executor, decision payload, confidence, score, risk, or trade-management
   code. Probability is telemetry only and has no reverse dependency into an
   earlier layer.
 * The legacy `brain_probability_engine`, `brain_expected_value_engine`,
   `brain_position_intelligence`, and `brain_decision_publication` functions
-  are compatibility identities around the pre-existing V26 decision path. They
-  are not analytical Brain layers and must return their input dictionary
-  unchanged by object identity.
+  remain compatibility identities around the pre-existing V26 decision path.
+  They must return their input dictionary unchanged by object identity and are
+  distinct from the private typed analytical layers.
 
 ## Freeze and change control
 

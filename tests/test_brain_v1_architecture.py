@@ -19,6 +19,8 @@ MODULES = {
     "market_understanding": {"brain.market_perception"},
     "market_reasoning": {"brain.market_understanding"},
     "probability_engine": {"brain.market_reasoning", "brain.market_understanding"},
+    "expected_value_engine": {"brain.market_reasoning", "brain.market_understanding", "brain.probability_engine"},
+    "position_intelligence": {"brain.expected_value_engine", "brain.market_reasoning", "brain.market_understanding", "brain.probability_engine"},
 }
 FORBIDDEN_TERMS = ("bridge", "mt5", "dashboard", "executor", "writer", "decision")
 
@@ -44,7 +46,8 @@ def test_all_brain_dataclasses_are_frozen():
                 assert value.__dataclass_params__.frozen, value.__name__
     assert {item.__name__ for item in discovered} == {
         "MarketPerception", "MarketUnderstanding", "MarketReasoning",
-        "MarketStateProbability", "ProbabilityAssessment",
+        "MarketStateProbability", "ProbabilityAssessment", "ConfidenceInterval",
+        "ExpectedValueAssessment", "PositionIntelligenceAssessment",
     }
 
 
@@ -61,15 +64,21 @@ def test_public_typed_functions_have_frozen_v1_input_output_signatures():
     from brain.market_reasoning import MarketReasoning, reason_about_market
     from brain.market_understanding import MarketUnderstanding, interpret_market_understanding
     from brain.probability_engine import ProbabilityAssessment, estimate_market_probabilities
+    from brain.expected_value_engine import ExpectedValueAssessment, evaluate_expected_value
+    from brain.position_intelligence import PositionIntelligenceAssessment, assess_position_intelligence
 
     assert list(inspect.signature(extract_market_perception).parameters) == ["market_state"]
     assert list(inspect.signature(interpret_market_understanding).parameters) == ["perception"]
     assert list(inspect.signature(reason_about_market).parameters) == ["understanding"]
     assert list(inspect.signature(estimate_market_probabilities).parameters) == ["understanding", "reasoning"]
+    assert list(inspect.signature(evaluate_expected_value).parameters) == ["understanding", "reasoning", "probability_assessment"]
+    assert list(inspect.signature(assess_position_intelligence).parameters) == ["understanding", "reasoning", "probability_assessment", "expected_value_assessment"]
     assert get_type_hints(extract_market_perception)["return"] is MarketPerception
     assert get_type_hints(interpret_market_understanding)["return"] is MarketUnderstanding
     assert get_type_hints(reason_about_market)["return"] is MarketReasoning
     assert get_type_hints(estimate_market_probabilities)["return"] is ProbabilityAssessment
+    assert get_type_hints(evaluate_expected_value)["return"] is ExpectedValueAssessment
+    assert get_type_hints(assess_position_intelligence)["return"] is PositionIntelligenceAssessment
 
 
 def test_layer_type_boundaries_reject_wrong_predecessor_objects():
