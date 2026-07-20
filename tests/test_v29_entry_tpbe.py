@@ -59,3 +59,20 @@ def test_mt5_executor_exposes_only_base_configuration_and_keeps_legacy_fallback(
     assert "InpBaseTakeProfitPoints" in source and "InpBaseBreakEvenPoints" in source
     assert "adaptive_tp_be_contract" in source
     assert "LEGACY_V29_FALLBACK" in source
+
+
+def test_mt5_legacy_fallback_reconstructs_and_verifies_a_nonzero_base_tp():
+    source = Path("mt5/v29/RP_AI_ProgressiveTPBE_V29.mq5").read_text(encoding="utf-8")
+    # Contract-present orders retain adaptive ownership; only its absence enters
+    # the deterministic BaseTakeProfit path.
+    assert "!payload.has_adaptive_tp_be_contract" in source
+    assert "base_take_profit_points" in source
+    assert "LegacyTakeProfitPrice" in source
+    assert '"V29_LEGACY_TP_RECONSTRUCTED' in source
+    assert 'g_trade.Buy(payload.lot,_Symbol,0.0,0.0,order_tp)' in source
+    assert 'g_trade.Sell(payload.lot,_Symbol,0.0,0.0,order_tp)' in source
+    # A broker that accepts an entry but drops TP is immediately repaired and
+    # the resulting position is read back for execution verification.
+    assert "EnsureLegacyTakeProfit(opened_ticket,order_tp)" in source
+    assert "g_trade.PositionModify(ticket,PositionGetDouble(POSITION_SL),target_tp)" in source
+    assert '"V29_LEGACY_TP_BROKER_VERIFIED' in source
