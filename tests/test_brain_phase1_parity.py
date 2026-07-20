@@ -1,4 +1,6 @@
-"""Parity tests for the V26 Brain boundaries and Phase 2A perception object."""
+"""Parity tests for private Brain interpretation and explanation layers."""
+
+from dataclasses import FrozenInstanceError
 
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
@@ -12,12 +14,11 @@ ENGINE = module_from_spec(SPEC)
 SPEC.loader.exec_module(ENGINE)
 
 
-def test_non_perception_brain_boundaries_preserve_object_identity_and_contents():
+def test_candidate_decision_brain_boundaries_preserve_object_identity_and_contents():
     payload = {"bid": 2350.25, "rsi": 58.0, "decision": "TRADE", "sl": 2340.25, "tp": 2365.25}
     original = dict(payload)
 
     for stage in (
-        ENGINE.brain_market_reasoning,
         ENGINE.brain_probability_engine,
         ENGINE.brain_expected_value_engine,
         ENGINE.brain_position_intelligence,
@@ -59,6 +60,20 @@ def test_market_perception_extracts_observations_without_mutating_or_deciding():
     assert understanding.invalid_conditions == ()
     assert understanding.context_quality == "COMPLETE"
     assert not hasattr(understanding, "decision")
+    reasoning = ENGINE.brain_market_reasoning(understanding)
+    assert reasoning.understanding is understanding
+    assert reasoning.supporting_evidence
+    assert reasoning.continuation_case
+    assert reasoning.reversal_case
+    assert reasoning.wait_case
+    assert reasoning.narrative
+    assert not hasattr(reasoning, "decision")
+    try:
+        reasoning.narrative = "changed"
+    except FrozenInstanceError:
+        pass
+    else:
+        raise AssertionError("MarketReasoning must be immutable")
 
 
 def test_brain_phase1_build_path_matches_direct_v26_build_for_wait_fixture():
@@ -67,13 +82,15 @@ def test_brain_phase1_build_path_matches_direct_v26_build_for_wait_fixture():
     market_state = {"bid": 0, "ma50": 2300, "bar_time": "brain-parity-fixture"}
 
     direct = ENGINE.build_decision(dict(market_state))
-    staged_input = ENGINE.brain_market_understanding(
+    understanding = ENGINE.brain_market_understanding(
         ENGINE.brain_market_perception(dict(market_state))
-    ).market_state
+    )
+    reasoning = ENGINE.brain_market_reasoning(understanding)
+    staged_input = reasoning.understanding.market_state
     staged = ENGINE.build_decision(staged_input)
     staged_decision = ENGINE.brain_position_intelligence(
         ENGINE.brain_expected_value_engine(
-            ENGINE.brain_probability_engine(ENGINE.brain_market_reasoning(staged[2]))
+            ENGINE.brain_probability_engine(staged[2])
         )
     )
 

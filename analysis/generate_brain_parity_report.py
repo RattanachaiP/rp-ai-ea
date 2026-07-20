@@ -18,6 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 ENGINE = ROOT / "bridge" / "ai_decision_engine_xauusd_v26_execution_confidence_engine.py"
 REPORT = ROOT / "analysis" / "BRAIN_PARITY_REPORT.md"
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ENGINE.parent))
 
 FIXTURES = {
@@ -72,9 +73,13 @@ def main() -> None:
         for name, fixture in FIXTURES.items():
             before = result(baseline, fixture)
             after = result(candidate, fixture)
+            reasoning = candidate.brain_market_reasoning(
+                candidate.brain_market_understanding(candidate.brain_market_perception(dict(fixture)))
+            )
+            staged_decision = result(candidate, reasoning.understanding.market_state)
             staged = candidate.brain_position_intelligence(
                 candidate.brain_expected_value_engine(
-                    candidate.brain_probability_engine(candidate.brain_market_reasoning(result(candidate, fixture)))
+                    candidate.brain_probability_engine(staged_decision)
                 )
             )
             unchanged = before == after == staged
@@ -117,7 +122,7 @@ def main() -> None:
         "",
         "## Validation method",
         "",
-        "For each fixture, the script compares the complete `build_decision()` dictionary from the parent source, the candidate source, and the candidate source after Market Reasoning, Probability Engine, Expected Value Engine, and Position Intelligence boundaries. It also explicitly compares decision/action/bias, entry, SL, TP, confidence, and probability fields. Market Perception and Market Understanding are exercised before the candidate build call. Because every stage is an identity wrapper by contract, the complete payload equality check confirms payload and `decision.json`-schema parity for the deterministic decision construction path; the existing atomic writer is called with the same dictionary and is otherwise unchanged.",
+        "For each fixture, the script compares the complete `build_decision()` dictionary from the parent source, the candidate source, and the candidate source after Market Perception, Market Understanding, and Market Reasoning. It then passes that same candidate decision through the remaining identity boundaries. It also explicitly compares decision/action/bias, entry, SL, TP, confidence, and probability fields. Market Reasoning is private and unwraps the original market-state dictionary by identity before the candidate build call. The complete payload equality check confirms `decision.json`-schema parity for the deterministic decision construction path; the existing atomic writer is called with the same dictionary and is otherwise unchanged.",
     ])
     REPORT.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"Wrote {REPORT}")

@@ -7,7 +7,7 @@
 ## Compared runtime
 
 - Baseline: `HEAD:bridge/ai_decision_engine_xauusd_v26_execution_confidence_engine.py`.
-- Candidate SHA-256: `28f9a6921b85beae9f10e142edfa0c2962d965adb86282f9bbc04829187db968`.
+- Candidate SHA-256: `d9932adf984378595cfd7380e3c6ed2b3014db0150616852f1a76db2e3b7c74b`.
 - Scope: internal Python call boundaries only; no MT5 or dashboard files were changed.
 
 ## Fixture results
@@ -20,4 +20,4 @@
 
 ## Validation method
 
-For each fixture, the script compares the complete `build_decision()` dictionary from the parent source, the candidate source, and the candidate source after Market Reasoning, Probability Engine, Expected Value Engine, and Position Intelligence boundaries. It also explicitly compares decision/action/bias, entry, SL, TP, confidence, and probability fields. Market Perception and Market Understanding are exercised before the candidate build call. Because every stage is an identity wrapper by contract, the complete payload equality check confirms payload and `decision.json`-schema parity for the deterministic decision construction path; the existing atomic writer is called with the same dictionary and is otherwise unchanged.
+For each fixture, the script compares the complete `build_decision()` dictionary from the parent source, the candidate source, and the candidate source after Market Perception, Market Understanding, and Market Reasoning. It then passes that same candidate decision through the remaining identity boundaries. It also explicitly compares decision/action/bias, entry, SL, TP, confidence, and probability fields. Market Reasoning is private and unwraps the original market-state dictionary by identity before the candidate build call. The complete payload equality check confirms `decision.json`-schema parity for the deterministic decision construction path; the existing atomic writer is called with the same dictionary and is otherwise unchanged.

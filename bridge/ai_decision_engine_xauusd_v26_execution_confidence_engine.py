@@ -13,6 +13,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 from brain.market_perception import MarketPerception, extract_market_perception
 from brain.market_understanding import MarketUnderstanding, interpret_market_understanding
+from brain.market_reasoning import MarketReasoning, reason_about_market
 
 # V25 Pullback Fallback Mode
 # V25 RP TIME SYNC STANDARD V1
@@ -9600,10 +9601,10 @@ def attach_manual_trend_report(decision, data):
 # ---------------------------------------------------------------------------
 # RP AI Brain Phase 1 internal boundaries
 #
-# Market Perception is observation-only and returns a private in-process object.
-# Market Understanding produces private context; the runtime unwraps its original
-# market dictionary before existing V26 calculation begins. The remaining
-# boundaries are metadata-free identities.
+# Market Perception, Market Understanding, and Market Reasoning are private
+# in-process objects. The runtime unwraps the original market dictionary before
+# existing V26 calculation begins. The remaining boundaries are metadata-free
+# identities.
 # See brain/DATA_CONTRACT.md.
 # ---------------------------------------------------------------------------
 def brain_market_perception(market_state):
@@ -9616,9 +9617,9 @@ def brain_market_understanding(perception):
     return interpret_market_understanding(perception) if isinstance(perception, MarketPerception) else perception
 
 
-def brain_market_reasoning(candidate_decision):
-    """Market Reasoning: existing V26 candidate decision -> candidate decision."""
-    return candidate_decision
+def brain_market_reasoning(understanding):
+    """Market Reasoning: understanding -> private explanatory context."""
+    return reason_about_market(understanding)
 
 
 def brain_probability_engine(candidate_decision):
@@ -9973,13 +9974,17 @@ def run():
             time.sleep(1)
             continue
         try:
-            # Phase 1 boundaries intentionally preserve the existing object and
-            # calculations; they only make the V26 pipeline responsibilities
-            # explicit for later, parity-gated extraction.
+            # Private Brain context explains observations without changing the
+            # original object or authoritative V26 calculations.
             understanding = brain_market_understanding(brain_market_perception(data))
-            data = understanding.market_state if isinstance(understanding, MarketUnderstanding) else understanding
+            reasoning = brain_market_reasoning(understanding)
+            if isinstance(reasoning, MarketReasoning):
+                data = reasoning.understanding.market_state
+            elif isinstance(understanding, MarketUnderstanding):
+                data = understanding.market_state
+            else:
+                data = understanding
             key, bar_time, decision = build_decision(data)
-            decision = brain_market_reasoning(decision)
             decision = brain_probability_engine(decision)
             decision = brain_expected_value_engine(decision)
             decision = brain_position_intelligence(decision)
