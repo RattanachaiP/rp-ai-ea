@@ -1,5 +1,11 @@
 from bridge.v29.decision_core import decide
-from bridge.v29.progressive_tp_be import adaptive_contract, management_instruction
+from bridge.v29.progressive_tp_be import (
+    PROFIT_LOCK_POINTS,
+    PROFIT_LOCK_TRIGGER_POINTS,
+    TP_POINTS,
+    adaptive_contract,
+    management_instruction,
+)
 from pathlib import Path
 
 
@@ -15,11 +21,13 @@ def test_entry_requires_all_three_confirmations_and_publishes_ai_base_contract()
     payload = decide(market(), now=2)
     assert payload["decision"] == "TRADE"
     assert payload["entry_confirmations"] == {"structure": True, "momentum": True, "location": True}
-    assert payload["base_take_profit_points"] == 500.0
-    assert payload["base_break_even_points"] == 300.0
+    assert payload["base_take_profit_points"] == TP_POINTS
+    assert payload["base_break_even_points"] == PROFIT_LOCK_POINTS
+    assert payload["profit_lock_trigger_points"] == PROFIT_LOCK_TRIGGER_POINTS
+    assert payload["profit_lock_points"] == PROFIT_LOCK_POINTS
     contract = payload["adaptive_tp_be_contract"]
     assert contract["ai_owned"] is True
-    assert [level["trigger_points"] for level in contract["levels"]] == [250.0, 500.0, 750.0]
+    assert [level["trigger_points"] for level in contract["levels"]] == [7000, 10000, 15000]
 
 
 def test_entry_rejection_is_explicit_without_score_tuning():
@@ -37,11 +45,13 @@ def test_progressive_ladder_is_idempotent_and_advances_be_only_after_target():
 
 
 def test_adaptive_contract_owns_target_be_and_lock_ladders_from_base_values():
-    contract = adaptive_contract(500, 300, 100, trend_strength=8, entry_quality=80)
-    assert [level["trigger_points"] for level in contract["levels"]] == [300.0, 500.0, 700.0]
-    assert [level["lock_points"] for level in contract["levels"]] == [300, 300, 300.0]
-    action = management_instruction(5.0, contract=contract, initial_r_points=100)
+    contract = adaptive_contract(TP_POINTS, PROFIT_LOCK_POINTS, 100, trend_strength=8, entry_quality=80)
+    assert [level["trigger_points"] for level in contract["levels"]] == [7000, 10000, 14000.0]
+    assert [level["lock_points"] for level in contract["levels"]] == [5000, 5000, 6000.0]
+    assert management_instruction(69.99, contract=contract, initial_r_points=100)["management_action"] == "HOLD"
+    action = management_instruction(70.0, contract=contract, initial_r_points=100)
     assert action["level"] == "AI_TP1"
+    assert action["breakeven_offset_r"] == 50.0
 
 
 def test_contract_can_be_omitted_for_legacy_v29_fallback_compatibility():
@@ -101,3 +111,19 @@ def test_mt5_tp_recovery_is_per_ticket_and_bounded_to_three_attempts():
     assert '"V29_TP_RECOVERY_ABORTED' in source
     assert '"V29_ASSERT_RECOVERY_LIMIT' in source
     assert "if(attempts>=V29_TP_RECOVERY_MAX_ATTEMPTS)" in source
+
+
+def test_mt5_profit_lock_is_delayed_until_the_authoritative_trigger_and_persisted_per_ticket():
+    source = Path("mt5/v29/RP_AI_ProgressiveTPBE_V29.mq5").read_text(encoding="utf-8")
+    assert "InpBaseTakeProfitPoints  = 10000.0" in source
+    assert 'floating_points<state.profit_lock_trigger_points' in source
+    assert 'open+state.profit_lock_points*_Point' in source
+    assert 'open-state.profit_lock_points*_Point' in source
+    assert '"profit_lock_done"' in source
+    assert '"profit_lock_trigger_points"' in source
+
+
+def test_adaptive_entry_places_and_recovers_the_python_owned_base_tp():
+    source = Path("mt5/v29/RP_AI_ProgressiveTPBE_V29.mq5").read_text(encoding="utf-8")
+    assert "if(tp_source==TP_SOURCE_ADAPTIVE_CONTRACT)" in source
+    assert "order_tp=LegacyTakeProfitPrice(payload,entry_price);" in source
