@@ -1,5 +1,21 @@
 # V29 Architecture Specification — AI Entry Intelligence + Progressive TP/BE
 
+## V29.3 Base TP / BE contract update
+
+V29.3 replaces trader-configured progressive ladder values with a base-objective
+contract. The executor exposes only **Enable AI Progressive TP**, **Enable AI
+Progressive BE**, **Base Take Profit**, and **Base Break Even**. Python receives
+the base values and publishes `adaptive_tp_be_contract`, containing every
+target, partial-close fraction, break-even action, and lock value. MT5 is a
+deterministic consumer: it validates, executes, and persists that contract; it
+does not derive a ladder from market data.
+
+`base_take_profit_points`, `base_break_even_points`, and the versioned
+adaptive contract are additive payload fields. If the adaptive contract is
+absent, `LEGACY_V29_FALLBACK` selects the existing immutable V29 ladder, so
+V29/V28 payload compatibility is preserved. Contract state is ticket-isolated
+in terminal global variables and must be removed after a position closes.
+
 ## Scope lock
 
 V29 changes exactly two bounded capabilities: **AI Entry Intelligence** before a new order and **Progressive TP/BE** after an order. It does not modify V27/V28 runtime files, direction-score production, lot sizing, risk limits, dashboard ownership, brokersafety, runner logic, trailing, time exits, or deployment topology. V29 is shadow/demo-only until separately promoted.
