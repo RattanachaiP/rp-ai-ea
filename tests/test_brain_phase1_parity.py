@@ -17,7 +17,6 @@ def test_non_perception_brain_boundaries_preserve_object_identity_and_contents()
     original = dict(payload)
 
     for stage in (
-        ENGINE.brain_market_understanding,
         ENGINE.brain_market_reasoning,
         ENGINE.brain_probability_engine,
         ENGINE.brain_expected_value_engine,
@@ -45,7 +44,21 @@ def test_market_perception_extracts_observations_without_mutating_or_deciding():
     assert perception.session == "LONDON"
     assert not hasattr(perception, "decision")
     assert market_state == original
-    assert ENGINE.brain_market_understanding(perception) is market_state
+    understanding = ENGINE.brain_market_understanding(perception)
+    assert understanding.market_state is market_state
+    assert understanding.market_regime == "TRENDING"
+    assert understanding.trend_state == "ESTABLISHED_UP"
+    assert understanding.market_structure == "HH_HL"
+    assert understanding.expansion_compression in {"COMPRESSION", "EXPANSION", "NORMAL"}
+    assert understanding.pullback_state == "NO_PULLBACK_OBSERVED"
+    assert understanding.transition_state == "STABLE_CONTEXT"
+    assert understanding.liquidity_context == "NO_LIQUIDITY_SWEEP_OBSERVED"
+    assert understanding.momentum_context == "BULLISH_MOMENTUM_ALIGNED"
+    assert understanding.volatility_context == "NORMAL_VOLATILITY_ATR_AVAILABLE"
+    assert understanding.market_narrative
+    assert understanding.invalid_conditions == ()
+    assert understanding.context_quality == "COMPLETE"
+    assert not hasattr(understanding, "decision")
 
 
 def test_brain_phase1_build_path_matches_direct_v26_build_for_wait_fixture():
@@ -56,7 +69,7 @@ def test_brain_phase1_build_path_matches_direct_v26_build_for_wait_fixture():
     direct = ENGINE.build_decision(dict(market_state))
     staged_input = ENGINE.brain_market_understanding(
         ENGINE.brain_market_perception(dict(market_state))
-    )
+    ).market_state
     staged = ENGINE.build_decision(staged_input)
     staged_decision = ENGINE.brain_position_intelligence(
         ENGINE.brain_expected_value_engine(

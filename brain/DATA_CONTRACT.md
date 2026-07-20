@@ -10,15 +10,17 @@ an observation-only object while preserving the Phase 1 publication guarantees.
 ## Boundary rule
 
 Market Perception accepts a Python `dict` and returns a private
-`MarketPerception` object. Market Understanding returns the original dictionary
-by object identity; all later stages accept and return the same dictionary.
+`MarketPerception` object. Market Understanding consumes it and returns a
+private `MarketUnderstanding` object, which carries the original dictionary by
+object identity for the unchanged V26 path. All later stages accept and return
+the same candidate decision dictionary.
 No stage may add a marker or mutate the payload merely to identify itself.
 Existing V26 functions remain the sole owners of all calculations.
 
 | Stage | Input | Output | Phase 1 responsibility |
 | --- | --- | --- | --- |
 | Market Perception | Raw `market_state.json` dictionary | `MarketPerception` object | Extracts observations only: trend, swing high/low, structure, liquidity sweep, volatility, ATR availability, VWAP relation, session, momentum, compression/expansion, and impulse. It carries the original market dictionary privately for the next boundary. It does not decide, score, or determine direction. |
-| Market Understanding | Perception dictionary | Unchanged market dictionary | Boundary before the existing V26 regime/classification logic. |
+| Market Understanding | `MarketPerception` | `MarketUnderstanding` object | Interprets observations as regime, trend/structure, expansion/compression, pullback/transition, liquidity, momentum, volatility, narrative, invalid conditions, and context quality. It does not decide, score, or determine direction. The runtime unwraps the original market dictionary by identity before existing V26 regime/classification logic. |
 | Market Reasoning | V26 candidate decision dictionary | Unchanged candidate decision | Boundary around the existing thesis/entry pipeline. |
 | Probability Engine | Candidate decision dictionary | Unchanged candidate decision | Boundary around existing confidence/probability-like telemetry only. |
 | Expected Value Engine | Candidate decision dictionary | Unchanged candidate decision | Boundary around existing expectancy/RR processing only. |

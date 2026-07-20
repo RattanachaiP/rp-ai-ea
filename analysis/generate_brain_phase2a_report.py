@@ -11,6 +11,7 @@ ROOT = Path(__file__).parents[1]
 ENGINE = ROOT / "bridge" / "ai_decision_engine_xauusd_v26_execution_confidence_engine.py"
 REPORT = ROOT / "analysis" / "BRAIN_PHASE2A_REPORT.md"
 FIXTURE = {"bid": 0, "ma50": 2300, "bar_time": "phase2a-parity"}
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ENGINE.parent))
 
 
@@ -34,7 +35,7 @@ def main():
         "bid": 2355, "ma50": 2354, "ma90": 2352, "ma200": 2350,
         "opens": [2350, 2349], "highs": [2360, 2355], "lows": [2348, 2345], "closes": [2358, 2351],
         "rsi": 60, "macd_hist": 0.5, "vwap": 2352, "atr_raw": 8, "server_time": "2026-01-01T08:00:00Z"})
-    assert candidate.brain_market_understanding(perception) is perception.market_state
+    assert candidate.brain_market_understanding(perception).market_state is perception.market_state
     assert not hasattr(perception, "decision")
     REPORT.write_text("""# Brain Phase 2A Market Perception report
 

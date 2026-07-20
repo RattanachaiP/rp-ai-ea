@@ -12,6 +12,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 from brain.market_perception import MarketPerception, extract_market_perception
+from brain.market_understanding import MarketUnderstanding, interpret_market_understanding
 
 # V25 Pullback Fallback Mode
 # V25 RP TIME SYNC STANDARD V1
@@ -9600,8 +9601,9 @@ def attach_manual_trend_report(decision, data):
 # RP AI Brain Phase 1 internal boundaries
 #
 # Market Perception is observation-only and returns a private in-process object.
-# Market Understanding unwraps its original market dictionary before existing V26
-# calculation begins.  The remaining boundaries are metadata-free identities.
+# Market Understanding produces private context; the runtime unwraps its original
+# market dictionary before existing V26 calculation begins. The remaining
+# boundaries are metadata-free identities.
 # See brain/DATA_CONTRACT.md.
 # ---------------------------------------------------------------------------
 def brain_market_perception(market_state):
@@ -9610,8 +9612,8 @@ def brain_market_perception(market_state):
 
 
 def brain_market_understanding(perception):
-    """Market Understanding: perception input -> existing V26 classification input."""
-    return perception.market_state if isinstance(perception, MarketPerception) else perception
+    """Market Understanding: perception -> private interpreted market context."""
+    return interpret_market_understanding(perception) if isinstance(perception, MarketPerception) else perception
 
 
 def brain_market_reasoning(candidate_decision):
@@ -9974,7 +9976,8 @@ def run():
             # Phase 1 boundaries intentionally preserve the existing object and
             # calculations; they only make the V26 pipeline responsibilities
             # explicit for later, parity-gated extraction.
-            data = brain_market_understanding(brain_market_perception(data))
+            understanding = brain_market_understanding(brain_market_perception(data))
+            data = understanding.market_state if isinstance(understanding, MarketUnderstanding) else understanding
             key, bar_time, decision = build_decision(data)
             decision = brain_market_reasoning(decision)
             decision = brain_probability_engine(decision)
