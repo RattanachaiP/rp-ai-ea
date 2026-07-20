@@ -76,6 +76,40 @@ def test_market_perception_extracts_observations_without_mutating_or_deciding():
         raise AssertionError("MarketReasoning must be immutable")
 
 
+def test_probability_engine_estimates_immutable_market_states_without_decision_effect():
+    market_state = {
+        "bid": 2355, "ma50": 2354, "ma90": 2352, "ma200": 2350,
+        "opens": [2350, 2349], "highs": [2360, 2355], "lows": [2348, 2345],
+        "closes": [2358, 2351], "rsi": 60, "macd_hist": 0.5,
+        "vwap": 2352, "atr_raw": 8, "server_time": "2026-01-01T08:00:00Z",
+    }
+    understanding = ENGINE.brain_market_understanding(ENGINE.brain_market_perception(market_state))
+    reasoning = ENGINE.brain_market_reasoning(understanding)
+    assessment = ENGINE.brain_probability_assessment(understanding, reasoning)
+    estimates = (
+        assessment.continuation, assessment.reversal, assessment.range,
+        assessment.breakout, assessment.no_trade,
+    )
+
+    assert assessment.understanding is understanding
+    assert assessment.reasoning is reasoning
+    assert round(sum(estimate.probability for estimate in estimates), 4) == 1.0
+    for estimate in estimates:
+        assert 0.0 <= estimate.probability <= 1.0
+        assert estimate.supporting_evidence
+        assert estimate.conflicting_evidence
+        assert 0.0 <= estimate.uncertainty_estimate <= 1.0
+        assert estimate.uncertainty_evidence
+    assert not hasattr(assessment, "buy")
+    assert not hasattr(assessment, "sell")
+    try:
+        assessment.continuation = assessment.reversal
+    except FrozenInstanceError:
+        pass
+    else:
+        raise AssertionError("ProbabilityAssessment must be immutable")
+
+
 def test_brain_phase1_build_path_matches_direct_v26_build_for_wait_fixture():
     # Invalid bid follows a deterministic V26 WAIT/NO_TRADE path and avoids
     # time-dependent trade UUID/publication metadata.

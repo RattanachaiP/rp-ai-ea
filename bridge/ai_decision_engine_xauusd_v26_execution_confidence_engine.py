@@ -14,6 +14,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
 from brain.market_perception import MarketPerception, extract_market_perception
 from brain.market_understanding import MarketUnderstanding, interpret_market_understanding
 from brain.market_reasoning import MarketReasoning, reason_about_market
+from brain.probability_engine import ProbabilityAssessment, estimate_market_probabilities
 
 # V25 Pullback Fallback Mode
 # V25 RP TIME SYNC STANDARD V1
@@ -9622,8 +9623,13 @@ def brain_market_reasoning(understanding):
     return reason_about_market(understanding)
 
 
+def brain_probability_assessment(understanding, reasoning):
+    """Probability Engine: private market-state analysis with no decision effect."""
+    return estimate_market_probabilities(understanding, reasoning)
+
+
 def brain_probability_engine(candidate_decision):
-    """Probability Engine: existing V26 confidence telemetry boundary."""
+    """Compatibility boundary: preserves the existing V26 decision unchanged."""
     return candidate_decision
 
 
@@ -9978,6 +9984,9 @@ def run():
             # original object or authoritative V26 calculations.
             understanding = brain_market_understanding(brain_market_perception(data))
             reasoning = brain_market_reasoning(understanding)
+            probability_assessment = brain_probability_assessment(understanding, reasoning)
+            if not isinstance(probability_assessment, ProbabilityAssessment):
+                raise TypeError("Probability Engine did not return ProbabilityAssessment")
             if isinstance(reasoning, MarketReasoning):
                 data = reasoning.understanding.market_state
             elif isinstance(understanding, MarketUnderstanding):
