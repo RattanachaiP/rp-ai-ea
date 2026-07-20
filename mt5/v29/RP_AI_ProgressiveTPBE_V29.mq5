@@ -11,6 +11,11 @@
 #define TP1R 1.0
 #define TP2R 2.0
 #define TP3R 3.0
+#define V29_TP_RECOVERY_MAX_ATTEMPTS 3
+
+#define TP_SOURCE_ADAPTIVE_CONTRACT "ADAPTIVE_CONTRACT"
+#define TP_SOURCE_LEGACY_RECONSTRUCTION "LEGACY_RECONSTRUCTION"
+#define TP_SOURCE_TERMINAL_BASE_DEFAULT "TERMINAL_BASE_DEFAULT"
 
 input string InpDecisionPath       = V29_DECISION_PATH;
 input long   InpMagic              = 2900001;
@@ -56,6 +61,37 @@ double StateGet(const ulong ticket, const string field, const double fallback=0.
    return StateHas(ticket, field) ? GlobalVariableGet(StateKey(ticket, field)) : fallback;
 }
 void StateSet(const ulong ticket, const string field, const double value) { GlobalVariableSet(StateKey(ticket, field), value); }
+
+// TP recovery state is persisted per position.  This makes a broker rejection
+// finite even across EA/terminal restarts.
+int RecoveryAttemptCount(const ulong ticket) { return (int)StateGet(ticket,"tp_recovery_attempt_count"); }
+bool RecoveryCompleted(const ulong ticket) { return StateGet(ticket,"tp_recovery_completed")>0.5; }
+bool RecoveryFailed(const ulong ticket) { return StateGet(ticket,"tp_recovery_failed")>0.5; }
+void SetRecoveryCompleted(const ulong ticket) { StateSet(ticket,"tp_recovery_completed",1.0); }
+void SetRecoveryFailed(const ulong ticket) { StateSet(ticket,"tp_recovery_failed",1.0); }
+void SetTPRecoveryPlan(const ulong ticket, const double target_tp, const string source)
+{
+   StateSet(ticket,"tp_recovery_target",target_tp);
+   StateSet(ticket,"tp_source",source==TP_SOURCE_LEGACY_RECONSTRUCTION ? 2.0 : (source==TP_SOURCE_TERMINAL_BASE_DEFAULT ? 3.0 : 1.0));
+}
+string TPSourceForTicket(const ulong ticket)
+{
+   double source=StateGet(ticket,"tp_source");
+   return source==2.0 ? TP_SOURCE_LEGACY_RECONSTRUCTION : (source==3.0 ? TP_SOURCE_TERMINAL_BASE_DEFAULT : TP_SOURCE_ADAPTIVE_CONTRACT);
+}
+
+void LogTPSource(const ulong ticket, const string source)
+{
+   PrintFormat("V29_TP_SOURCE=%s | ticket=%I64u",source,ticket);
+}
+
+void AssertAdaptiveAuthority(const bool adaptive_present, const bool legacy_executed, const string tp_source, const ulong ticket)
+{
+   if(adaptive_present && legacy_executed)
+      PrintFormat("V29_ASSERT_ADAPTIVE_OVERRIDE | ticket=%I64u",ticket);
+   if(adaptive_present && tp_source!=TP_SOURCE_ADAPTIVE_CONTRACT)
+      PrintFormat("V29_ASSERT_INVALID_TP_SOURCE | ticket=%I64u | source=%s",ticket,tp_source);
+}
 
 // State is terminal-global-variable backed: it survives EA and terminal restarts.
 TicketState LoadState(const ulong ticket, const double volume, const double initial_r)
@@ -233,9 +269,12 @@ bool EnsureCompletedProtection(const ulong ticket, const long type, const double
    return ImproveStop(ticket,type,open,desired,state);
 }
 
+bool RecoverBrokerTakeProfit(const ulong ticket);
+
 void ManagePosition(const ulong ticket)
 {
    if(!PositionSelectByTicket(ticket) || PositionGetInteger(POSITION_MAGIC)!=InpMagic || PositionGetString(POSITION_SYMBOL)!=_Symbol) return;
+   RecoverBrokerTakeProfit(ticket); // one TP recovery attempt per execution cycle
    double available=PositionGetDouble(POSITION_VOLUME); TicketState state=LoadState(ticket,available,InpInitialRPoints);
    if(state.initial_r_points<=0.0) return;
    long type=PositionGetInteger(POSITION_TYPE); double open=PositionGetDouble(POSITION_PRICE_OPEN); MqlTick tick; if(!SymbolInfoTick(_Symbol,tick)) return;
@@ -268,13 +307,19 @@ double CurrentExposureLots(const string symbol)
    double total=0.0; for(int i=PositionsTotal()-1;i>=0;i--) { ulong t=PositionGetTicket(i); if(t>0 && PositionGetString(POSITION_SYMBOL)==symbol) total+=PositionGetDouble(POSITION_VOLUME); } return total;
 }
 
-// The legacy executor has no adaptive contract to turn an AI target into an
-// executable price.  Always produce a positive, deterministic target: payload
-// BaseTakeProfit first, then the terminal base setting, then one initial R.
+// Legacy reconstruction and terminal defaults are intentionally separate TP
+// sources so compatibility behavior remains fully observable.
 double LegacyTakeProfitPrice(const DecisionPayload &payload, const double entry_price)
 {
    double points=payload.base_take_profit_points;
-   if(points<=0.0) points=InpBaseTakeProfitPoints;
+   if(points<=0.0) points=1.0;
+   double target=payload.direction=="BUY" ? entry_price+points*_Point : entry_price-points*_Point;
+   return NormalizeDouble(target,_Digits);
+}
+
+double TerminalBaseTakeProfitPrice(const DecisionPayload &payload, const double entry_price)
+{
+   double points=InpBaseTakeProfitPoints;
    if(points<=0.0) points=payload.initial_r_points;
    if(points<=0.0) points=InpInitialRPoints;
    if(points<=0.0) points=1.0;
@@ -282,26 +327,46 @@ double LegacyTakeProfitPrice(const DecisionPayload &payload, const double entry_
    return NormalizeDouble(target,_Digits);
 }
 
-bool EnsureLegacyTakeProfit(const ulong ticket, const double target_tp)
+bool RecoverBrokerTakeProfit(const ulong ticket)
 {
-   if(ticket==0 || target_tp<=0.0 || !PositionSelectByTicket(ticket)) return false;
+   if(ticket==0 || !PositionSelectByTicket(ticket)) return false;
+   string source=TPSourceForTicket(ticket);
+   if(source==TP_SOURCE_ADAPTIVE_CONTRACT)
+   {
+      AssertAdaptiveAuthority(true,false,source,ticket);
+      return true; // adaptive contract may not be overwritten by recovery.
+   }
    double existing_tp=PositionGetDouble(POSITION_TP);
    if(existing_tp>0.0)
    {
-      PrintFormat("V29_LEGACY_TP_BROKER_VERIFIED | ticket=%I64u | tp=%s",ticket,DoubleToString(existing_tp,_Digits));
+      SetRecoveryCompleted(ticket);
+      PrintFormat("V29_TP_BROKER_VERIFIED | ticket=%I64u | source=%s | tp=%s",ticket,source,DoubleToString(existing_tp,_Digits));
       return true;
    }
+   if(RecoveryCompleted(ticket) || RecoveryFailed(ticket)) return RecoveryCompleted(ticket);
+   int attempts=RecoveryAttemptCount(ticket);
+   if(attempts>V29_TP_RECOVERY_MAX_ATTEMPTS)
+      PrintFormat("V29_ASSERT_RECOVERY_LIMIT | ticket=%I64u | attempts=%d",ticket,attempts);
+   if(attempts>=V29_TP_RECOVERY_MAX_ATTEMPTS)
+   { SetRecoveryFailed(ticket); PrintFormat("V29_TP_RECOVERY_ABORTED | ticket=%I64u | source=%s | attempts=%d",ticket,source,attempts); PrintFormat("V29_ASSERT_RECOVERY_LIMIT | ticket=%I64u | attempts=%d",ticket,attempts); return false; }
+   double target_tp=StateGet(ticket,"tp_recovery_target");
+   if(target_tp<=0.0) { SetRecoveryFailed(ticket); PrintFormat("V29_TP_RECOVERY_FAILED | ticket=%I64u | source=%s | reason=MISSING_TARGET",ticket,source); return false; }
+   attempts++; StateSet(ticket,"tp_recovery_attempt_count",attempts);
+   PrintFormat("V29_TP_RECOVERY_ATTEMPT | ticket=%I64u | source=%s | attempt=%d/%d",ticket,source,attempts,V29_TP_RECOVERY_MAX_ATTEMPTS);
    if(!g_trade.PositionModify(ticket,PositionGetDouble(POSITION_SL),target_tp))
    {
-      PrintFormat("V29_LEGACY_TP_MODIFY_FAIL | ticket=%I64u | %s",ticket,g_trade.ResultRetcodeDescription());
+      PrintFormat("V29_TP_RECOVERY_FAILED | ticket=%I64u | source=%s | attempt=%d | %s",ticket,source,attempts,g_trade.ResultRetcodeDescription());
+      if(attempts>=V29_TP_RECOVERY_MAX_ATTEMPTS) { SetRecoveryFailed(ticket); PrintFormat("V29_TP_RECOVERY_ABORTED | ticket=%I64u | source=%s | attempts=%d",ticket,source,attempts); }
       return false;
    }
    if(PositionSelectByTicket(ticket) && PositionGetDouble(POSITION_TP)>0.0)
    {
-      PrintFormat("V29_LEGACY_TP_BROKER_VERIFIED | ticket=%I64u | tp=%s",ticket,DoubleToString(PositionGetDouble(POSITION_TP),_Digits));
+      SetRecoveryCompleted(ticket);
+      PrintFormat("V29_TP_BROKER_VERIFIED | ticket=%I64u | source=%s | tp=%s",ticket,source,DoubleToString(PositionGetDouble(POSITION_TP),_Digits));
       return true;
    }
-   PrintFormat("V29_LEGACY_TP_MODIFY_UNVERIFIED | ticket=%I64u",ticket);
+   PrintFormat("V29_TP_RECOVERY_FAILED | ticket=%I64u | source=%s | attempt=%d | reason=UNVERIFIED",ticket,source,attempts);
+   if(attempts>=V29_TP_RECOVERY_MAX_ATTEMPTS) { SetRecoveryFailed(ticket); PrintFormat("V29_TP_RECOVERY_ABORTED | ticket=%I64u | source=%s | attempts=%d",ticket,source,attempts); }
    return false;
 }
 
@@ -318,24 +383,45 @@ void ExecutePayload()
    if((payload.sequence_id>0 && StateGet(0,"last_sequence")==payload.sequence_id) || StateGet(0,"last_fingerprint")==fingerprint) return;
    if(payload.lot+CurrentExposureLots(_Symbol)>InpExposureCapLots || !TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED)) { Print("V29_BROKER_SAFETY_BLOCK"); return; }
    StateSet(0,"pending_initial_r",payload.initial_r_points);
-   bool legacy_tp_required=!payload.has_adaptive_tp_be_contract && (InpEnableAIProgressiveTP || InpEnableAIProgressiveBE);
+   // Deterministic authority chain: adaptive -> legacy reconstruction ->
+   // terminal base default.  The legacy branch is structurally unreachable
+   // whenever the adaptive contract is present.
+   bool adaptive_present=payload.has_adaptive_tp_be_contract;
+   bool legacy_available=!adaptive_present && payload.has_progressive_tp_contract && (InpEnableAIProgressiveTP || InpEnableAIProgressiveBE);
+   string tp_source=adaptive_present ? TP_SOURCE_ADAPTIVE_CONTRACT : (legacy_available ? TP_SOURCE_LEGACY_RECONSTRUCTION : TP_SOURCE_TERMINAL_BASE_DEFAULT);
+   bool legacy_executed=false;
    MqlTick entry_tick; if(!SymbolInfoTick(_Symbol,entry_tick)) return;
-   double order_tp=legacy_tp_required ? LegacyTakeProfitPrice(payload,payload.direction=="BUY" ? entry_tick.ask : entry_tick.bid) : 0.0;
-   if(legacy_tp_required)
+   double entry_price=payload.direction=="BUY" ? entry_tick.ask : entry_tick.bid;
+   double order_tp=0.0;
+   if(tp_source==TP_SOURCE_LEGACY_RECONSTRUCTION)
    {
+      legacy_executed=true;
+      order_tp=LegacyTakeProfitPrice(payload,entry_price);
       PrintFormat("V29_LEGACY_TP_RECONSTRUCTED | source=BaseTakeProfit | points=%.1f | tp=%s",payload.base_take_profit_points,DoubleToString(order_tp,_Digits));
-      StateSet(0,"pending_legacy_tp",order_tp);
    }
+   else if(tp_source==TP_SOURCE_TERMINAL_BASE_DEFAULT) order_tp=TerminalBaseTakeProfitPrice(payload,entry_price);
+   AssertAdaptiveAuthority(adaptive_present,legacy_executed,tp_source,0);
+   PrintFormat("V29_TP_TRACE | Decision -> Payload Validation -> Adaptive Contract Available=%s -> TP Source=%s -> OrderSend -> Broker Verification",adaptive_present ? "YES" : "NO",tp_source);
    g_trade.SetExpertMagicNumber(InpMagic); bool sent=payload.direction=="BUY" ? g_trade.Buy(payload.lot,_Symbol,0.0,0.0,order_tp) : g_trade.Sell(payload.lot,_Symbol,0.0,0.0,order_tp);
    if(!sent) { PrintFormat("V29_ORDER_SEND_FAIL | %s",g_trade.ResultRetcodeDescription()); return; }
    ulong opened_ticket=0;
    if(g_trade.ResultDeal()>0 && HistoryDealSelect(g_trade.ResultDeal())) opened_ticket=(ulong)HistoryDealGetInteger(g_trade.ResultDeal(),DEAL_POSITION_ID);
-   if(legacy_tp_required && EnsureLegacyTakeProfit(opened_ticket,order_tp)) StateSet(0,"pending_legacy_tp",0.0);
+   if(opened_ticket>0)
+   {
+      SetTPRecoveryPlan(opened_ticket,order_tp,tp_source);
+      LogTPSource(opened_ticket,tp_source);
+      if(PositionSelectByTicket(opened_ticket) && PositionGetDouble(POSITION_TP)>0.0) { SetRecoveryCompleted(opened_ticket); PrintFormat("V29_TP_BROKER_VERIFIED | ticket=%I64u | source=%s | tp=%s",opened_ticket,tp_source,DoubleToString(PositionGetDouble(POSITION_TP),_Digits)); }
+   }
+   else
+   {
+      StateSet(0,"pending_tp_target",order_tp);
+      StateSet(0,"pending_tp_source",tp_source==TP_SOURCE_LEGACY_RECONSTRUCTION ? 2.0 : (tp_source==TP_SOURCE_TERMINAL_BASE_DEFAULT ? 3.0 : 1.0));
+   }
    // On the following tick LoadState persists this payload's fallback-safe R per ticket.
    for(int i=PositionsTotal()-1;i>=0;i--) { ulong ticket=PositionGetTicket(i); if(ticket>0 && PositionGetInteger(POSITION_MAGIC)==InpMagic && !StateHas(ticket,"initial_r_points")) { TicketState state=LoadState(ticket,PositionGetDouble(POSITION_VOLUME),payload.initial_r_points); SaveState(ticket,state); } }
    if(payload.sequence_id>0) StateSet(0,"last_sequence",payload.sequence_id);
    StateSet(0,"last_fingerprint",fingerprint);
-   PrintFormat("V29_ORDER_SEND_OK | order=%I64u | direction=%s",g_trade.ResultOrder(),payload.direction);
+   PrintFormat("V29_ORDER_SEND_OK | order=%I64u | direction=%s | tp_source=%s",g_trade.ResultOrder(),payload.direction,tp_source);
 }
 
 // Covers asynchronous broker fills as well as an EA restart between OrderSend
@@ -344,8 +430,14 @@ void OnTradeTransaction(const MqlTradeTransaction &transaction, const MqlTradeRe
 {
    if(transaction.type!=TRADE_TRANSACTION_DEAL_ADD || transaction.position==0) return;
    if(!HistoryDealSelect(transaction.deal) || HistoryDealGetInteger(transaction.deal,DEAL_MAGIC)!=InpMagic) return;
-   double pending_legacy_tp=StateGet(0,"pending_legacy_tp");
-   if(pending_legacy_tp>0.0 && EnsureLegacyTakeProfit(transaction.position,pending_legacy_tp)) StateSet(0,"pending_legacy_tp",0.0);
+   if(!StateHas(transaction.position,"tp_source"))
+   {
+      double source=StateGet(0,"pending_tp_source",1.0);
+      string tp_source=source==2.0 ? TP_SOURCE_LEGACY_RECONSTRUCTION : (source==3.0 ? TP_SOURCE_TERMINAL_BASE_DEFAULT : TP_SOURCE_ADAPTIVE_CONTRACT);
+      SetTPRecoveryPlan(transaction.position,StateGet(0,"pending_tp_target"),tp_source);
+      LogTPSource(transaction.position,tp_source);
+      StateSet(0,"pending_tp_target",0.0); StateSet(0,"pending_tp_source",0.0);
+   }
    if(!PositionSelectByTicket(transaction.position) || StateHas(transaction.position,"initial_r_points")) return;
    TicketState state=LoadState(transaction.position,PositionGetDouble(POSITION_VOLUME),StateGet(0,"pending_initial_r",InpInitialRPoints));
    SaveState(transaction.position,state);
