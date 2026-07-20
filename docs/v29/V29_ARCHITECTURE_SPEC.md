@@ -23,3 +23,9 @@ Initial risk (`1R`) is immutable at entry. The management authority applies exac
 3. TP1/TP2/TP3 occur at 1R/2R/3R with 50%/25%/25% scheduled volume.
 4. BE moves only after the corresponding target and never moves backwards.
 5. V27/V28 files and active dashboard profiles remain unchanged.
+
+## 3. V29.1 Entry Quality Model
+
+V29.1 inserts a timing-only gate after the existing Direction Decision and before `TRADE` publication. `entry_quality_engine.py` accepts the already nominated `BUY` or `SELL` direction and never creates, flips, scores, or resizes it. It scores the existing structure, momentum, location, exhaustion, and market-quality observations from 0 to 100; the final `entry_score` is their deterministic unweighted mean. A score of at least 70 with no component below 60 yields `EXECUTE`; otherwise the published decision is `WAIT_FOR_BETTER_ENTRY` while retaining the exact nominated direction.
+
+The V29 payload remains additive and schema-compatible. It now includes `entry_score`, `entry_confidence`, `waiting_reason`, and `entry_components`, in addition to the existing entry-intelligence and TP/BE fields. `entry_quality_telemetry` is a deterministic record containing direction, every component score, final score, and `EXECUTE` or `WAIT_FOR_BETTER_ENTRY`. V27 and V28 files and their runtime paths are not used or changed by this layer.

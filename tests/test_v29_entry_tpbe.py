@@ -20,8 +20,9 @@ def test_entry_requires_all_three_confirmations_and_publishes_ladder():
 
 def test_entry_rejection_is_explicit_without_score_tuning():
     payload = decide(market(rsi=80), now=2)
-    assert payload["decision"] == "NO_TRADE"
-    assert payload["reason"] == "ENTRY_LOCATION_NOT_CONFIRMED"
+    assert payload["decision"] == "WAIT_FOR_BETTER_ENTRY"
+    assert payload["direction"] == "BUY"
+    assert "MOVE_EXHAUSTED" in payload["waiting_reason"]
 
 
 def test_progressive_ladder_is_idempotent_and_advances_be_only_after_target():
