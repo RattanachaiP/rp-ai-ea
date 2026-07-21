@@ -7,6 +7,7 @@ changes, or upgrades a trading intent.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 import json
 from math import isfinite
 from pathlib import Path
@@ -33,6 +34,15 @@ class WriterReadResult:
     accepted: bool
     ignored_duplicate: bool
     reason: str | None
+
+    def __post_init__(self) -> None:
+        """Freeze the accepted document before it crosses into execution.
+
+        A writer result is a cycle snapshot, not a handle back to the JSON
+        file.  Freezing it here makes accidental mutation by any consumer
+        immediately visible instead of silently changing the instruction.
+        """
+        object.__setattr__(self, "payload", _freeze_mapping(self.payload))
 
     @property
     def legacy_payload(self) -> dict[str, Any]:
@@ -177,3 +187,19 @@ def map_legacy_runtime_decision(payload: Mapping[str, Any]) -> dict[str, Any]:
         "fail_safe": payload["fail_safe"], "confidence": payload.get("confidence", 0.0),
         "sequence_id": payload.get("sequence_id"), "heartbeat_unix": payload.get("heartbeat_unix"),
     }
+
+
+def _freeze_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise TypeError("WRITER_RESULT_PAYLOAD_MUST_BE_MAPPING")
+    return MappingProxyType({key: _freeze_value(item) for key, item in value.items()})
+
+
+def _freeze_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return _freeze_mapping(value)
+    if isinstance(value, list):
+        return tuple(_freeze_value(item) for item in value)
+    if isinstance(value, tuple):
+        return tuple(_freeze_value(item) for item in value)
+    return value
