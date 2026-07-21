@@ -7,6 +7,7 @@ changes, or upgrades a trading intent.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 import json
 from math import isfinite
 from pathlib import Path
@@ -22,6 +23,7 @@ _REQUIRED_FIELDS = frozenset({
     "decision", "direction", "entry_permission", "entry_state", "construction_action", "confidence",
     "probability", "expected_value", "location_score", "position_budget_total", "position_budget_used",
     "position_budget_remaining", "decision_reasons", "decision_trace", "fail_safe", "executable",
+    "symbol", "volume", "entry_price", "stop_loss", "take_profit",
 })
 
 
@@ -33,6 +35,15 @@ class WriterReadResult:
     accepted: bool
     ignored_duplicate: bool
     reason: str | None
+
+    def __post_init__(self) -> None:
+        """Freeze the accepted document before it crosses into execution.
+
+        A writer result is a cycle snapshot, not a handle back to the JSON
+        file.  Freezing it here makes accidental mutation by any consumer
+        immediately visible instead of silently changing the instruction.
+        """
+        object.__setattr__(self, "payload", _freeze_mapping(self.payload))
 
     @property
     def legacy_payload(self) -> dict[str, Any]:
@@ -103,8 +114,10 @@ class DecisionWriter:
         if type(heartbeat) not in (int, float) or not isfinite(heartbeat):
             raise _ValidationError("MALFORMED_HEARTBEAT")
         numeric_fields = ("confidence", "probability", "expected_value", "location_score", "position_budget_total",
-                          "position_budget_used", "position_budget_remaining")
+                          "position_budget_used", "position_budget_remaining", "volume", "entry_price", "stop_loss", "take_profit")
         if any(type(document[field]) not in (int, float) or not isfinite(document[field]) for field in numeric_fields):
+            raise _ValidationError("MALFORMED_RUNTIME_FIELDS")
+        if type(document["symbol"]) is not str:
             raise _ValidationError("MALFORMED_RUNTIME_FIELDS")
         for field in ("decision_reasons", "decision_trace"):
             if type(document[field]) is not list or not all(type(item) is str for item in document[field]):
@@ -147,6 +160,7 @@ class DecisionWriter:
             document["direction"] != document["decision"], document["entry_permission"] is not True,
             document["fail_safe"] is not False, document["entry_state"] != "ENTRY_ALLOWED",
             document["construction_action"] not in {"ALLOW_START", "ALLOW_SCALE"},
+            not document["symbol"], document["volume"] <= 0,
         )):
             raise _ValidationError("INCONSISTENT_EXECUTABLE_CONTRACT")
 
@@ -160,7 +174,9 @@ class DecisionWriter:
     def _safe_payload(reason: str) -> dict[str, Any]:
         return {"decision": "WAIT", "direction": "NONE", "entry_permission": False,
                 "entry_state": "FAIL_SAFE", "construction_action": "NO_ACTION", "fail_safe": True,
-                "executable": False, "decision_reasons": ["WRITER_FAIL_SAFE", reason], "decision_trace": []}
+                "executable": False, "symbol": "", "volume": 0.0, "entry_price": 0.0,
+                "stop_loss": 0.0, "take_profit": 0.0,
+                "decision_reasons": ["WRITER_FAIL_SAFE", reason], "decision_trace": []}
 
 
 class _ValidationError(Exception):
@@ -177,3 +193,19 @@ def map_legacy_runtime_decision(payload: Mapping[str, Any]) -> dict[str, Any]:
         "fail_safe": payload["fail_safe"], "confidence": payload.get("confidence", 0.0),
         "sequence_id": payload.get("sequence_id"), "heartbeat_unix": payload.get("heartbeat_unix"),
     }
+
+
+def _freeze_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise TypeError("WRITER_RESULT_PAYLOAD_MUST_BE_MAPPING")
+    return MappingProxyType({key: _freeze_value(item) for key, item in value.items()})
+
+
+def _freeze_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return _freeze_mapping(value)
+    if isinstance(value, list):
+        return tuple(_freeze_value(item) for item in value)
+    if isinstance(value, tuple):
+        return tuple(_freeze_value(item) for item in value)
+    return value

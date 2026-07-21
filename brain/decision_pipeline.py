@@ -58,6 +58,13 @@ class DecisionPackage:
     position_budget_remaining: float
     decision: str
     decision_trace: tuple[str, ...]
+    # These are publisher-owned execution instructions supplied by the
+    # upstream construction contract.  The pipeline never invents them.
+    symbol: str | None = None
+    volume: float | None = None
+    entry_price: float | None = None
+    stop_loss: float | None = None
+    take_profit: float | None = None
 
 
 class DecisionPipeline:

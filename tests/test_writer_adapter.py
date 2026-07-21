@@ -20,6 +20,7 @@ def package(**changes: object) -> DecisionPackage:
         construction_action="ALLOW_START", position_budget_total=0.05,
         position_budget_used=0.0, position_budget_remaining=0.05, decision="BUY",
         decision_trace=("Probability=0.6500", "ExpectedValue=0.2500", "ELI=ENTRY_ALLOWED"),
+        symbol="XAUUSD", volume=0.01, entry_price=2300.0, stop_loss=2290.0, take_profit=2320.0,
     )
     return replace(base, **changes)
 

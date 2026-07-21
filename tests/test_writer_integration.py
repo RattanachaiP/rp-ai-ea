@@ -20,6 +20,7 @@ def document(**changes):
         "confidence": 80.0, "probability": .65, "expected_value": .25, "location_score": 75.0,
         "position_budget_total": .05, "position_budget_used": 0.0, "position_budget_remaining": .05,
         "decision_reasons": [], "decision_trace": [], "fail_safe": False, "executable": True,
+        "symbol": "XAUUSD", "volume": .01, "entry_price": 2300.0, "stop_loss": 2290.0, "take_profit": 2320.0,
     }
     value.update(changes)
     return value
