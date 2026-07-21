@@ -64,6 +64,7 @@ class EntryLocationAssessment:
     swing_position: float | None
     atr_extension: float | None
     risk_reward: float | None
+    direction: str = ""
 
 
 class SwingLocationEngine:
@@ -113,13 +114,13 @@ class EntryLocationIntelligence:
     def assess(self, data: EntryLocationInput) -> EntryLocationAssessment:
         invalid = self._invalid_reason(data)
         if invalid:
-            return self._blocked_invalid(invalid)
+            return self._blocked_invalid(invalid, direction=data.direction if isinstance(data, EntryLocationInput) else "")
 
         swing_position = self.swing.calculate(data.current_price, data.swing_low, data.swing_high)
         extension = self.extension.calculate(data.direction, data.recent_impulse_start, data.recent_impulse_end, data.atr)
         rr = self._risk_reward(data)
         if rr is None:
-            return self._blocked_invalid("INVALID_TARGET_INVALIDATION_GEOMETRY", swing_position, extension)
+            return self._blocked_invalid("INVALID_TARGET_INVALIDATION_GEOMETRY", swing_position, extension, data.direction)
 
         components = self._components(data, swing_position, extension, rr)
         score = self.quality.score(components)
@@ -130,27 +131,27 @@ class EntryLocationIntelligence:
         ):
             return self._assessment(score, False, EntryState.BLOCK_SWING_EXTREME, reasons + [
                 "BUY_NEAR_SWING_HIGH" if data.direction == "BUY" else "SELL_NEAR_SWING_LOW"
-            ], components, swing_position, extension, rr)
+            ], components, swing_position, extension, rr, data.direction)
         if rr < self.config.minimum_rr:
-            return self._assessment(score, False, EntryState.BLOCK_POOR_RR, reasons + ["RISK_REWARD_BELOW_MINIMUM"], components, swing_position, extension, rr)
+            return self._assessment(score, False, EntryState.BLOCK_POOR_RR, reasons + ["RISK_REWARD_BELOW_MINIMUM"], components, swing_position, extension, rr, data.direction)
 
         pullback_state, _ = self.pullback.state(data, extension, self.config)
         continuation = pullback_state == "CONTINUATION_CONFIRMED"
         if extension >= self.config.hard_extension_atr and not continuation:
-            return self._assessment(score, False, EntryState.BLOCK_ATR_EXTENSION, reasons + ["EXCESSIVE_DIRECTIONAL_ATR_EXTENSION", "CONTINUATION_NOT_CONFIRMED"], components, swing_position, extension, rr)
+            return self._assessment(score, False, EntryState.BLOCK_ATR_EXTENSION, reasons + ["EXCESSIVE_DIRECTIONAL_ATR_EXTENSION", "CONTINUATION_NOT_CONFIRMED"], components, swing_position, extension, rr, data.direction)
         if data.direction == "BUY" and data.liquidity_sweep_up and not continuation:
-            return self._assessment(score, False, EntryState.WAIT_CONFIRMATION, reasons + ["UPPER_LIQUIDITY_SWEEP_REQUIRES_CONFIRMATION"], components, swing_position, extension, rr)
+            return self._assessment(score, False, EntryState.WAIT_CONFIRMATION, reasons + ["UPPER_LIQUIDITY_SWEEP_REQUIRES_CONFIRMATION"], components, swing_position, extension, rr, data.direction)
         if data.direction == "SELL" and data.liquidity_sweep_down and not continuation:
-            return self._assessment(score, False, EntryState.WAIT_CONFIRMATION, reasons + ["LOWER_LIQUIDITY_SWEEP_REQUIRES_CONFIRMATION"], components, swing_position, extension, rr)
+            return self._assessment(score, False, EntryState.WAIT_CONFIRMATION, reasons + ["LOWER_LIQUIDITY_SWEEP_REQUIRES_CONFIRMATION"], components, swing_position, extension, rr, data.direction)
         if extension >= self.config.severe_extension_atr and not continuation:
-            return self._assessment(score, False, EntryState.WAIT_PULLBACK, reasons + ["DIRECTIONAL_ATR_EXTENSION_REQUIRES_PULLBACK"], components, swing_position, extension, rr)
+            return self._assessment(score, False, EntryState.WAIT_PULLBACK, reasons + ["DIRECTIONAL_ATR_EXTENSION_REQUIRES_PULLBACK"], components, swing_position, extension, rr, data.direction)
         if pullback_state == "NO_PULLBACK":
-            return self._assessment(score, False, EntryState.WAIT_PULLBACK, reasons + ["PULLBACK_NOT_DETECTED"], components, swing_position, extension, rr)
+            return self._assessment(score, False, EntryState.WAIT_PULLBACK, reasons + ["PULLBACK_NOT_DETECTED"], components, swing_position, extension, rr, data.direction)
         if pullback_state == "PULLBACK_UNCONFIRMED":
-            return self._assessment(score, False, EntryState.WAIT_CONFIRMATION, reasons + ["PULLBACK_NOT_CONFIRMED"], components, swing_position, extension, rr)
+            return self._assessment(score, False, EntryState.WAIT_CONFIRMATION, reasons + ["PULLBACK_NOT_CONFIRMED"], components, swing_position, extension, rr, data.direction)
         if not data.structure_confirmed:
-            return self._assessment(score, False, EntryState.WAIT_CONFIRMATION, reasons + ["STRUCTURE_NOT_CONFIRMED"], components, swing_position, extension, rr)
-        return self._assessment(score, True, EntryState.ENTRY_ALLOWED, reasons + [pullback_state], components, swing_position, extension, rr)
+            return self._assessment(score, False, EntryState.WAIT_CONFIRMATION, reasons + ["STRUCTURE_NOT_CONFIRMED"], components, swing_position, extension, rr, data.direction)
+        return self._assessment(score, True, EntryState.ENTRY_ALLOWED, reasons + [pullback_state], components, swing_position, extension, rr, data.direction)
 
     def _components(self, data: EntryLocationInput, swing_position: float, extension: float, rr: float) -> dict[str, float]:
         directional_swing = 1.0 - swing_position if data.direction == "BUY" else swing_position
@@ -189,8 +190,8 @@ class EntryLocationIntelligence:
         return None
 
     @staticmethod
-    def _assessment(score: float, permission: bool, state: EntryState, reasons: list[str], components: dict[str, float], swing: float | None, extension: float | None, rr: float | None) -> EntryLocationAssessment:
-        return EntryLocationAssessment(score, permission, state, tuple(reasons), components, None if swing is None else round(swing, 4), None if extension is None else round(extension, 4), None if rr is None else round(rr, 4))
+    def _assessment(score: float, permission: bool, state: EntryState, reasons: list[str], components: dict[str, float], swing: float | None, extension: float | None, rr: float | None, direction: str = "") -> EntryLocationAssessment:
+        return EntryLocationAssessment(score, permission, state, tuple(reasons), components, None if swing is None else round(swing, 4), None if extension is None else round(extension, 4), None if rr is None else round(rr, 4), direction)
 
-    def _blocked_invalid(self, reason: str, swing: float | None = None, extension: float | None = None) -> EntryLocationAssessment:
-        return self._assessment(0.0, False, EntryState.BLOCK_INVALID_GEOMETRY, [reason], {}, swing, extension, None)
+    def _blocked_invalid(self, reason: str, swing: float | None = None, extension: float | None = None, direction: str = "") -> EntryLocationAssessment:
+        return self._assessment(0.0, False, EntryState.BLOCK_INVALID_GEOMETRY, [reason], {}, swing, extension, None, direction)
