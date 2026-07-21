@@ -9644,7 +9644,13 @@ def brain_position_intelligence(candidate_decision):
 
 
 def brain_decision_publication(final_payload):
-    """Decision Publication: final V26 payload -> existing atomic writer input."""
+    """Return the exact V26 payload object for the existing atomic writer.
+
+    This frozen compatibility boundary intentionally performs no validation,
+    normalization, serialization, or metadata attachment.  Those remain owned
+    by the established V26 write path; copying or rebuilding the dictionary
+    here could change its schema or break legacy consumer compatibility.
+    """
     return final_payload
 
 
