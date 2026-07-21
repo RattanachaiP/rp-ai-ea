@@ -19,7 +19,7 @@ NOW = datetime(2026, 7, 21, 14, 31, 20, tzinfo=timezone.utc)
 
 def payload():
     package = DecisionPackage("BUY", 80.0, 0.65, 0.25, 75.0, True, "ENTRY_ALLOWED", "ALLOW_START",
-                              0.05, 0.0, 0.05, "BUY", ("first", "second"))
+                              0.05, 0.0, 0.05, "BUY", ("first", "second"), "XAUUSD", 0.01, 2300.0, 2290.0, 2320.0)
     return WriterAdapter().adapt(package)
 
 
@@ -35,6 +35,7 @@ def test_valid_serialization_schema_and_trace_preservation(tmp_path):
     assert result["brain_version"] == "27.4" and result["runtime_version"] == "27.5"
     assert result["decision_trace"] == ["first", "second", "WriterAdapter=VALID"]
     assert result["executable"] is True
+    assert result["symbol"] == "XAUUSD" and result["volume"] == 0.01
 
 
 def test_atomic_write_replaces_only_complete_tmp_file(tmp_path, monkeypatch):

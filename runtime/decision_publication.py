@@ -24,6 +24,7 @@ RUNTIME_VERSION = "27.5"
 _NUMERIC_FIELDS = (
     "confidence", "probability", "expected_value", "location_score",
     "position_budget_total", "position_budget_used", "position_budget_remaining",
+    "volume", "entry_price", "stop_loss", "take_profit",
 )
 
 
@@ -87,6 +88,8 @@ class DecisionPublisher:
         for field in ("decision", "direction", "entry_state", "construction_action"):
             if type(getattr(payload, field)) is not str:
                 raise ValueError(f"INVALID_{field.upper()}")
+        if type(payload.symbol) is not str:
+            raise ValueError("INVALID_SYMBOL")
         if type(payload.entry_permission) is not bool or type(payload.fail_safe) is not bool or type(payload.executable) is not bool:
             raise ValueError("INVALID_BOOLEAN_FIELD")
         for field in ("decision_reasons", "decision_trace"):
@@ -96,6 +99,7 @@ class DecisionPublisher:
         if payload.executable and (
             payload.fail_safe or not payload.entry_permission
             or payload.decision not in {"BUY", "SELL"} or payload.direction != payload.decision
+            or not payload.symbol or payload.volume <= 0
         ):
             raise ValueError("INCONSISTENT_EXECUTABLE_PAYLOAD")
         if payload.fail_safe and (
@@ -127,6 +131,11 @@ class DecisionPublisher:
             "decision_trace": ["DecisionPublication=FAIL_SAFE", f"FAIL_SAFE={reason}"],
             "fail_safe": True,
             "executable": False,
+            "symbol": "",
+            "volume": 0.0,
+            "entry_price": 0.0,
+            "stop_loss": 0.0,
+            "take_profit": 0.0,
         }
 
     @staticmethod

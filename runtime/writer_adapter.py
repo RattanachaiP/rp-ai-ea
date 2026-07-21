@@ -46,6 +46,11 @@ class RuntimeDecisionPayload:
     decision_trace: tuple[str, ...]
     fail_safe: bool
     executable: bool
+    symbol: str
+    volume: float
+    entry_price: float
+    stop_loss: float
+    take_profit: float
 
 
 class WriterAdapter:
@@ -81,6 +86,7 @@ class WriterAdapter:
         location_score = self._bounded_number(package.location_score, "INVALID_LOCATION_SCORE", 0.0, 100.0)
         total, used, remaining = self._budget(package)
         trace = self._trace(package.decision_trace)
+        instruction = self._instruction(package, executable=(decision == "TRADE" or decision in _DIRECTIONS) and package.entry_permission and action in _ALLOW_ACTIONS)
         self._validate_consistency(decision, direction, package.entry_permission, state, action)
         runtime_decision = direction if decision == "TRADE" else decision
         executable = runtime_decision in _DIRECTIONS and package.entry_permission and action in _ALLOW_ACTIONS
@@ -88,6 +94,7 @@ class WriterAdapter:
             SCHEMA_VERSION, runtime_decision, direction, package.entry_permission, state, action,
             confidence, probability, expected_value, location_score, total, used, remaining,
             (), trace + ("WriterAdapter=VALID",), False, executable,
+            *instruction,
         )
 
     @staticmethod
@@ -117,6 +124,15 @@ class WriterAdapter:
         if abs((used + remaining) - total) > _BUDGET_TOLERANCE:
             raise ValueError("INCONSISTENT_BUDGET")
         return total, used, remaining
+
+    def _instruction(self, package: DecisionPackage, *, executable: bool) -> tuple[str, float, float, float, float]:
+        values = (package.volume, package.entry_price, package.stop_loss, package.take_profit)
+        if not executable and (package.symbol is None and all(value is None for value in values)):
+            return "", 0.0, 0.0, 0.0, 0.0
+        if type(package.symbol) is not str or not package.symbol:
+            raise ValueError("INVALID_EXECUTION_SYMBOL")
+        numbers = tuple(self._finite_number(value, "INVALID_EXECUTION_INSTRUCTION") for value in values)
+        return package.symbol, *numbers
 
     @staticmethod
     def _trace(value: object) -> tuple[str, ...]:
@@ -158,6 +174,7 @@ class WriterAdapter:
             0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
             ("WRITER_ADAPTER_FAIL_SAFE", reason),
             ("WriterAdapter=FAIL_SAFE", f"FAIL_SAFE={reason}"), True, False,
+            "", 0.0, 0.0, 0.0, 0.0,
         )
 
 
