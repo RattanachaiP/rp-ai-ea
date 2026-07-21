@@ -10,6 +10,7 @@ sys.path.insert(0, str(REPO_ROOT / "bridge"))
 
 from ai_decision_engine_xauusd_v26_execution_confidence_engine import (  # noqa: E402
     apply_expectancy_entry_filters_v26_6_2,
+    apply_execution_timing_layer_v26_6_5,
     build_cooldown_wait_decision,
     enforce_final_execution_state_v28,
 )
@@ -153,3 +154,76 @@ def test_v28_explicit_hard_safety_veto_remains_authoritative():
     assert result["effective_veto_code"] == "ABNORMAL_SPREAD"
     assert result["final_veto_reason"] == "Spread exceeds hard safety limit"
     assert result["expectancy_gap_execution_blocked"] is False
+
+
+def test_timeout_released_wait_cannot_be_reblocked_by_execution_timing():
+    """The WAIT lifecycle owner must release the executable timing gate too."""
+    result = apply_execution_timing_layer_v26_6_5(
+        {
+            "decision": "TRADE",
+            "allowed": True,
+            "entry_allowed": True,
+            "action": "BUY",
+            "bias": "BUY",
+            "market_mode": "TREND",
+            "bb_state": "WALK_UP",
+            "market_state_age_sec": 0,
+            # Deliberately countertrend so the ordinary timing layer would wait.
+            "rsi": 35,
+            "macd_hist": -1.0,
+            "wait_recovery_lifecycle": "TIMEOUT_RELEASED",
+            "wait_valid_cycles": 18,
+            "wait_timeout_cycles": 4,
+            "participation_release": True,
+            "effective_veto_code": "WAIT_ENTRY_WINDOW",
+            "final_veto_owner": "COOLDOWN_GATE",
+        }
+    )
+
+    assert result["decision"] == "TRADE"
+    assert result["allowed"] is True
+    assert result["entry_allowed"] is True
+    assert result["execution_state"] == "EXECUTE_CAUTIOUS"
+    assert result["wait_timeout_release_final_gate"] == "EXECUTE_CAUTIOUS"
+    assert result["effective_veto_code"] == "NONE"
+    assert result["final_veto_owner"] == "NONE"
+
+
+def test_timeout_release_does_not_override_hard_safety():
+    payload = {
+        "decision": "NO_TRADE",
+        "entry_allowed": False,
+        "action": "BUY",
+        "bias": "BUY",
+        "market_mode": "TREND",
+        "bb_state": "WALK_UP",
+        "market_state_age_sec": 0,
+        "reason": "ABNORMAL_SPREAD",
+        "wait_recovery_lifecycle": "TIMEOUT_RELEASED",
+        "participation_release": True,
+    }
+
+    result = apply_execution_timing_layer_v26_6_5(payload)
+
+    assert result["decision"] == "NO_TRADE"
+    assert result["entry_allowed"] is False
+
+
+def test_timeout_release_does_not_override_active_protection_authority():
+    payload = {
+        "decision": "NO_TRADE",
+        "entry_allowed": False,
+        "action": "BUY",
+        "bias": "BUY",
+        "market_mode": "TREND",
+        "bb_state": "WALK_UP",
+        "market_state_age_sec": 0,
+        "active_protection_state": "WAIT_ENTRY_LOCATION",
+        "wait_recovery_lifecycle": "TIMEOUT_RELEASED",
+        "participation_release": True,
+    }
+
+    result = apply_execution_timing_layer_v26_6_5(payload)
+
+    assert result["decision"] == "NO_TRADE"
+    assert result["entry_allowed"] is False

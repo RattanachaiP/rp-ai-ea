@@ -3880,6 +3880,57 @@ def _apply_cooldown_gate_wait_entry_window_bypass(decision, bias):
     decision["reason"] = (str(decision.get("reason", "")).strip() + " | WAIT_ENTRY_WINDOW_CONVERTED_TO_EXECUTE_CAUTIOUS").strip()
     return decision
 
+
+def _apply_wait_timeout_release_to_final_gate(decision, bias):
+    """Make a released WAIT lifecycle executable at the timing-layer boundary.
+
+    ``apply_wait_valid_timeout_recovery`` owns the finite WAIT lifecycle.  The
+    execution-timing layer runs again later in the publish pipeline, so it must
+    not re-install ``WAIT_ENTRY_WINDOW`` after that owner has released the
+    same candidate.  Hard safety is checked by the caller; this is deliberately
+    a cautious participation transition, not a cooldown/protection bypass.
+    """
+    decision["decision"] = "TRADE"
+    decision["allowed"] = True
+    decision["entry_allowed"] = True
+    decision["execution_state"] = "EXECUTE_CAUTIOUS"
+    decision["execution_mode"] = "CAUTIOUS"
+    decision["decision_output_state"] = "TRADE"
+    decision["participation_type"] = "CAUTIOUS"
+    decision["management"] = "SCALP_TP"
+    decision["mgmt"] = "SCALP_TP"
+    decision["runner_enabled"] = False
+    decision["pyramid_enabled"] = False
+    decision["continuation_add_enabled"] = False
+    decision["no_pyramid"] = True
+    decision["runner_default"] = "DISABLED_FOR_WAIT_TIMEOUT_RELEASE"
+    decision["bias"] = bias
+    decision["action"] = bias
+    decision["intended_action"] = bias
+    decision["wait_state"] = "WAIT_TIMEOUT_RELEASED"
+    decision["wait_timeout_release_final_gate"] = "EXECUTE_CAUTIOUS"
+    decision["wait_timeout_release_owner"] = "WAIT_VALID_LIFECYCLE"
+    decision["entry_window_original_state"] = decision.get("execution_window_state", "WAIT_ENTRY_WINDOW")
+    decision["entry_window_validation"] = "WAIT_TIMEOUT_RELEASED_EXECUTE_CAUTIOUS"
+    decision["execution_delay_reason"] = ""
+    decision["wait_reason"] = "WAIT_VALID timeout released to controlled participation"
+    decision["next_trigger"] = "executing cautiously after finite wait lifecycle"
+    # WAIT_ENTRY_WINDOW is no longer an effective veto once its lifecycle owner
+    # has released it.  Preserve unrelated protection vetoes by only clearing
+    # the stale timing/cooldown ownership records.
+    if str(decision.get("effective_veto_code", "")).upper() == "WAIT_ENTRY_WINDOW":
+        decision["effective_veto_code"] = "NONE"
+    if str(decision.get("final_veto_owner", "")).upper() in (
+        "COOLDOWN_GATE", "EXECUTION_TIMING_LAYER",
+    ):
+        decision["final_veto_owner"] = "NONE"
+        decision["final_veto_reason"] = ""
+    decision["reason"] = (
+        str(decision.get("reason", "")).strip()
+        + " | WAIT_TIMEOUT_RELEASE_FINAL_GATE_EXECUTE_CAUTIOUS"
+    ).strip()
+    return decision
+
 def apply_execution_timing_layer_v26_6_5(decision):
     if not isinstance(decision, dict):
         return decision
@@ -3901,6 +3952,17 @@ def apply_execution_timing_layer_v26_6_5(decision):
 
     hard_block, _hard_reason = _v26_has_hard_block(decision)
     is_trade = str(decision.get("decision", "")).upper() == "TRADE"
+    timeout_released = (
+        str(decision.get("wait_recovery_lifecycle", "")).upper() == "TIMEOUT_RELEASED"
+        and bool(decision.get("participation_release", False))
+    )
+    active_protection = str(
+        decision.get("active_protection_state", decision.get("ACTIVE_PROTECTION_STATE", "NONE"))
+    ).upper()
+    protection_still_owns_gate = active_protection not in ("", "NONE", "CLEAR", "INACTIVE", "NOT_EVALUATED")
+    if timeout_released and not hard_block and not protection_still_owns_gate:
+        return _apply_wait_timeout_release_to_final_gate(decision, bias)
+
     if is_trade and not hard_block and not fields["execution_window_open"]:
         action = str(decision.get("action", decision.get("intended_action", bias))).upper()
         mode = str(decision.get("market_mode", decision.get("mode", "TRANSITION"))).upper()
