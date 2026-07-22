@@ -44,7 +44,19 @@ class InsightEngine:
         insight_version = self._digest({"knowledge_version": knowledge_version, "metrics": metrics, "summary": summary})
         return {"schema_version": self.SCHEMA_VERSION, "producer": self.PRODUCER, "owner": self.OWNER,
                 "created_at": self._iso(self.clock()), "knowledge_version": knowledge_version,
-                "insight_version": insight_version, "summary": summary, "metrics": metrics}
+                "insight_version": insight_version, "summary": summary, "metrics": metrics,
+                # Preserve the existing, immutable upstream lineage so downstream
+                # advisory layers never need to inspect trading/runtime data.
+                "lineage": self._lineage(knowledge, knowledge_version)}
+
+    @staticmethod
+    def _lineage(knowledge, knowledge_version):
+        generated = knowledge.get("generated_from", {}) if isinstance(knowledge.get("generated_from"), Mapping) else {}
+        records = generated.get("evidence_lineage", [])
+        if not isinstance(records, list): records = []
+        return {"knowledge_ids": [knowledge_version], "evidence": sorted(
+            [{"evidence_id": str(row.get("evidence_id", "")), "snapshot_id": str(row.get("snapshot_id", ""))}
+             for row in records if isinstance(row, Mapping)], key=lambda row: (row["evidence_id"], row["snapshot_id"]))}
 
     def _rank_patterns(self, source: object) -> dict[str, object]:
         rows = self._rows(source, ("profit_factor", "average_rr", "win_rate"))

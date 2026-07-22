@@ -38,7 +38,10 @@ class PatternDiscoveryEngine:
             "market_state_statistics": {key: self._market_metrics(self._select_by(self._market_state, items, key)) for key in MARKET_STATES},
             "confidence_calibration": self._calibration(items),
         }
-        generated_from = {"evidence_count": len(items), "evidence_ids": source_ids, "evidence_digest": self._digest(source_ids)}
+        generated_from = {"evidence_count": len(items), "evidence_ids": source_ids,
+                          "evidence_lineage": [{"evidence_id": str(item.get("evidence_id", "")),
+                                                "snapshot_id": str(item.get("snapshot_id", ""))} for item in items],
+                          "evidence_digest": self._digest(source_ids)}
         version = self._digest({"source": generated_from, "statistics": statistics})
         return {
             "schema_version": self.SCHEMA_VERSION, "producer": self.PRODUCER, "owner": self.OWNER,
