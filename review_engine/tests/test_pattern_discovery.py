@@ -27,7 +27,7 @@ def test_pattern_aggregation_is_deterministic_and_complete():
 
 def test_session_and_market_state_aggregation():
     report = PatternDiscoveryEngine(clock=clock).generate([evidence("a", "TREND", "ASIA", "TREND", .8, 3, 1.5, drawdown=4), evidence("b", "RANGE", "ASIA", "TREND", .8, -1, -.5, drawdown=2)])
-    assert report["statistics"]["session_statistics"]["ASIA"] == {"trade_count": 2, "win_rate": .5, "average_rr": .5, "profit_factor": 3.0, "average_drawdown": 3.0}
+    assert report["statistics"]["session_statistics"]["ASIA"] == {"trade_count": 2, "win_rate": .5, "average_rr": .5, "profit_factor": 3.0, "average_duration": 10.0, "average_drawdown": 3.0}
     assert report["statistics"]["market_state_statistics"]["TREND"] == {"win_rate": .5, "average_rr": .5, "confidence_distribution": {"80-90%": 2}}
 
 

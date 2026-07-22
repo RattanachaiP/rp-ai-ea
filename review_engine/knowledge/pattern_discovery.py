@@ -62,7 +62,7 @@ class PatternDiscoveryEngine:
         base = self._base(items)
         profits = [self._profit(item) for item in items]
         gains, losses = sum(value for value in profits if value > 0), abs(sum(value for value in profits if value < 0))
-        base.update({"profit_factor": round(gains / losses, 6) if losses else (None if not gains else None), "average_drawdown": self._average([self._drawdown(item) for item in items])})
+        base.update({"profit_factor": round(gains / losses, 6) if losses else (None if not gains else None), "average_duration": self._average([self._duration(item) for item in items]), "average_drawdown": self._average([self._drawdown(item) for item in items])})
         return base
 
     def _market_metrics(self, items: list[Mapping[str, object]]) -> dict[str, object]:
@@ -122,8 +122,8 @@ class PatternDiscoveryEngine:
 
 class KnowledgeCoordinator:
     """Asynchronous, failure-isolated processor for evidence already on disk."""
-    def __init__(self, evidence_root: Path | str, repository: PatternRepository | None = None, engine: PatternDiscoveryEngine | None = None):
-        self.evidence_root, self.repository, self.engine = Path(evidence_root), repository or PatternRepository(evidence_root), engine or PatternDiscoveryEngine()
+    def __init__(self, evidence_root: Path | str, repository: PatternRepository | None = None, engine: PatternDiscoveryEngine | None = None, insight_coordinator=None):
+        self.evidence_root, self.repository, self.engine, self.insight_coordinator = Path(evidence_root), repository or PatternRepository(evidence_root), engine or PatternDiscoveryEngine(), insight_coordinator
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="raip-knowledge")
         self.log = logging.getLogger(__name__)
     def process_available(self) -> Path:
@@ -131,6 +131,13 @@ class KnowledgeCoordinator:
         for path in sorted((self.evidence_root / "evidence").glob("evidence_*.json")) if (self.evidence_root / "evidence").exists() else []:
             try: records.append(json.loads(path.read_text(encoding="utf-8")))
             except (OSError, json.JSONDecodeError) as exc: self.log.error("knowledge evidence read failed: %s", exc)
-        return self.repository.save(self.engine.generate(records))
+        result = self.repository.save(self.engine.generate(records))
+        if self.insight_coordinator is not None:
+            future = self.insight_coordinator.process_async()
+            future.add_done_callback(self._log_insight_failure)
+        return result
     def process_async(self) -> Future[Path]: return self._executor.submit(self.process_available)
     def shutdown(self): self._executor.shutdown(wait=True)
+    def _log_insight_failure(self, future):
+        try: future.result()
+        except Exception: self.log.exception("asynchronous insight processing failed", exc_info=True)
