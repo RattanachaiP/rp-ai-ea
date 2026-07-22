@@ -1,0 +1,2 @@
+# RAIP event contract
+RAIP consumes JSONL copies exported by another module. It resolves `trade_id`, correlation identifiers, and timestamps from the export envelope or its payload; a closed trade requires a stable nonempty `trade_id`. Events use UTC ISO-8601 timestamps and SHA-256 canonical payload integrity hashes. Invalid records are quarantined beneath `rejected/` with a machine-readable reason and do not alter source files.

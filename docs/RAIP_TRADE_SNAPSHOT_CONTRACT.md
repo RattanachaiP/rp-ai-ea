@@ -1,0 +1,2 @@
+# RAIP snapshot contract
+One `TRADE_CLOSED` event creates one immutable snapshot only through `SnapshotCoordinator`. Snapshot identity is the exported trade ID. Replays yield the existing byte-identical file; contradictory content is a conflict. Commission and swap are retained exactly as signed values supplied by the source; RAIP does not infer cost signs or calculate alternative semantics. Missing evidence remains `null`, including MAE/MFE.
