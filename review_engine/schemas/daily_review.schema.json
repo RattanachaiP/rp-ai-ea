@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["schema_version","date_utc","generated_at_utc","scope","performance","direction","data_quality","provenance"]}
