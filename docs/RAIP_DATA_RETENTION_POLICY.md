@@ -1,0 +1,2 @@
+# RAIP data retention
+RAIP retains append-only events, immutable snapshots, daily reports, and invalid-record quarantine files under its configured review root. Restart state, if added by the external poller, must be stored under `runtime/collector_state.json`; the package does not alter source files. Disk loss before an event is received cannot be recovered by RAIP; source retention remains the producer's responsibility.
