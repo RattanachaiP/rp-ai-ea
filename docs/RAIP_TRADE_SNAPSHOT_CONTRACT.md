@@ -1,0 +1,2 @@
+# RAIP trade snapshot contract
+Snapshots are normalized only after `TRADE_CLOSED`. Missing evidence remains `null`; MAE/MFE are never inferred. Commission and swap are preserved as source-provided signed account-currency values, and `net_profit` is preserved rather than recomputed because source sign semantics are not established. Replays with byte-identical snapshots are idempotent; different content for an existing trade ID is a conflict.

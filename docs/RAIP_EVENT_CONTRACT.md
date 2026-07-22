@@ -1,0 +1,2 @@
+# RAIP event contract
+The accepted envelope and event names are defined by `review_engine.collector.event_types`. Source artifacts are copies of exported closed-trade records or already-published decision/executor artifacts; Sprint 1 deliberately does not select or lock a live source. Stable source `trade_id` is the snapshot identity; related evidence is linked by matching trade, position, series, candidate, sequence, or correlation IDs.
