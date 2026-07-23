@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"RAIP V9 Validation Repository","type":"object","required":["schema_version","producer","document_type","validation_id","validation_report"],"properties":{"schema_version":{"const":"9.0.0"},"document_type":{"const":"validation_repository"},"validation_id":{"type":"string","pattern":"^[a-f0-9]{64}$"}}}
