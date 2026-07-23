@@ -45,6 +45,6 @@ def test_orphan_temp_is_ignored_and_interrupted_temp_never_publishes(tmp_path, m
  assert repo.history() == ()
  import learning.analytics.storage as module
  def fail(*args, **kwargs): raise OSError('interrupted')
- monkeypatch.setattr(module.os, 'replace', fail)
+ monkeypatch.setattr(module.os, 'link', fail)
  with __import__('pytest').raises(OSError): repo.save(KnowledgeAnalyticsEngine(Reader((record('a'),))).analyze())
  assert not list(repo.storage.root.glob('report_*.json'))

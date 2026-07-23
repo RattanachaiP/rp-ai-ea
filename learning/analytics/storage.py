@@ -37,18 +37,13 @@ class AnalyticsStorage:
         try:
             lock_fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
         except FileExistsError:
-            # Wait for an in-flight publisher. Never remove a fresh lock: doing
-            # so would permit concurrent overwrite. A lock older than 30s with
-            # no final artifact is an interrupted process and may be recovered.
+            # Never reclaim a lock automatically: a slow live writer owns it.
             deadline = time.monotonic() + 5.0
             while time.monotonic() < deadline and not path.exists():
                 time.sleep(0.01)
             if path.exists():
                 if self._same(path, data): return path
                 raise FileExistsError("ANALYTICS_IMMUTABLE")
-            if time.time() - lock.stat().st_mtime > 30.0:
-                lock.unlink(missing_ok=True)
-                return self.write(report)
             raise TimeoutError("ANALYTICS_PUBLICATION_IN_PROGRESS")
         os.close(lock_fd)
         temporary = None
@@ -60,7 +55,14 @@ class AnalyticsStorage:
             temporary = Path(temporary_name)
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(data); handle.flush(); os.fsync(handle.fileno())
-            os.replace(temporary, path)
+            # link is fail-if-exists publication: unlike replace it cannot
+            # overwrite an immutable final artifact created by another writer.
+            try:
+                os.link(temporary, path)
+            except FileExistsError:
+                if self._same(path, data): return path
+                raise FileExistsError("ANALYTICS_IMMUTABLE")
+            temporary.unlink()
             temporary = None
             return path
         finally:

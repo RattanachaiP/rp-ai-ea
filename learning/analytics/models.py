@@ -25,7 +25,15 @@ class AnalyticsConfig:
     persistence_enabled: bool = True
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "supported_schema_versions", tuple(sorted(self.supported_schema_versions)))
+        import math
+        versions = tuple(sorted(self.supported_schema_versions))
+        thresholds = (self.low_coverage_threshold, self.concentration_threshold, self.low_sample_threshold, self.maximum_findings)
+        deltas = (self.stable_win_rate_delta, self.stable_rr_delta, self.improving_win_rate_delta, self.improving_rr_delta, self.conflict_win_rate_delta, self.conflict_rr_delta)
+        if not self.version or not versions or len(set(versions)) != len(versions): raise ValueError("INVALID_ANALYTICS_CONFIG_VERSION")
+        if any(not isinstance(value, int) or value <= 0 for value in thresholds): raise ValueError("INVALID_ANALYTICS_CONFIG_INTEGER")
+        if any(not math.isfinite(value) or value < 0 for value in deltas): raise ValueError("INVALID_ANALYTICS_CONFIG_DELTA")
+        if self.improving_win_rate_delta < self.stable_win_rate_delta or self.improving_rr_delta < self.stable_rr_delta: raise ValueError("INVALID_ANALYTICS_CONFIG_BANDS")
+        object.__setattr__(self, "supported_schema_versions", versions)
 
     def canonical_dict(self) -> dict[str, Any]:
         return asdict(self)
