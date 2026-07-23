@@ -5,12 +5,14 @@ from .storage import AnalyticsStorage
 class AnalyticsRepository:
     def __init__(self, root="learning_data"): self.storage = AnalyticsStorage(root)
     def save(self, report): return self.storage.write(report)
-    def load(self, analytics_uuid): return AnalyticsReport.from_dict(json.loads(self.storage.path_for(analytics_uuid).read_text(encoding="utf-8")))
+    def load(self, analytics_uuid):
+        from .validator import validate
+        return validate(AnalyticsReport.from_dict(json.loads(self.storage.path_for(analytics_uuid).read_text(encoding="utf-8"))))
     def history(self): return tuple(self.load(path.name[7:-5]) for path in sorted(self.storage.root.glob("report_*.json")))
     def latest(self):
         """Return the latest observed source snapshot; UUID is a stable tie-breaker.
 
-        Canonical artifacts intentionally have no wall-clock creation timestamp.
+        Canonical artifacts are ordered by latest source timestamp, then UUID.
         """
         values = self.history()
         return max(values, key=lambda item: ((item.knowledge_snapshot["latest_record_timestamp"] or ""), item.analytics_uuid)) if values else None

@@ -24,17 +24,17 @@ def test_stability_bands_and_non_contiguous_lineage():
 def test_repository_latest_uses_snapshot_timestamp_not_uuid_order(tmp_path):
  from learning.analytics import AnalyticsRepository
  repo=AnalyticsRepository(tmp_path)
- old=replace(KnowledgeAnalyticsEngine(Reader((record('zzz',1),))).analyze(), analytics_uuid='zzz')
- new=replace(KnowledgeAnalyticsEngine(Reader((record('aaa',2),))).analyze(), analytics_uuid='aaa')
+ old=replace(KnowledgeAnalyticsEngine(Reader((record('zzz',1),))).analyze(), analytics_uuid='f'*32)
+ new=replace(KnowledgeAnalyticsEngine(Reader((record('aaa',2),))).analyze(), analytics_uuid='0'*32)
  repo.save(old); repo.save(new)
- assert repo.latest().analytics_uuid == 'aaa'
+ assert repo.latest().analytics_uuid == '0'*32
 
 def test_storage_replay_and_collision_are_append_only(tmp_path):
  from learning.analytics import AnalyticsRepository
  repo=AnalyticsRepository(tmp_path); report=KnowledgeAnalyticsEngine(Reader((record('a'),)),repo).analyze()
  assert repo.save(report)==repo.storage.path_for(report.analytics_uuid)
  from pytest import raises
- with raises(FileExistsError): repo.storage.write(replace(report, status='EMPTY_INPUT'))
+ with raises(FileExistsError): repo.storage.write(replace(report, source_baseline='DIFFERENT'))
 def test_snapshot_permutation_has_identical_canonical_report():
  records=(record('a', 1, pattern='z'), record('b', 1, pattern='a'))
  assert KnowledgeAnalyticsEngine(Reader(records)).analyze().to_dict() == KnowledgeAnalyticsEngine(Reader(tuple(reversed(records)))).analyze().to_dict()

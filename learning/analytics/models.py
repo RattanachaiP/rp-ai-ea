@@ -34,7 +34,6 @@ class AnalyticsConfig:
 class AnalyticsReport:
     analytics_uuid: str
     analytics_version: str
-    created_at: str | None
     source_baseline: str
     configuration_version: str
     configuration_digest: str

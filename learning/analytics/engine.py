@@ -12,11 +12,11 @@ DOMAINS = ("inventory", "coverage", "performance", "stability", "conflicts", "da
 def _digest(value): return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")).hexdigest()
 
 class KnowledgeAnalyticsEngine:
-    def __init__(self, knowledge_reader, analytics_repository=None, config=None, analytics_version=ANALYTICS_VERSION):
+    def __init__(self, knowledge_reader, analytics_repository=None, config=None, analytics_version=ANALYTICS_VERSION, source_baseline="UNKNOWN"):
         if knowledge_reader is None or not hasattr(knowledge_reader, "query"):
             raise TypeError("KNOWLEDGE_READER_REQUIRED")
         self._reader, self._repository = knowledge_reader, analytics_repository
-        self.config, self.analytics_version = config or AnalyticsConfig(), analytics_version
+        self.config, self.analytics_version, self.source_baseline = config or AnalyticsConfig(), analytics_version, source_baseline
 
     def _snapshot(self):
         # Reader ordering is not an analytics contract: normalize once and use
@@ -54,7 +54,7 @@ class KnowledgeAnalyticsEngine:
         records = self._snapshot(); source_digest = _digest([record.to_dict() for record in records]); config_digest = _digest(self.config.canonical_dict())
         latest = max((record.created_timestamp for record in records), default=None)
         snapshot = {"record_count": len(records), "knowledge_ids": [record.knowledge_uuid for record in records], "latest_record_timestamp": latest, "source_digest": source_digest, "schema_versions": sorted({record.schema_version for record in records})}
-        identity = _digest({"source_digest": source_digest, "analytics_version": self.analytics_version, "configuration_digest": config_digest})
+        identity = _digest({"source_digest": source_digest, "analytics_version": self.analytics_version, "configuration_digest": config_digest, "source_baseline": self.source_baseline})
         values, diagnostics = {}, []
         for name, function in (("inventory", self.analyze_inventory), ("coverage", self.analyze_coverage), ("performance", self.analyze_performance), ("stability", self.analyze_stability), ("conflicts", self.detect_conflicts), ("data_quality", self.analyze_data_quality)):
             try: values[name] = function(records)
@@ -62,6 +62,6 @@ class KnowledgeAnalyticsEngine:
                 values[name] = [] if name == "conflicts" else {}
                 diagnostics.append({"domain": name, "error_code": "ANALYTICS_DOMAIN_FAILED", "exception_type": type(error).__name__})
         status = "EMPTY_INPUT" if not records else "PARTIAL" if diagnostics else "COMPLETE"
-        report = AnalyticsReport(analytics_uuid=identity[:32], analytics_version=self.analytics_version, created_at=None, source_baseline="cb751c0", configuration_version=self.config.version, configuration_digest=config_digest, knowledge_snapshot=snapshot, inventory=values["inventory"], coverage=values["coverage"], performance=values["performance"], stability=values["stability"], conflicts=tuple(values["conflicts"]), data_quality=values["data_quality"], status=status, completed_domains=tuple(name for name in DOMAINS if name not in {item["domain"] for item in diagnostics}), failed_domains=tuple(item["domain"] for item in diagnostics), failure_diagnostics=tuple(diagnostics))
+        report = AnalyticsReport(analytics_uuid=identity[:32], analytics_version=self.analytics_version, source_baseline=self.source_baseline, configuration_version=self.config.version, configuration_digest=config_digest, knowledge_snapshot=snapshot, inventory=values["inventory"], coverage=values["coverage"], performance=values["performance"], stability=values["stability"], conflicts=tuple(values["conflicts"]), data_quality=values["data_quality"], status=status, completed_domains=tuple(name for name in DOMAINS if name not in {item["domain"] for item in diagnostics}), failed_domains=tuple(item["domain"] for item in diagnostics), failure_diagnostics=tuple(diagnostics))
         if self._repository and self.config.persistence_enabled: self._repository.save(report)
         return report

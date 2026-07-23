@@ -20,6 +20,8 @@ class AnalyticsStorage:
         except OSError: return False
 
     def write(self, report):
+        from .validator import validate
+        validate(report)
         """Publish a fully-fsynced temp artifact with an exclusive lock.
 
         The lock prevents ``os.replace`` from overwriting an artifact written by
