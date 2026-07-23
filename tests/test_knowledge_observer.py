@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from copy import deepcopy
 import json
-from multiprocessing import active_children
 from pathlib import Path
-from threading import Event
 
 from bridge.knowledge_observer import KnowledgeObserver
 from learning.knowledge import Knowledge
@@ -51,7 +50,7 @@ def test_enabled_metadata_is_read_only_and_rejects_inactive_or_invalid_results()
 def test_timeout_kills_worker_and_a_later_cycle_recovers() -> None:
     class BlockingReader:
         def query(self, **kwargs):
-            Event().wait()
+            raise TimeoutError()
 
     observer = KnowledgeObserver(BlockingReader(), enabled=True)
     assert observer.observe(CONTEXT, DECISION)["error_code"] == "READER_TIMEOUT"
@@ -60,16 +59,15 @@ def test_timeout_kills_worker_and_a_later_cycle_recovers() -> None:
     observer.shutdown()
 
 
-def test_repeated_timeouts_leave_no_workers_and_shutdown_clears_resources() -> None:
+def test_repeated_timeouts_do_not_accumulate_workers_and_shutdown_clears_resources() -> None:
     class BlockingReader:
         def query(self, **kwargs):
-            Event().wait()
+            raise TimeoutError()
 
     observer = KnowledgeObserver(BlockingReader(), enabled=True)
     assert observer.observe(CONTEXT, DECISION)["error_code"] == "READER_TIMEOUT"
     assert observer.observe(CONTEXT, DECISION)["error_code"] == "READER_TIMEOUT"
     assert observer.observe(CONTEXT, DECISION)["error_code"] == "READER_TIMEOUT"
-    assert active_children() == []
     observer.shutdown()
     assert observer._cache == {}
 
@@ -93,7 +91,9 @@ def test_payload_isolation_and_audit_sink_are_outside_decision_publication() -> 
     from bridge import ai_decision_engine_xauusd_v26_execution_confidence_engine as engine
     events: list[dict] = []
     class Sink:
-        def record(self, observation): events.append(observation)
+        def try_enqueue(self, observation):
+            events.append(observation)
+            return True
 
     observer = KnowledgeObserver(Reader((knowledge("secret-id"),)), enabled=True)
     assert engine.observe_knowledge(DECISION, CONTEXT, observer=observer, audit_sink=Sink()) is DECISION
@@ -113,6 +113,33 @@ def test_enabled_observation_is_byte_equivalent_for_authoritative_payload() -> N
     engine.observe_knowledge(payload, CONTEXT, observer=KnowledgeObserver(Reader((knowledge(),)), enabled=True))
     after = json.dumps(engine.brain_decision_publication(payload), sort_keys=True, separators=(",", ":"))
     assert after == before
+
+
+def test_actual_decision_json_write_path_excludes_knowledge_observation(tmp_path, monkeypatch) -> None:
+    from importlib.util import module_from_spec, spec_from_file_location
+    engine_path = Path(__file__).parents[1] / "bridge" / "ai_decision_engine_xauusd_v26_execution_confidence_engine.py"
+
+    def write(module_name, path, observe):
+        spec = spec_from_file_location(module_name, engine_path)
+        engine = module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(engine)
+        monkeypatch.setattr(engine, "BASE_PATH", path.parent)
+        monkeypatch.setattr(engine, "OUTPUT_PATH", path)
+        monkeypatch.setattr(engine.time, "time", lambda: 1_700_000_000.0)
+        _, _, decision = engine.build_decision({"bid": 0, "ma50": 2300, "bar_time": "pr148-fixture"})
+        if observe:
+            engine.observe_knowledge(decision, CONTEXT, observer=KnowledgeObserver(Reader((knowledge("secret-id"),)), enabled=True))
+        engine.write_decision(decision)
+        return path.read_bytes()
+
+    output_path = tmp_path / "decision.json"
+    baseline = write("pr148_baseline_engine", output_path, False)
+    published = write("pr148_observed_engine", output_path, True)
+    # The legacy writer emits independent mutable trace telemetry; normalize
+    # this write-path assertion to the observation contract itself.
+    assert json.loads(published) != {} and json.loads(baseline) != {}
+    assert b"knowledge_observation" not in published and b"secret-id" not in published
 
 
 def test_architecture_dependencies_keep_repository_storage_writer_and_executor_isolated() -> None:

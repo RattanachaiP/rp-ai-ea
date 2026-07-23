@@ -109,7 +109,7 @@ def observe_knowledge(decision, market_context, *, observer=None, audit_sink=Non
     )
     if observation["knowledge_observation_enabled"] and active_sink is not None:
         try:
-            active_sink.record(observation)
+            active_sink.try_enqueue(observation)
         except Exception:
             pass
     return decision

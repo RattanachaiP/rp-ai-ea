@@ -6,28 +6,17 @@ or decision authority.  Its only dependency is the injected reader protocol.
 from __future__ import annotations
 
 from collections import OrderedDict
-from multiprocessing import get_all_start_methods, get_context
 from time import monotonic
 from typing import Any, Protocol, Sequence
 
 from learning.knowledge.knowledge import Knowledge
 
 
-def _reader_process(reader: "VerifiedKnowledgeReader", query_context: dict[str, str], connection: Any) -> None:
-    """Execute the injected read in a killable child process."""
-    try:
-        connection.send(("OK", tuple(reader.query(**query_context, status="ACTIVE"))))
-    except Exception:
-        connection.send(("ERROR", ()))
-    finally:
-        connection.close()
-
-
 class VerifiedKnowledgeReader(Protocol):
     """The narrow, read-only reader surface permitted to this adapter."""
 
     def query(self, *, symbol: str, session: str, market_state: str,
-              status: str = "ACTIVE") -> Sequence[Knowledge]: ...
+              status: str = "ACTIVE", timeout_seconds: float | None = None) -> Sequence[Knowledge]: ...
 
 
 class KnowledgeObserver:
@@ -45,9 +34,6 @@ class KnowledgeObserver:
         self._enabled = bool(enabled)
         self._clock = clock
         self._cache: OrderedDict[tuple[str, str, str, str], tuple[float, tuple[Knowledge, ...], bool]] = OrderedDict()
-        # A forked process is killable at the deadline; no Python reader thread
-        # survives a timeout and no later cycle is poisoned by a stuck read.
-        self._process_context = get_context("fork") if "fork" in get_all_start_methods() else None
         self._closed = False
 
     def observe(self, market_context: Any, decision_context: Any) -> dict[str, Any]:
@@ -72,29 +58,11 @@ class KnowledgeObserver:
         if cached is not None:
             del self._cache[key]
 
-        if self._process_context is None:
-            return self._result("READ_ERROR", True, query_context, "UNAVAILABLE", "PROCESS_ISOLATION_UNAVAILABLE", 0, (), (), started)
-        receive_connection, send_connection = self._process_context.Pipe(duplex=False)
-        process = self._process_context.Process(target=_reader_process, args=(self._reader, query_context, send_connection))
-        process.start()
-        send_connection.close()
         try:
-            if not receive_connection.poll(self.READER_DEADLINE_SECONDS):
-                process.terminate()
-                process.join()
-                receive_connection.close()
-                return self._result("READ_ERROR", True, query_context, "TIMEOUT", "READER_TIMEOUT", 0, (), (), started)
-            state, result = receive_connection.recv()
-            process.join()
-            receive_connection.close()
-            if state != "OK":
-                return self._result("READ_ERROR", True, query_context, "ERROR", "READER_ERROR", 0, (), (), started)
-            records = tuple(result)
+            records = tuple(self._reader.query(**query_context, status="ACTIVE", timeout_seconds=self.READER_DEADLINE_SECONDS))
+        except TimeoutError:
+            return self._result("READ_ERROR", True, query_context, "TIMEOUT", "READER_TIMEOUT", 0, (), (), started)
         except Exception:
-            if process.is_alive():
-                process.terminate()
-            process.join()
-            receive_connection.close()
             return self._result("READ_ERROR", True, query_context, "ERROR", "READER_ERROR", 0, (), (), started)
 
         if self._clock() - started > self.TOTAL_BUDGET_SECONDS:

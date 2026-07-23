@@ -11,6 +11,7 @@ state.
 """
 from __future__ import annotations
 
+from time import monotonic
 from typing import Callable
 
 from .knowledge import Knowledge
@@ -70,13 +71,15 @@ class KnowledgeReader:
         session: str | None = None,
         market_state: str | None = None,
         status: str | None = "ACTIVE",
+        timeout_seconds: float | None = None,
     ) -> tuple[Knowledge, ...]:
         """Return valid records matching filters in repository-defined stable order.
 
         ``status=None`` intentionally requests every valid lifecycle status;
         the default limits consumer reads to active knowledge.
         """
-        records = self._lineages(self._repository.query)
+        deadline = monotonic() + timeout_seconds if timeout_seconds is not None else None
+        records = self._lineages(self._repository.query, deadline=deadline)
         return tuple(
             self._detached(record)
             for record in records
@@ -93,7 +96,7 @@ class KnowledgeReader:
         """Compatibility alias for :meth:`get`; new consumers should use ``get``."""
         return self.get(knowledge_uuid)
 
-    def _lineages(self, read: Callable[[], list[Knowledge]]) -> tuple[Knowledge, ...]:
+    def _lineages(self, read: Callable[[], list[Knowledge]], *, deadline: float | None = None) -> tuple[Knowledge, ...]:
         """Return only contiguous, individually valid per-pattern lineages.
 
         The repository may omit unreadable JSON files.  Validating a complete
@@ -107,11 +110,13 @@ class KnowledgeReader:
 
         by_pattern: dict[str, list[Knowledge]] = {}
         for record in records:
+            self._check_deadline(deadline)
             if isinstance(record, Knowledge):
                 by_pattern.setdefault(record.pattern_uuid, []).append(record)
 
         lineages: list[Knowledge] = []
         for pattern_uuid in sorted(by_pattern):
+            self._check_deadline(deadline)
             versions = sorted(
                 by_pattern[pattern_uuid],
                 key=lambda item: (item.knowledge_version, item.created_timestamp, item.knowledge_uuid),
@@ -120,6 +125,7 @@ class KnowledgeReader:
             position = 0
             lineage: list[Knowledge] = []
             while position < len(versions):
+                self._check_deadline(deadline)
                 matching = []
                 while position < len(versions) and versions[position].knowledge_version == expected_version:
                     matching.append(versions[position])
@@ -140,6 +146,11 @@ class KnowledgeReader:
             lineages,
             key=lambda item: (item.pattern_uuid, item.knowledge_version, item.created_timestamp),
         ))
+
+    @staticmethod
+    def _check_deadline(deadline: float | None) -> None:
+        if deadline is not None and monotonic() > deadline:
+            raise TimeoutError("KNOWLEDGE_READER_DEADLINE_EXCEEDED")
 
     @staticmethod
     def _matches(
