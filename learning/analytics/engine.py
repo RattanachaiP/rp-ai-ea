@@ -19,7 +19,12 @@ class KnowledgeAnalyticsEngine:
         self.config, self.analytics_version = config or AnalyticsConfig(), analytics_version
 
     def _snapshot(self):
-        return tuple(self._reader.query(status=None))
+        # Reader ordering is not an analytics contract: normalize once and use
+        # this exact immutable ordering for every domain and source identity.
+        return tuple(sorted(self._reader.query(status=None), key=lambda record: (
+            record.pattern_uuid, record.knowledge_version,
+            record.created_timestamp, record.knowledge_uuid,
+        )))
 
     def analyze_inventory(self, records=None):
         records = tuple(records if records is not None else self._snapshot()); statuses = {name: 0 for name in ("ACTIVE", "DEPRECATED", "SUPERSEDED", "ARCHIVED")}
@@ -57,6 +62,6 @@ class KnowledgeAnalyticsEngine:
                 values[name] = [] if name == "conflicts" else {}
                 diagnostics.append({"domain": name, "error_code": "ANALYTICS_DOMAIN_FAILED", "exception_type": type(error).__name__})
         status = "EMPTY_INPUT" if not records else "PARTIAL" if diagnostics else "COMPLETE"
-        report = AnalyticsReport(analytics_uuid=identity[:32], analytics_version=self.analytics_version, created_at=latest, source_baseline="cb751c0", configuration_version=self.config.version, configuration_digest=config_digest, knowledge_snapshot=snapshot, inventory=values["inventory"], coverage=values["coverage"], performance=values["performance"], stability=values["stability"], conflicts=tuple(values["conflicts"]), data_quality=values["data_quality"], status=status, completed_domains=tuple(name for name in DOMAINS if name not in {item["domain"] for item in diagnostics}), failed_domains=tuple(item["domain"] for item in diagnostics), failure_diagnostics=tuple(diagnostics))
+        report = AnalyticsReport(analytics_uuid=identity[:32], analytics_version=self.analytics_version, created_at=None, source_baseline="cb751c0", configuration_version=self.config.version, configuration_digest=config_digest, knowledge_snapshot=snapshot, inventory=values["inventory"], coverage=values["coverage"], performance=values["performance"], stability=values["stability"], conflicts=tuple(values["conflicts"]), data_quality=values["data_quality"], status=status, completed_domains=tuple(name for name in DOMAINS if name not in {item["domain"] for item in diagnostics}), failed_domains=tuple(item["domain"] for item in diagnostics), failure_diagnostics=tuple(diagnostics))
         if self._repository and self.config.persistence_enabled: self._repository.save(report)
         return report
