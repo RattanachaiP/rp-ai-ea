@@ -15,6 +15,7 @@ from brain.market_perception import MarketPerception, extract_market_perception
 from brain.market_understanding import MarketUnderstanding, interpret_market_understanding
 from brain.market_reasoning import MarketReasoning, reason_about_market
 from brain.probability_engine import ProbabilityAssessment, estimate_market_probabilities
+from bridge.knowledge_observer import KnowledgeObserver, VerifiedKnowledgeReader
 
 # V25 Pullback Fallback Mode
 # V25 RP TIME SYNC STANDARD V1
@@ -63,6 +64,42 @@ RUNTIME_BRANCH = "codex-dev"
 ARCH_VERSION = "V27"
 BUILD_TAG = "trade-management-dashboard-architecture"
 RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
+
+# PR148 dark-observation switch.  Activation is explicit through
+# ``configure_knowledge_observation``; the presence of knowledge files never
+# activates this path.  No reader is constructed by the Decision Engine.
+KNOWLEDGE_OBSERVATION_ENABLED = False
+_knowledge_observer = KnowledgeObserver(enabled=KNOWLEDGE_OBSERVATION_ENABLED)
+
+
+def configure_knowledge_observation(*, enabled: bool = False,
+                                    reader: VerifiedKnowledgeReader | None = None) -> None:
+    """Inject the sole permitted KnowledgeReader dependency for diagnostics."""
+    global _knowledge_observer
+    _knowledge_observer = KnowledgeObserver(reader=reader, enabled=enabled)
+
+
+def attach_knowledge_observation(decision, market_context, *, observer=None):
+    """Return a copied payload with non-authoritative observation diagnostics.
+
+    The observer is invoked only after the existing decision is computed.  It
+    receives copies, so neither its query nor its result can mutate decision
+    or market context owned by the authoritative runtime path.
+    """
+    active_observer = observer or _knowledge_observer
+    if not isinstance(decision, dict):
+        return decision
+    observation = active_observer.observe(
+        dict(market_context) if isinstance(market_context, dict) else market_context,
+        dict(decision),
+    )
+    if not observation["knowledge_observation_enabled"]:
+        return decision
+    result = dict(decision)
+    diagnostics = dict(result.get("diagnostics", {})) if isinstance(result.get("diagnostics"), dict) else {}
+    diagnostics["knowledge_observation"] = observation
+    result["diagnostics"] = diagnostics
+    return result
 
 # V26 Execution Confidence Engine
 V26_EXECUTION_CONFIDENCE_ENABLED = True
@@ -9976,7 +10013,7 @@ def run():
             fallback["decision_write_duration"] = 0.0
             fallback["file_write_latency"] = 0.0
             fallback["total_cycle_time"] = fallback["loop_duration_sec"]
-            write_decision(brain_decision_publication(fallback))
+            write_decision(brain_decision_publication(attach_knowledge_observation(fallback, {})))
             time.sleep(1)
             continue
         try:
@@ -10003,12 +10040,12 @@ def run():
             fire_ok, fire_reason = can_fire_or_strong_override(key, bar_time, decision, data)
             if fire_ok:
                 decision["final_decision_build_sec"] = round(time.time() - cycle_start, 6)
-                write_decision(brain_decision_publication(decision))
+                write_decision(brain_decision_publication(attach_knowledge_observation(decision, data)))
             else:
                 print("COOLDOWN / MAX SIGNAL BLOCK:", key, "|", fire_reason)
                 blocked_decision = build_cooldown_wait_decision(decision, data, fire_reason, cycle_start)
                 blocked_decision["final_decision_build_sec"] = round(time.time() - cycle_start, 6)
-                write_decision(brain_decision_publication(blocked_decision))
+                write_decision(brain_decision_publication(attach_knowledge_observation(blocked_decision, data)))
         except Exception as e:
             print("LOGIC ERROR:", e)
             err_decision = no_trade(f"logic error: {e}")
@@ -10017,7 +10054,7 @@ def run():
             err_decision["decision_write_duration"] = 0.0
             err_decision["file_write_latency"] = 0.0
             err_decision["total_cycle_time"] = err_decision["loop_duration_sec"]
-            write_decision(brain_decision_publication(err_decision))
+            write_decision(brain_decision_publication(attach_knowledge_observation(err_decision, data if isinstance(data, dict) else {})))
         time.sleep(1)
 
 
