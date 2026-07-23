@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
 from .builder import KnowledgeBuilder
@@ -38,8 +39,11 @@ class KnowledgeRepository:
 
     def query(self, *, pattern_uuid: str | None = None, validation_uuid: str | None = None,
               knowledge_status: str | None = None, status: str | None = None, symbol: str | None = None,
-              session: str | None = None, market_state: str | None = None) -> list[Knowledge]:
-        result = self.storage.all()
+              session: str | None = None, market_state: str | None = None,
+              deadline_monotonic: float | None = None) -> list[Knowledge]:
+        if deadline_monotonic is not None and monotonic() > deadline_monotonic:
+            raise TimeoutError("KNOWLEDGE_REPOSITORY_DEADLINE_EXCEEDED")
+        result = self.storage.all(deadline_monotonic=deadline_monotonic)
         if pattern_uuid is not None:
             result = [item for item in result if item.pattern_uuid == pattern_uuid]
         if validation_uuid is not None:
@@ -55,6 +59,8 @@ class KnowledgeRepository:
             result = [item for item in result if session in item.applicable_sessions]
         if market_state is not None:
             result = [item for item in result if market_state in item.applicable_market_states]
+        if deadline_monotonic is not None and monotonic() > deadline_monotonic:
+            raise TimeoutError("KNOWLEDGE_REPOSITORY_DEADLINE_EXCEEDED")
         return sorted(result, key=lambda item: (item.pattern_uuid, item.knowledge_version, item.created_timestamp))
 
     def history(self, pattern_uuid: str) -> list[Knowledge]:

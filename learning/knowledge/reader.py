@@ -79,7 +79,7 @@ class KnowledgeReader:
         the default limits consumer reads to active knowledge.
         """
         deadline = monotonic() + timeout_seconds if timeout_seconds is not None else None
-        records = self._lineages(self._repository.query, deadline=deadline)
+        records = self._lineages(lambda: self._repository.query(deadline_monotonic=deadline), deadline=deadline)
         return tuple(
             self._detached(record)
             for record in records
