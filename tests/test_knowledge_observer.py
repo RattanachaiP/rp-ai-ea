@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from bridge.knowledge_observer import KnowledgeObserver
+from bridge.knowledge_observation_audit import JsonLinesKnowledgeObservationAuditSink
 from learning.knowledge import Knowledge
 
 
@@ -140,6 +141,16 @@ def test_actual_decision_json_write_path_excludes_knowledge_observation(tmp_path
     # this write-path assertion to the observation contract itself.
     assert json.loads(published) != {} and json.loads(baseline) != {}
     assert b"knowledge_observation" not in published and b"secret-id" not in published
+
+
+def test_audit_shutdown_immediately_abandons_pending_events_idempotently(tmp_path) -> None:
+    sink = JsonLinesKnowledgeObservationAuditSink(tmp_path / "audit.jsonl", max_queue_size=2)
+    assert sink.try_enqueue({"id": 1}) and sink.try_enqueue({"id": 2})
+    sink.shutdown(timeout_seconds=0.1)
+    assert sink.dropped_count == 2
+    assert sink.try_enqueue({"id": 3}) is False
+    sink.shutdown(timeout_seconds=0.1)
+    assert sink.dropped_count == 2 and not sink._worker.is_alive()
 
 
 def test_architecture_dependencies_keep_repository_storage_writer_and_executor_isolated() -> None:

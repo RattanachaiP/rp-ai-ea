@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from queue import Full, Queue
+from queue import Empty, Full, Queue
 from threading import Event, Thread
 from pathlib import Path
 from typing import Any, Protocol
@@ -36,18 +36,34 @@ class JsonLinesKnowledgeObservationAuditSink:
             return False
 
     def shutdown(self, timeout_seconds: float = 0.005) -> None:
+        """Immediately abandon queued telemetry; never wait on disk I/O."""
+        if self._closed.is_set():
+            return
         self._closed.set()
+        abandoned = 0
+        while True:
+            try:
+                item = self._queue.get_nowait()
+            except Empty:
+                break
+            if item is not None:
+                abandoned += 1
+        self.dropped_count += abandoned
         try:
             self._queue.put_nowait(None)
         except Full:
-            self.dropped_count += 1
+            # Queue was drained above; this branch is defensive only.
+            pass
         self._worker.join(timeout_seconds)
 
     def _run(self) -> None:
-        while not self._closed.is_set() or not self._queue.empty():
+        while True:
             item = self._queue.get()
             if item is None:
                 return
+            if self._closed.is_set():
+                self.dropped_count += 1
+                continue
             self._write(item)
 
     def _write(self, observation: dict[str, Any]) -> None:

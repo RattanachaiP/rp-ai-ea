@@ -2,6 +2,11 @@
 
 This module is deliberately a bridge: it owns no repository, storage, writer,
 or decision authority.  Its only dependency is the injected reader protocol.
+
+The reader deadline is cooperative: it is checked between local file reads and
+cannot interrupt one OS-level read already in progress.  Production knowledge
+storage must therefore be local disk only, with bounded file size/count, no
+network mount, and no recursive scan.
 """
 from __future__ import annotations
 
