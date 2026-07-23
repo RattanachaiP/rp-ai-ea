@@ -1,6 +1,6 @@
 import pytest
 
-from learning.knowledge import Knowledge, KnowledgeRepository, build, history, latest, load, query
+from learning.knowledge import (Knowledge, KnowledgeRepository, KnowledgeValidationError, build, history, latest, load, query)
 
 
 def verified_pattern(**overrides):
@@ -39,3 +39,38 @@ def test_storage_is_append_only_and_immutable(tmp_path):
             knowledge_uuid=knowledge.knowledge_uuid, pattern_uuid="pattern-2", validation_uuid="validation-2",
             sample_count=1, verified_win_rate=.5, average_rr=1,
         ))
+
+
+def test_duplicate_pattern_version_is_rejected(tmp_path):
+    repository = KnowledgeRepository(tmp_path)
+    repository.build(verified_pattern())
+
+    duplicate = Knowledge.create(
+        knowledge_version=1,
+        pattern_uuid="pattern-1",
+        validation_uuid="validation-duplicate",
+        sample_count=40,
+        verified_win_rate=.65,
+        average_rr=1.7,
+    )
+
+    with pytest.raises(KnowledgeValidationError, match="DUPLICATE_KNOWLEDGE_VERSION"):
+        repository.save(duplicate)
+
+
+def test_knowledge_version_must_be_sequential(tmp_path):
+    repository = KnowledgeRepository(tmp_path)
+    repository.build(verified_pattern())
+
+    skipped_version = Knowledge.create(
+        knowledge_version=3,
+        pattern_uuid="pattern-1",
+        validation_uuid="validation-3",
+        sample_count=40,
+        verified_win_rate=.65,
+        average_rr=1.7,
+    )
+
+    with pytest.raises(KnowledgeValidationError, match="INVALID_KNOWLEDGE_VERSION_SEQUENCE"):
+        repository.save(skipped_version)
+
