@@ -12,6 +12,7 @@ compatible before reading any semantic field. Unknown major versions are rejecte
 | Executive decision package | 7.0.0 | Executive Domain | Simulation & Validation |
 | Historical replay / scenarios / validation | 9.0.0 | Simulation & Validation Domain | Validation repository / human review |
 | Learning intake policy / report / lineage / registry / readiness | 10.0.0 | Learning Intake Domain | Future Learning Engine / human review |
+| Learning engine policy / immutable learning material | 14.1.0 | Learning Engine Core | Architecture-approved offline consumers / human review |
 
 The machine-readable V9 contract schemas are maintained in `review_engine/schemas/`.
 

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RAIP V14.1 immutable learning material",
+  "type": "object",
+  "required": ["schema_version", "producer", "document_type", "material_id", "source_candidate_id", "materialization_status", "learning_engine_policy_version", "training_performed", "runtime_mutation_performed", "created_at", "baseline_commit"],
+  "properties": {
+    "schema_version": {"const": "14.1.0"},
+    "producer": {"const": "RAIP Learning Engine Core"},
+    "document_type": {"const": "learning_material"},
+    "materialization_status": {"enum": ["MATERIALIZED", "REJECTED"]},
+    "training_performed": {"const": false},
+    "runtime_mutation_performed": {"const": false}
+  },
+  "additionalProperties": true
+}

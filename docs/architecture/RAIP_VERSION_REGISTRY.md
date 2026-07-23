@@ -14,5 +14,6 @@ This is the canonical naming reference for RAIP architecture documents. Entries 
 | V8 | REQUIRES ARCHITECTURE AUTHORITY CONFIRMATION | Repository has no authoritative V8 architecture document; do not choose between naming conflicts. | REQUIRES ARCHITECTURE AUTHORITY CONFIRMATION | N/A |
 | V9 | Simulation & Validation Domain | Historical replay and validation | Simulation & Validation Domain | `docs/RAIP_V9_SIMULATION_ARCHITECTURE.md` |
 | V10 | Learning Intake Domain | Offline qualification and immutable candidate registry | Learning Intake Domain | `317e132` |
+| V14.1 | Learning Engine Core | Offline immutable materialization from qualified V10 candidates | Learning Engine Core | `da668b2` |
 
 V5 is verified as **Recommendation Layer**; “Learning Readiness” is documented for V4. Future architecture documents must reference this registry.

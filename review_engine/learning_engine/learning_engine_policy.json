@@ -1,0 +1,11 @@
+{
+  "policy_id": "RAIP_LEARNING_ENGINE_POLICY",
+  "policy_version": "14.1.0",
+  "schema_version": "14.1.0",
+  "producer": "RAIP Learning Engine Core",
+  "accepted_candidate_schema_version": "10.0.0",
+  "accepted_qualification_status": "QUALIFIED",
+  "publication_mode": "IMMUTABLE_MATERIALIZATION_ONLY",
+  "runtime_mutation_permitted": false,
+  "training_permitted": false
+}

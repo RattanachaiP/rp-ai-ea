@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RAIP V14.1 learning engine policy",
+  "type": "object",
+  "required": ["policy_id", "policy_version", "schema_version", "accepted_candidate_schema_version", "accepted_qualification_status", "publication_mode", "runtime_mutation_permitted", "training_permitted"],
+  "properties": {
+    "policy_id": {"const": "RAIP_LEARNING_ENGINE_POLICY"},
+    "policy_version": {"const": "14.1.0"},
+    "schema_version": {"const": "14.1.0"},
+    "accepted_candidate_schema_version": {"const": "10.0.0"},
+    "accepted_qualification_status": {"const": "QUALIFIED"},
+    "publication_mode": {"const": "IMMUTABLE_MATERIALIZATION_ONLY"},
+    "runtime_mutation_permitted": {"const": false},
+    "training_permitted": {"const": false}
+  },
+  "additionalProperties": true
+}
