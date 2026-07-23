@@ -82,8 +82,11 @@ def test_reader_history_latest_query_and_defensive_copy_are_deterministic(tmp_pa
 
     returned = reader.get(first.knowledge_uuid)
     assert returned is not None
-    returned.confidence_placeholder["nested"].append("consumer-change")
-    assert reader.get(first.knowledge_uuid).confidence_placeholder == {"nested": ["original"]}
+    with pytest.raises(TypeError):
+        returned.confidence_placeholder["nested"] = ("consumer-change",)
+    with pytest.raises(AttributeError):
+        returned.confidence_placeholder["nested"].append("consumer-change")
+    assert reader.get(first.knowledge_uuid).confidence_placeholder == {"nested": ("original",)}
 
 
 @pytest.mark.parametrize("corrupt", (False, True), ids=("missing", "corrupt"))

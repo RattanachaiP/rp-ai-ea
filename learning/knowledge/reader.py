@@ -6,13 +6,11 @@ injected :class:`KnowledgeRepository`; it neither knows nor accesses storage.
 
 Absent, malformed, unsupported, and invalid records are treated as unavailable:
 ``get`` and ``latest`` return ``None`` while collection methods return tuples.
-Returned records are defensive copies, so a consumer cannot mutate the
-repository-owned instance through nested mutable values.  They are detached,
-not deeply immutable; full model immutability remains outside this boundary.
+Returned records are deeply immutable and expose no mutable repository-owned
+state.
 """
 from __future__ import annotations
 
-from copy import deepcopy
 from typing import Callable
 
 from .knowledge import Knowledge
@@ -161,5 +159,5 @@ class KnowledgeReader:
 
     @staticmethod
     def _detached(record: Knowledge) -> Knowledge:
-        """Detach nested mutable values from the repository-owned record."""
-        return deepcopy(record)
+        """Return the immutable record without exposing mutable state."""
+        return record

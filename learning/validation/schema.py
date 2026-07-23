@@ -1,8 +1,8 @@
 """Immutable serialisable validation and verified-knowledge schemas."""
 from __future__ import annotations
 from dataclasses import dataclass
-from types import MappingProxyType
 from typing import Mapping
+from .immutable import freeze, thaw
 
 VALIDATION_VERSION = "1.0"
 VALIDATION_STATUSES = frozenset({"INSUFFICIENT_DATA", "REJECTED", "VERIFIED", "ARCHIVED"})
@@ -17,11 +17,11 @@ class ValidationResult:
     validation_version: str = VALIDATION_VERSION
     def __post_init__(self) -> None:
         if self.status not in VALIDATION_STATUSES: raise ValueError("INVALID_VALIDATION_STATUS")
-        object.__setattr__(self, "checks", MappingProxyType(dict(self.checks)))
-        object.__setattr__(self, "metrics", MappingProxyType(dict(self.metrics)))
+        object.__setattr__(self, "checks", freeze(self.checks))
+        object.__setattr__(self, "metrics", freeze(self.metrics))
     def to_dict(self) -> dict[str, object]:
-        return {"pattern_uuid": self.pattern_uuid, "status": self.status, "checks": dict(self.checks),
-                "metrics": dict(self.metrics), "outlier_count": self.outlier_count, "validation_version": self.validation_version}
+        return {"pattern_uuid": self.pattern_uuid, "status": self.status, "checks": thaw(self.checks),
+                "metrics": thaw(self.metrics), "outlier_count": self.outlier_count, "validation_version": self.validation_version}
     @classmethod
     def from_dict(cls, value: Mapping[str, object]) -> "ValidationResult":
         return cls(str(value["pattern_uuid"]), str(value["status"]), value["checks"], value["metrics"],

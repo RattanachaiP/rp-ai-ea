@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from types import MappingProxyType
 from typing import Any, Mapping
 from uuid import uuid4
 
@@ -11,6 +12,30 @@ from .schema import KNOWLEDGE_VERSION
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def _freeze(value: Any) -> Any:
+    """Recursively detach JSON-like values from their mutable input containers."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze(item) for item in value)
+    if isinstance(value, bytearray):
+        return bytes(value)
+    return value
+
+
+def _serialize(value: Any) -> Any:
+    """Create a detached, JSON-compatible representation of frozen data."""
+    if isinstance(value, Mapping):
+        return {key: _serialize(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_serialize(item) for item in value]
+    if isinstance(value, frozenset):
+        return [_serialize(item) for item in sorted(value, key=repr)]
+    return value
 
 
 @dataclass(frozen=True)
@@ -29,6 +54,12 @@ class Knowledge:
     confidence_placeholder: Any
     knowledge_status: str = "ACTIVE"
     schema_version: str = KNOWLEDGE_VERSION
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "applicable_symbols", tuple(_freeze(item) for item in self.applicable_symbols))
+        object.__setattr__(self, "applicable_sessions", tuple(_freeze(item) for item in self.applicable_sessions))
+        object.__setattr__(self, "applicable_market_states", tuple(_freeze(item) for item in self.applicable_market_states))
+        object.__setattr__(self, "confidence_placeholder", _freeze(self.confidence_placeholder))
 
     @property
     def status(self) -> str:
@@ -55,7 +86,7 @@ class Knowledge:
             "applicable_sessions": list(self.applicable_sessions),
             "applicable_market_states": list(self.applicable_market_states), "sample_count": self.sample_count,
             "verified_win_rate": self.verified_win_rate, "average_rr": self.average_rr,
-            "confidence_placeholder": self.confidence_placeholder, "knowledge_status": self.knowledge_status,
+            "confidence_placeholder": _serialize(self.confidence_placeholder), "knowledge_status": self.knowledge_status,
             "schema_version": self.schema_version,
         }
 
