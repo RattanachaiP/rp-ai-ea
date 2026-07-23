@@ -42,3 +42,14 @@ Only one effective exit owner is allowed at a time. Priority is:
 
 ## Runtime configuration rule
 Dashboard parameters must be loaded at runtime from JSON profile files, with backward-compatible defaults if files are missing or malformed.
+
+## RAIP V6 Governance rules
+
+**Rule #014 — Governance verification.** No RAIP Intelligence Layer (Evidence, Knowledge,
+Insight, or Recommendation) is Healthy unless Architecture Boundary, Schema Integrity,
+Repository Integrity, Data Lineage, and Performance Health checks pass.
+
+**Rule #015 — Independent observation.** Governance may observe RAIP Intelligence Layers but
+must never modify them. It is an independent auditor and must not import, inspect beyond boundary
+verification, invoke, delay, or influence the Decision Engine, Writer, Executor, Broker Safety, or
+Risk Engine.

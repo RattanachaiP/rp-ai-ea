@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "producer",
+    "owner",
+    "created_at",
+    "governance_version",
+    "baseline_commit",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "6.0.0"
+    },
+    "governance_version": {
+      "const": "6.0.0"
+    },
+    "baseline_commit": {
+      "const": "b108658"
+    },
+    "status": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "WARN"
+      ]
+    }
+  },
+  "title": "RAIP V6 boundary_health"
+}
