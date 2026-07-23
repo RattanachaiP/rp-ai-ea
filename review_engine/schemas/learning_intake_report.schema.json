@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RAIP V10 learning intake report",
+  "type": "object",
+  "required": [
+    "report_id",
+    "candidate_id",
+    "qualification_status",
+    "qualification_reasons",
+    "failed_checks",
+    "passed_checks",
+    "governance_status",
+    "validation_status",
+    "lineage_status",
+    "schema_compatibility",
+    "duplicate_status",
+    "policy_version",
+    "created_at",
+    "producer",
+    "baseline_commit",
+    "schema_version"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "10.0.0"
+    },
+    "producer": {
+      "const": "RAIP Learning Intake Domain"
+    }
+  }
+}

@@ -11,6 +11,8 @@ compatible before reading any semantic field. Unknown major versions are rejecte
 | Governance report | 6.0.0 | Governance Domain | Executive |
 | Executive decision package | 7.0.0 | Executive Domain | Simulation & Validation |
 | Historical replay / scenarios / validation | 9.0.0 | Simulation & Validation Domain | Validation repository / human review |
-| Learning qualification / lineage / queue / readiness | 10.0.0 | Learning Intake Domain | Future Learning Engine / human review |
+| Learning intake policy / report / lineage / registry / readiness | 10.0.0 | Learning Intake Domain | Future Learning Engine / human review |
 
 The machine-readable V9 contract schemas are maintained in `review_engine/schemas/`.
+
+V10 canonical naming is governed by `docs/architecture/RAIP_VERSION_REGISTRY.md`.

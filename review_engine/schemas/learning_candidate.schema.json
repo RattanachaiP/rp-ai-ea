@@ -1,16 +1,20 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "RAIP V10 lineage verification",
+  "title": "RAIP V10 learning candidate",
   "type": "object",
   "required": [
-    "schema_version",
-    "producer",
-    "document_type",
-    "lineage",
+    "candidate_id",
+    "candidate_hash",
+    "qualification_status",
+    "qualification_report_id",
+    "validation_report_id",
+    "evidence_hash",
     "lineage_hash",
-    "complete",
-    "missing_lineage",
-    "status"
+    "policy_version",
+    "schema_version",
+    "created_at",
+    "producer",
+    "baseline_commit"
   ],
   "properties": {
     "schema_version": {

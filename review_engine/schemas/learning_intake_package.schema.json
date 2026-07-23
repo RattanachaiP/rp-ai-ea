@@ -1,16 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "RAIP V10 lineage verification",
+  "title": "RAIP V10 learning intake package",
   "type": "object",
   "required": [
     "schema_version",
-    "producer",
-    "document_type",
-    "lineage",
-    "lineage_hash",
-    "complete",
-    "missing_lineage",
-    "status"
+    "producer"
   ],
   "properties": {
     "schema_version": {

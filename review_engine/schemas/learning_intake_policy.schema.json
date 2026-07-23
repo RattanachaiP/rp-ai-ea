@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RAIP V10 learning intake policy",
+  "type": "object",
+  "required": [
+    "policy_id",
+    "policy_version",
+    "required_governance_status",
+    "required_validation_status",
+    "required_lineage_components",
+    "minimum_replay_coverage",
+    "minimum_validation_confidence",
+    "accepted_schema_versions",
+    "duplicate_policy",
+    "created_at",
+    "producer",
+    "baseline_commit",
+    "schema_version"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "producer": {
+      "const": "RAIP Learning Intake Domain"
+    }
+  }
+}

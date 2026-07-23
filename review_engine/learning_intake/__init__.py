@@ -1,8 +1,4 @@
-"""Passive, asynchronous Learning Intake Domain (V10)."""
-
-from .engine import (CandidateQueue, DuplicatePreventionEngine, LearningIntakeCoordinator,
-                     LearningReadinessReport, LineageVerificationEngine,
-                     QualificationEngine)
-
-__all__ = ["CandidateQueue", "DuplicatePreventionEngine", "LearningIntakeCoordinator",
-           "LearningReadinessReport", "LineageVerificationEngine", "QualificationEngine"]
+"""Passive, asynchronous RAIP V10 Learning Intake Domain."""
+from .engine import (CandidateRegistry, CandidateQueue, DuplicatePreventionEngine, LearningIntakeCoordinator,
+                     LearningIntakePolicy, LearningReadinessReport, LineageVerificationEngine, QualificationEngine)
+__all__ = ["CandidateRegistry", "CandidateQueue", "DuplicatePreventionEngine", "LearningIntakeCoordinator", "LearningIntakePolicy", "LearningReadinessReport", "LineageVerificationEngine", "QualificationEngine"]
