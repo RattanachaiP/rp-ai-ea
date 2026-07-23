@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import json
+from multiprocessing import active_children
 from pathlib import Path
 from threading import Event
 
@@ -46,40 +48,30 @@ def test_enabled_metadata_is_read_only_and_rejects_inactive_or_invalid_results()
     assert KnowledgeObserver(Reader((object(),)), enabled=True).observe(CONTEXT, DECISION)["error_code"] == "INVALID_READER_RESULT"
 
 
-def test_timeout_rotates_worker_and_a_later_cycle_recovers() -> None:
-    release = Event()
-
-    class SlowThenFast:
-        calls = 0
+def test_timeout_kills_worker_and_a_later_cycle_recovers() -> None:
+    class BlockingReader:
         def query(self, **kwargs):
-            self.calls += 1
-            if self.calls == 1:
-                release.wait()
-            return (knowledge(),)
+            Event().wait()
 
-    reader = SlowThenFast()
-    observer = KnowledgeObserver(reader, enabled=True)
+    observer = KnowledgeObserver(BlockingReader(), enabled=True)
     assert observer.observe(CONTEXT, DECISION)["error_code"] == "READER_TIMEOUT"
+    observer._reader = Reader((knowledge(),))
     assert observer.observe(CONTEXT, DECISION)["knowledge_observation_status"] == "MATCHED"
-    release.set()
     observer.shutdown()
 
 
-def test_repeated_timeouts_are_capped_and_shutdown_releases_resources() -> None:
-    release = Event()
+def test_repeated_timeouts_leave_no_workers_and_shutdown_clears_resources() -> None:
     class BlockingReader:
         def query(self, **kwargs):
-            release.wait()
-            return ()
+            Event().wait()
 
     observer = KnowledgeObserver(BlockingReader(), enabled=True)
     assert observer.observe(CONTEXT, DECISION)["error_code"] == "READER_TIMEOUT"
     assert observer.observe(CONTEXT, DECISION)["error_code"] == "READER_TIMEOUT"
-    assert observer.observe(CONTEXT, DECISION)["error_code"] == "ORPHAN_LIMIT_REACHED"
-    assert len(observer._orphaned) == observer.MAX_ORPHANED_WORKERS
+    assert observer.observe(CONTEXT, DECISION)["error_code"] == "READER_TIMEOUT"
+    assert active_children() == []
     observer.shutdown()
-    assert observer._orphaned == [] and observer._cache == {}
-    release.set()
+    assert observer._cache == {}
 
 
 def test_cache_ttl_lru_and_result_cap() -> None:
@@ -88,12 +80,9 @@ def test_cache_ttl_lru_and_result_cap() -> None:
     observer = KnowledgeObserver(reader, enabled=True, clock=lambda: now[0])
     result = observer.observe(CONTEXT, DECISION)
     assert result["knowledge_observation_status"] == "RESULT_LIMITED" and result["knowledge_match_count"] == 20
-    assert reader.calls == 1
-    observer.observe(CONTEXT, DECISION)
-    assert reader.calls == 1
+    assert observer.observe(CONTEXT, DECISION)["reader_status"] == "CACHE_HIT"
     now[0] += observer.CACHE_TTL_SECONDS + 1
-    observer.observe(CONTEXT, DECISION)
-    assert reader.calls == 2
+    assert observer.observe(CONTEXT, DECISION)["reader_status"] == "OK"
     reader.result = ()
     for index in range(257):
         observer.observe({"symbol": f"X{index}", "session": "LONDON", "market_mode": "TREND"}, DECISION)
@@ -111,6 +100,19 @@ def test_payload_isolation_and_audit_sink_are_outside_decision_publication() -> 
     published = engine.brain_decision_publication(DECISION)
     assert published is DECISION and events[0]["knowledge_ids"] == ["secret-id"]
     assert "knowledge" not in str(published).lower()
+
+
+def test_enabled_observation_is_byte_equivalent_for_authoritative_payload() -> None:
+    from bridge import ai_decision_engine_xauusd_v26_execution_confidence_engine as engine
+    payload = {
+        "direction": "BUY", "bias": "BUY", "confidence": 72, "execution_state": "EXECUTE",
+        "recommendation": "TRADE", "management_mode": "HOLD_TRAIL", "risk": {"fraction": 0.01},
+        "stoploss": 2300.0, "takeprofit": 2310.0, "order_sizing": 0.01,
+    }
+    before = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    engine.observe_knowledge(payload, CONTEXT, observer=KnowledgeObserver(Reader((knowledge(),)), enabled=True))
+    after = json.dumps(engine.brain_decision_publication(payload), sort_keys=True, separators=(",", ":"))
+    assert after == before
 
 
 def test_architecture_dependencies_keep_repository_storage_writer_and_executor_isolated() -> None:

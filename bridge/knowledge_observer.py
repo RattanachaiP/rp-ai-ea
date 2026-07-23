@@ -6,11 +6,21 @@ or decision authority.  Its only dependency is the injected reader protocol.
 from __future__ import annotations
 
 from collections import OrderedDict
-from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError
+from multiprocessing import get_all_start_methods, get_context
 from time import monotonic
 from typing import Any, Protocol, Sequence
 
 from learning.knowledge.knowledge import Knowledge
+
+
+def _reader_process(reader: "VerifiedKnowledgeReader", query_context: dict[str, str], connection: Any) -> None:
+    """Execute the injected read in a killable child process."""
+    try:
+        connection.send(("OK", tuple(reader.query(**query_context, status="ACTIVE"))))
+    except Exception:
+        connection.send(("ERROR", ()))
+    finally:
+        connection.close()
 
 
 class VerifiedKnowledgeReader(Protocol):
@@ -35,12 +45,10 @@ class KnowledgeObserver:
         self._enabled = bool(enabled)
         self._clock = clock
         self._cache: OrderedDict[tuple[str, str, str, str], tuple[float, tuple[Knowledge, ...], bool]] = OrderedDict()
-        # Timed-out Python threads cannot be cancelled.  Rotate per-request
-        # executors so one stuck reader does not poison later cycles, while a
-        # strict orphan cap prevents unbounded worker creation.
-        self._orphaned: list[tuple[Future[Sequence[Knowledge]], ThreadPoolExecutor]] = []
+        # A forked process is killable at the deadline; no Python reader thread
+        # survives a timeout and no later cycle is poisoned by a stuck read.
+        self._process_context = get_context("fork") if "fork" in get_all_start_methods() else None
         self._closed = False
-        self.MAX_ORPHANED_WORKERS = 2
 
     def observe(self, market_context: Any, decision_context: Any) -> dict[str, Any]:
         """Observe ACTIVE verified knowledge; never raise into the decision loop."""
@@ -64,20 +72,30 @@ class KnowledgeObserver:
         if cached is not None:
             del self._cache[key]
 
-        self._reap_orphans()
-        if len(self._orphaned) >= self.MAX_ORPHANED_WORKERS:
-            return self._result("READ_ERROR", True, query_context, "CIRCUIT_OPEN", "ORPHAN_LIMIT_REACHED", 0, (), (), started)
-        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="knowledge-observer")
-        future = executor.submit(self._reader.query, **query_context, status="ACTIVE")
+        if self._process_context is None:
+            return self._result("READ_ERROR", True, query_context, "UNAVAILABLE", "PROCESS_ISOLATION_UNAVAILABLE", 0, (), (), started)
+        receive_connection, send_connection = self._process_context.Pipe(duplex=False)
+        process = self._process_context.Process(target=_reader_process, args=(self._reader, query_context, send_connection))
+        process.start()
+        send_connection.close()
         try:
-            records = tuple(future.result(timeout=self.READER_DEADLINE_SECONDS))
-        except TimeoutError:
-            self._orphaned.append((future, executor))
-            return self._result("READ_ERROR", True, query_context, "TIMEOUT", "READER_TIMEOUT", 0, (), (), started)
+            if not receive_connection.poll(self.READER_DEADLINE_SECONDS):
+                process.terminate()
+                process.join()
+                receive_connection.close()
+                return self._result("READ_ERROR", True, query_context, "TIMEOUT", "READER_TIMEOUT", 0, (), (), started)
+            state, result = receive_connection.recv()
+            process.join()
+            receive_connection.close()
+            if state != "OK":
+                return self._result("READ_ERROR", True, query_context, "ERROR", "READER_ERROR", 0, (), (), started)
+            records = tuple(result)
         except Exception:
-            executor.shutdown(wait=True, cancel_futures=True)
+            if process.is_alive():
+                process.terminate()
+            process.join()
+            receive_connection.close()
             return self._result("READ_ERROR", True, query_context, "ERROR", "READER_ERROR", 0, (), (), started)
-        executor.shutdown(wait=True, cancel_futures=True)
 
         if self._clock() - started > self.TOTAL_BUDGET_SECONDS:
             return self._result("READ_ERROR", True, query_context, "TIMEOUT", "OBSERVATION_BUDGET_EXCEEDED", 0, (), (), started)
@@ -93,22 +111,9 @@ class KnowledgeObserver:
         return self._metadata(query_context, records, limited, "OK", started)
 
     def shutdown(self) -> None:
-        """Stop accepting observations and release every executor reference."""
+        """Stop accepting observations and clear process-local cache state."""
         self._closed = True
-        for future, executor in self._orphaned:
-            future.cancel()
-            executor.shutdown(wait=False, cancel_futures=True)
-        self._orphaned.clear()
         self._cache.clear()
-
-    def _reap_orphans(self) -> None:
-        active: list[tuple[Future[Sequence[Knowledge]], ThreadPoolExecutor]] = []
-        for future, executor in self._orphaned:
-            if future.done():
-                executor.shutdown(wait=False, cancel_futures=True)
-            else:
-                active.append((future, executor))
-        self._orphaned = active
 
     @staticmethod
     def _query_context(market_context: Any, decision_context: Any) -> dict[str, str] | None:
