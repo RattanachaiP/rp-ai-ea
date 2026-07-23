@@ -48,7 +48,7 @@ def test_enabled_metadata_is_read_only_and_rejects_inactive_or_invalid_results()
     assert KnowledgeObserver(Reader((object(),)), enabled=True).observe(CONTEXT, DECISION)["error_code"] == "INVALID_READER_RESULT"
 
 
-def test_timeout_kills_worker_and_a_later_cycle_recovers() -> None:
+def test_timeout_fails_open_and_a_later_cycle_recovers() -> None:
     class BlockingReader:
         def query(self, **kwargs):
             raise TimeoutError()
@@ -137,9 +137,13 @@ def test_actual_decision_json_write_path_excludes_knowledge_observation(tmp_path
     output_path = tmp_path / "decision.json"
     baseline = write("pr148_baseline_engine", output_path, False)
     published = write("pr148_observed_engine", output_path, True)
-    # The legacy writer emits independent mutable trace telemetry; normalize
-    # this write-path assertion to the observation contract itself.
-    assert json.loads(published) != {} and json.loads(baseline) != {}
+    executor_fields = ("direction", "bias", "confidence", "execution_state", "recommendation",
+                       "management_mode", "risk", "stoploss", "takeprofit", "order_sizing",
+                       "decision", "action", "allowed", "entry_allowed", "sl", "tp", "lot_size")
+    baseline_json, observed_json = json.loads(baseline), json.loads(published)
+    assert {key: baseline_json.get(key) for key in executor_fields} == {
+        key: observed_json.get(key) for key in executor_fields
+    }
     assert b"knowledge_observation" not in published and b"secret-id" not in published
 
 
