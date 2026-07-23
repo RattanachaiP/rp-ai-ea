@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"RAIP Executive Readiness Report","type":"object","required":["schema_version","producer","owner","created_at","governance_version","baseline_commit","pending_decisions","high_priority_decisions","blocked_decisions","governance_failures","recommendation_coverage","evidence_completeness"]}

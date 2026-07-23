@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RAIP Executive Decision Package",
+  "type": "object",
+  "required": ["schema_version", "producer", "owner", "created_at", "governance_version", "baseline_commit", "decision_id", "executive_summary", "supporting_recommendations", "governance_status", "evidence_lineage", "expected_historical_impact", "risk_summary", "approval_required"],
+  "properties": {"schema_version":{"const":"7.0.0"}, "decision_id":{"type":"string", "pattern":"^[a-f0-9]{64}$"}, "approval_required":{"const":true}, "supporting_recommendations":{"type":"array"}, "evidence_lineage":{"type":"object"}, "governance_status":{"type":"object"}}
+}

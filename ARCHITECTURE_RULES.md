@@ -53,3 +53,7 @@ Repository Integrity, Data Lineage, and Performance Health checks pass.
 must never modify them. It is an independent auditor and must not import, inspect beyond boundary
 verification, invoke, delay, or influence the Decision Engine, Writer, Executor, Broker Safety, or
 Risk Engine.
+
+## RAIP V7 Executive Domain rule
+
+**Rule #018 — Executive decision preparation.** Every Executive Decision Package must be deterministic, explainable, fully traceable, and governance-approved before presentation. The Executive Domain is advisory-only and may not modify the Trading or Intelligence domains, runtime payloads, deployment, or learning behavior.
