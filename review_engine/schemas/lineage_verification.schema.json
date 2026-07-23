@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["schema_version","producer","lineage","lineage_hash","complete","status"],"properties":{"schema_version":{"const":"10.0.0"},"lineage_hash":{"type":"string","pattern":"^[a-f0-9]{64}$"},"complete":{"type":"boolean"},"status":{"enum":["VERIFIED","REJECTED"]}}}

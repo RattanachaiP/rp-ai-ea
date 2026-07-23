@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["schema_version","producer","qualified_candidates","deferred_candidates","rejected_candidates","missing_lineage","schema_mismatch","validation_coverage","executive_approval_coverage"]}
