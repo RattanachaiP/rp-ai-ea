@@ -35,13 +35,18 @@ class KnowledgeObserver:
         self._enabled = bool(enabled)
         self._clock = clock
         self._cache: OrderedDict[tuple[str, str, str, str], tuple[float, tuple[Knowledge, ...], bool]] = OrderedDict()
-        # A single worker prevents a timed-out reader from accumulating threads.
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="knowledge-observer")
-        self._inflight: Future[Sequence[Knowledge]] | None = None
+        # Timed-out Python threads cannot be cancelled.  Rotate per-request
+        # executors so one stuck reader does not poison later cycles, while a
+        # strict orphan cap prevents unbounded worker creation.
+        self._orphaned: list[tuple[Future[Sequence[Knowledge]], ThreadPoolExecutor]] = []
+        self._closed = False
+        self.MAX_ORPHANED_WORKERS = 2
 
     def observe(self, market_context: Any, decision_context: Any) -> dict[str, Any]:
         """Observe ACTIVE verified knowledge; never raise into the decision loop."""
         started = self._clock()
+        if self._closed:
+            return self._result("READER_UNAVAILABLE", self._enabled, {}, "CLOSED", "OBSERVER_CLOSED", 0, (), (), started)
         if not self._enabled:
             return self._result("DISABLED", False, {}, "NOT_QUERIED", None, 0, (), (), started)
         query_context = self._query_context(market_context, decision_context)
@@ -59,15 +64,20 @@ class KnowledgeObserver:
         if cached is not None:
             del self._cache[key]
 
+        self._reap_orphans()
+        if len(self._orphaned) >= self.MAX_ORPHANED_WORKERS:
+            return self._result("READ_ERROR", True, query_context, "CIRCUIT_OPEN", "ORPHAN_LIMIT_REACHED", 0, (), (), started)
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="knowledge-observer")
+        future = executor.submit(self._reader.query, **query_context, status="ACTIVE")
         try:
-            if self._inflight is not None and not self._inflight.done():
-                return self._result("READ_ERROR", True, query_context, "UNAVAILABLE", "READER_BUSY", 0, (), (), started)
-            self._inflight = self._executor.submit(self._reader.query, **query_context, status="ACTIVE")
-            records = tuple(self._inflight.result(timeout=self.READER_DEADLINE_SECONDS))
+            records = tuple(future.result(timeout=self.READER_DEADLINE_SECONDS))
         except TimeoutError:
+            self._orphaned.append((future, executor))
             return self._result("READ_ERROR", True, query_context, "TIMEOUT", "READER_TIMEOUT", 0, (), (), started)
         except Exception:
+            executor.shutdown(wait=True, cancel_futures=True)
             return self._result("READ_ERROR", True, query_context, "ERROR", "READER_ERROR", 0, (), (), started)
+        executor.shutdown(wait=True, cancel_futures=True)
 
         if self._clock() - started > self.TOTAL_BUDGET_SECONDS:
             return self._result("READ_ERROR", True, query_context, "TIMEOUT", "OBSERVATION_BUDGET_EXCEEDED", 0, (), (), started)
@@ -81,6 +91,24 @@ class KnowledgeObserver:
         while len(self._cache) > self.CACHE_MAX_KEYS:
             self._cache.popitem(last=False)
         return self._metadata(query_context, records, limited, "OK", started)
+
+    def shutdown(self) -> None:
+        """Stop accepting observations and release every executor reference."""
+        self._closed = True
+        for future, executor in self._orphaned:
+            future.cancel()
+            executor.shutdown(wait=False, cancel_futures=True)
+        self._orphaned.clear()
+        self._cache.clear()
+
+    def _reap_orphans(self) -> None:
+        active: list[tuple[Future[Sequence[Knowledge]], ThreadPoolExecutor]] = []
+        for future, executor in self._orphaned:
+            if future.done():
+                executor.shutdown(wait=False, cancel_futures=True)
+            else:
+                active.append((future, executor))
+        self._orphaned = active
 
     @staticmethod
     def _query_context(market_context: Any, decision_context: Any) -> dict[str, str] | None:
