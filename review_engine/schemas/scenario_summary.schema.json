@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"RAIP V9 Scenario Summary","type":"object","required":["schema_version","producer","document_type","decision_id","scenarios","scenario_coverage"],"properties":{"schema_version":{"const":"9.0.0"},"document_type":{"const":"scenario_summary"},"scenarios":{"type":"array"}}}
