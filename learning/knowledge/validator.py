@@ -14,7 +14,7 @@ class KnowledgeValidationError(ValueError):
 
 
 class KnowledgeValidator:
-    def validate(self, knowledge: Knowledge, existing: Iterable[Knowledge] = ()) -> None:
+    def validate(self, knowledge: Knowledge, existing: Iterable[Knowledge] = (), *, validate_sequence: bool = True) -> None:
         if not knowledge.knowledge_uuid or not knowledge.pattern_uuid or not knowledge.validation_uuid:
             raise KnowledgeValidationError("REQUIRED_FIELDS")
         if knowledge.schema_version != KNOWLEDGE_VERSION:
@@ -39,6 +39,9 @@ class KnowledgeValidator:
         for values in (knowledge.applicable_symbols, knowledge.applicable_sessions, knowledge.applicable_market_states):
             if not all(isinstance(item, str) and item for item in values):
                 raise KnowledgeValidationError("INVALID_APPLICABILITY")
+        if not validate_sequence:
+            return
+
         existing_records = list(existing)
 
         for prior in existing_records:

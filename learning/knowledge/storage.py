@@ -50,5 +50,11 @@ class KnowledgeStorage:
     def all(self) -> list[Knowledge]:
         if not self.directory.exists():
             return []
-        return [Knowledge.from_dict(json.loads(path.read_text(encoding="utf-8")))
-                for path in sorted(self.directory.glob("knowledge_*.json"))]
+        records: list[Knowledge] = []
+        for path in sorted(self.directory.glob("knowledge_*.json")):
+            try:
+                records.append(Knowledge.from_dict(json.loads(path.read_text(encoding="utf-8"))))
+            except (OSError, TypeError, ValueError, KeyError, json.JSONDecodeError):
+                # A corrupt append-only record is unavailable to repository readers.
+                continue
+        return records
