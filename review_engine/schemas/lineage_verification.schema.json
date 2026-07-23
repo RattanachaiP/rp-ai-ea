@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RAIP V10 lineage verification",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "producer",
+    "document_type",
+    "lineage",
+    "lineage_hash",
+    "complete",
+    "missing_lineage",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "10.0.0"
+    },
+    "producer": {
+      "const": "RAIP Learning Intake Domain"
+    }
+  }
+}

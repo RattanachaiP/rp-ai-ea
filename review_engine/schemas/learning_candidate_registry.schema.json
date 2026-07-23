@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RAIP V10 learning candidate registry",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "producer",
+    "document_type",
+    "append_only",
+    "candidates",
+    "candidate_count"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "10.0.0"
+    },
+    "producer": {
+      "const": "RAIP Learning Intake Domain"
+    }
+  }
+}
