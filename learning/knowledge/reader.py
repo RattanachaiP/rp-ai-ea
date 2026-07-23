@@ -7,7 +7,8 @@ injected :class:`KnowledgeRepository`; it neither knows nor accesses storage.
 Absent, malformed, unsupported, and invalid records are treated as unavailable:
 ``get`` and ``latest`` return ``None`` while collection methods return tuples.
 Returned records are defensive copies, so a consumer cannot mutate the
-repository-owned instance through nested mutable values.
+repository-owned instance through nested mutable values.  They are detached,
+not deeply immutable; full model immutability remains outside this boundary.
 """
 from __future__ import annotations
 
@@ -32,7 +33,14 @@ class KnowledgeReader:
             record = self._repository.load(knowledge_uuid)
         except (OSError, ValueError, TypeError, KeyError):
             return None
-        return self._readable(record)
+        return next(
+            (
+                self._detached(candidate)
+                for candidate in self.history(record.pattern_uuid)
+                if candidate.knowledge_uuid == knowledge_uuid
+            ),
+            None,
+        )
 
     def exists(self, knowledge_uuid: str) -> bool:
         """Return whether ``knowledge_uuid`` resolves to readable knowledge."""
@@ -44,8 +52,16 @@ class KnowledgeReader:
         return records[-1] if records else None
 
     def history(self, pattern_uuid: str) -> tuple[Knowledge, ...]:
-        """Return all valid versions for a pattern in deterministic version order."""
-        return self._records(lambda: self._repository.history(pattern_uuid))
+        """Return the contiguous valid version lineage in deterministic order.
+
+        Reading stops before the first missing, invalid, or duplicate version.
+        A later individually valid record can therefore never bridge a broken
+        append-only lineage.
+        """
+        return tuple(
+            self._detached(record)
+            for record in self._lineages(lambda: self._repository.history(pattern_uuid))
+        )
 
     def query(
         self,
@@ -60,31 +76,90 @@ class KnowledgeReader:
         ``status=None`` intentionally requests every valid lifecycle status;
         the default limits consumer reads to active knowledge.
         """
-        return self._records(lambda: self._repository.query(
-            symbol=symbol,
-            session=session,
-            market_state=market_state,
-            status=status,
-        ))
+        records = self._lineages(self._repository.query)
+        return tuple(
+            self._detached(record)
+            for record in records
+            if self._matches(
+                record,
+                symbol=symbol,
+                session=session,
+                market_state=market_state,
+                status=status,
+            )
+        )
 
     def load(self, knowledge_uuid: str) -> Knowledge | None:
         """Compatibility alias for :meth:`get`; new consumers should use ``get``."""
         return self.get(knowledge_uuid)
 
-    def _records(self, read: Callable[[], list[Knowledge]]) -> tuple[Knowledge, ...]:
+    def _lineages(self, read: Callable[[], list[Knowledge]]) -> tuple[Knowledge, ...]:
+        """Return only contiguous, individually valid per-pattern lineages.
+
+        The repository may omit unreadable JSON files.  Validating a complete
+        unfiltered collection here keeps that omission visible as a version
+        gap, while allowing ``query`` to filter the resulting safe lineages.
+        """
         try:
             records = read()
         except (OSError, ValueError, TypeError, KeyError):
             return ()
-        readable = (self._readable(record) for record in records)
-        return tuple(record for record in readable if record is not None)
 
-    def _readable(self, record: Knowledge) -> Knowledge | None:
-        """Validate repository output and return a detached copy when it is safe."""
+        by_pattern: dict[str, list[Knowledge]] = {}
+        for record in records:
+            if self._valid(record):
+                by_pattern.setdefault(record.pattern_uuid, []).append(record)
+
+        lineages: list[Knowledge] = []
+        for pattern_uuid in sorted(by_pattern):
+            versions = sorted(
+                by_pattern[pattern_uuid],
+                key=lambda item: (item.knowledge_version, item.created_timestamp, item.knowledge_uuid),
+            )
+            expected_version = 1
+            position = 0
+            while position < len(versions):
+                matching = []
+                while position < len(versions) and versions[position].knowledge_version == expected_version:
+                    matching.append(versions[position])
+                    position += 1
+                if len(matching) != 1:
+                    break
+                lineages.append(matching[0])
+                expected_version += 1
+        return tuple(sorted(
+            lineages,
+            key=lambda item: (item.pattern_uuid, item.knowledge_version, item.created_timestamp),
+        ))
+
+    def _valid(self, record: Knowledge) -> bool:
+        """Return whether a repository record satisfies the per-record contract."""
         try:
-            # Sequence validation is an append-time repository invariant.  A
-            # filtered read can legitimately contain only version two or later.
+            # Per-record validation omits only the write-time sequence check.
+            # _lineages enforces complete-collection contiguous lineage before
+            # any record is exposed to a consumer.
             self._validator.validate(record, validate_sequence=False)
-            return deepcopy(record)
+            return True
         except (KnowledgeValidationError, TypeError, ValueError):
-            return None
+            return False
+
+    @staticmethod
+    def _matches(
+        record: Knowledge,
+        *,
+        symbol: str | None,
+        session: str | None,
+        market_state: str | None,
+        status: str | None,
+    ) -> bool:
+        return (
+            (status is None or record.knowledge_status == status)
+            and (symbol is None or symbol in record.applicable_symbols)
+            and (session is None or session in record.applicable_sessions)
+            and (market_state is None or market_state in record.applicable_market_states)
+        )
+
+    @staticmethod
+    def _detached(record: Knowledge) -> Knowledge:
+        """Detach nested mutable values from the repository-owned record."""
+        return deepcopy(record)

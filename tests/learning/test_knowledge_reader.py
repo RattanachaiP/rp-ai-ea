@@ -5,6 +5,8 @@ import ast
 import inspect
 from pathlib import Path
 
+import pytest
+
 from learning.knowledge import KnowledgeReader, KnowledgeRepository
 
 
@@ -82,3 +84,24 @@ def test_reader_history_latest_query_and_defensive_copy_are_deterministic(tmp_pa
     assert returned is not None
     returned.confidence_placeholder["nested"].append("consumer-change")
     assert reader.get(first.knowledge_uuid).confidence_placeholder == {"nested": ["original"]}
+
+
+@pytest.mark.parametrize("corrupt", (False, True), ids=("missing", "corrupt"))
+def test_reader_does_not_cross_a_missing_or_corrupt_lineage_version(tmp_path: Path, corrupt: bool) -> None:
+    repository = KnowledgeRepository(tmp_path)
+    first = repository.build(verified_pattern())
+    second = repository.build(verified_pattern(validation_uuid="validation-2"))
+    third = repository.build(verified_pattern(validation_uuid="validation-3"))
+
+    second_path = repository.storage.path_for(second.knowledge_uuid)
+    if corrupt:
+        second_path.write_text("{not-json", encoding="utf-8")
+    else:
+        second_path.unlink()
+
+    reader = KnowledgeReader(repository)
+
+    assert reader.history("pattern-1") == (first,)
+    assert reader.latest("pattern-1") == first
+    assert reader.query() == (first,)
+    assert reader.get(third.knowledge_uuid) is None
