@@ -33,6 +33,8 @@ class KnowledgeReader:
             record = self._repository.load(knowledge_uuid)
         except (OSError, ValueError, TypeError, KeyError):
             return None
+        if not isinstance(record, Knowledge):
+            return None
         return next(
             (
                 self._detached(candidate)
@@ -107,7 +109,7 @@ class KnowledgeReader:
 
         by_pattern: dict[str, list[Knowledge]] = {}
         for record in records:
-            if self._valid(record):
+            if isinstance(record, Knowledge):
                 by_pattern.setdefault(record.pattern_uuid, []).append(record)
 
         lineages: list[Knowledge] = []
@@ -118,6 +120,7 @@ class KnowledgeReader:
             )
             expected_version = 1
             position = 0
+            lineage: list[Knowledge] = []
             while position < len(versions):
                 matching = []
                 while position < len(versions) and versions[position].knowledge_version == expected_version:
@@ -125,23 +128,20 @@ class KnowledgeReader:
                     position += 1
                 if len(matching) != 1:
                     break
-                lineages.append(matching[0])
+                try:
+                    # Validate every record against the accepted prefix.  This
+                    # preserves the repository's sequence invariant while
+                    # retaining a complete collection for filtered reads.
+                    self._validator.validate(matching[0], lineage)
+                except (KnowledgeValidationError, TypeError, ValueError):
+                    break
+                lineage.append(matching[0])
                 expected_version += 1
+            lineages.extend(lineage)
         return tuple(sorted(
             lineages,
             key=lambda item: (item.pattern_uuid, item.knowledge_version, item.created_timestamp),
         ))
-
-    def _valid(self, record: Knowledge) -> bool:
-        """Return whether a repository record satisfies the per-record contract."""
-        try:
-            # Per-record validation omits only the write-time sequence check.
-            # _lineages enforces complete-collection contiguous lineage before
-            # any record is exposed to a consumer.
-            self._validator.validate(record, validate_sequence=False)
-            return True
-        except (KnowledgeValidationError, TypeError, ValueError):
-            return False
 
     @staticmethod
     def _matches(
