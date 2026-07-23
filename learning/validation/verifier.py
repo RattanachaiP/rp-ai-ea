@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from .schema import ValidationResult
 from learning.pattern.candidate import CandidatePattern
-from .immutable import freeze, thaw
+from learning.common.immutable import freeze, thaw
 
 @dataclass(frozen=True)
 class VerifiedKnowledge:

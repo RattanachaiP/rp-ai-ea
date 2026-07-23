@@ -2,7 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
-from .immutable import freeze, thaw
+from learning.common.immutable import freeze, thaw
 
 VALIDATION_VERSION = "1.0"
 VALIDATION_STATUSES = frozenset({"INSUFFICIENT_DATA", "REJECTED", "VERIFIED", "ARCHIVED"})
