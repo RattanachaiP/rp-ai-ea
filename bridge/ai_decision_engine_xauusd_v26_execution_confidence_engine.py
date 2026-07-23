@@ -2,6 +2,7 @@ import json
 import os
 import time
 import uuid
+import atexit
 from datetime import datetime
 from pathlib import Path
 import sys
@@ -15,6 +16,8 @@ from brain.market_perception import MarketPerception, extract_market_perception
 from brain.market_understanding import MarketUnderstanding, interpret_market_understanding
 from brain.market_reasoning import MarketReasoning, reason_about_market
 from brain.probability_engine import ProbabilityAssessment, estimate_market_probabilities
+from bridge.knowledge_observer import KnowledgeObserver, VerifiedKnowledgeReader
+from bridge.knowledge_observation_audit import KnowledgeObservationAuditSink
 
 # V25 Pullback Fallback Mode
 # V25 RP TIME SYNC STANDARD V1
@@ -63,6 +66,53 @@ RUNTIME_BRANCH = "codex-dev"
 ARCH_VERSION = "V27"
 BUILD_TAG = "trade-management-dashboard-architecture"
 RUNTIME_SIGNATURE = f"{RUNTIME_BRANCH}|{ARCH_VERSION}|{BUILD_TAG}"
+
+# PR148 dark-observation switch.  Activation is explicit through
+# ``configure_knowledge_observation``; the presence of knowledge files never
+# activates this path.  No reader is constructed by the Decision Engine.
+KNOWLEDGE_OBSERVATION_ENABLED = False
+_knowledge_observer = KnowledgeObserver(enabled=KNOWLEDGE_OBSERVATION_ENABLED)
+_knowledge_audit_sink: KnowledgeObservationAuditSink | None = None
+
+
+def _shutdown_knowledge_observation() -> None:
+    _knowledge_observer.shutdown()
+
+
+atexit.register(_shutdown_knowledge_observation)
+
+
+def configure_knowledge_observation(*, enabled: bool = False,
+                                    reader: VerifiedKnowledgeReader | None = None,
+                                    audit_sink: KnowledgeObservationAuditSink | None = None) -> None:
+    """Inject observation dependencies; audit telemetry never enters decision.json."""
+    global _knowledge_observer, _knowledge_audit_sink
+    _knowledge_observer.shutdown()
+    _knowledge_observer = KnowledgeObserver(reader=reader, enabled=enabled)
+    _knowledge_audit_sink = audit_sink
+
+
+def observe_knowledge(decision, market_context, *, observer=None, audit_sink=None):
+    """Emit separate audit telemetry while returning the exact decision object.
+
+    The observer is invoked only after the existing decision is computed.  It
+    receives copies, so neither its query nor its result can mutate decision
+    or market context owned by the authoritative runtime path.
+    """
+    active_observer = observer or _knowledge_observer
+    active_sink = audit_sink or _knowledge_audit_sink
+    if not isinstance(decision, dict):
+        return decision
+    observation = active_observer.observe(
+        dict(market_context) if isinstance(market_context, dict) else market_context,
+        dict(decision),
+    )
+    if observation["knowledge_observation_enabled"] and active_sink is not None:
+        try:
+            active_sink.try_enqueue(observation)
+        except Exception:
+            pass
+    return decision
 
 # V26 Execution Confidence Engine
 V26_EXECUTION_CONFIDENCE_ENABLED = True
@@ -9976,6 +10026,7 @@ def run():
             fallback["decision_write_duration"] = 0.0
             fallback["file_write_latency"] = 0.0
             fallback["total_cycle_time"] = fallback["loop_duration_sec"]
+            observe_knowledge(fallback, {})
             write_decision(brain_decision_publication(fallback))
             time.sleep(1)
             continue
@@ -10003,11 +10054,13 @@ def run():
             fire_ok, fire_reason = can_fire_or_strong_override(key, bar_time, decision, data)
             if fire_ok:
                 decision["final_decision_build_sec"] = round(time.time() - cycle_start, 6)
+                observe_knowledge(decision, data)
                 write_decision(brain_decision_publication(decision))
             else:
                 print("COOLDOWN / MAX SIGNAL BLOCK:", key, "|", fire_reason)
                 blocked_decision = build_cooldown_wait_decision(decision, data, fire_reason, cycle_start)
                 blocked_decision["final_decision_build_sec"] = round(time.time() - cycle_start, 6)
+                observe_knowledge(blocked_decision, data)
                 write_decision(brain_decision_publication(blocked_decision))
         except Exception as e:
             print("LOGIC ERROR:", e)
@@ -10017,6 +10070,7 @@ def run():
             err_decision["decision_write_duration"] = 0.0
             err_decision["file_write_latency"] = 0.0
             err_decision["total_cycle_time"] = err_decision["loop_duration_sec"]
+            observe_knowledge(err_decision, data if isinstance(data, dict) else {})
             write_decision(brain_decision_publication(err_decision))
         time.sleep(1)
 

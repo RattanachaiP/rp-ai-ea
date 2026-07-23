@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+from time import monotonic
 from pathlib import Path
 
 from .knowledge import Knowledge
@@ -47,11 +48,13 @@ class KnowledgeStorage:
         with self.path_for(knowledge_uuid).open(encoding="utf-8") as handle:
             return Knowledge.from_dict(json.load(handle))
 
-    def all(self) -> list[Knowledge]:
+    def all(self, *, deadline_monotonic: float | None = None) -> list[Knowledge]:
         if not self.directory.exists():
             return []
         records: list[Knowledge] = []
         for path in sorted(self.directory.glob("knowledge_*.json")):
+            if deadline_monotonic is not None and monotonic() > deadline_monotonic:
+                raise TimeoutError("KNOWLEDGE_STORAGE_DEADLINE_EXCEEDED")
             try:
                 records.append(Knowledge.from_dict(json.loads(path.read_text(encoding="utf-8"))))
             except (OSError, TypeError, ValueError, KeyError, json.JSONDecodeError):
