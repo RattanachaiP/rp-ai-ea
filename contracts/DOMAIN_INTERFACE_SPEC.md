@@ -25,3 +25,18 @@ single-worker processing. Failure is isolated from runtime operations.
 **Hard boundary:** V10 only publishes offline qualification artefacts. It cannot train, update weights, modify thresholds, runtime payloads, recommendations, governance, executive decisions, deployment, or live trading.
 
 **Execution:** `LearningIntakeCoordinator.intake_async()` uses an isolated single worker. Publication is atomic and immutable records are write-once.
+
+## Learning Engine Core (V14.1)
+
+**Input:** the immutable V10 `learning_candidate_registry.json`. Only V10 `QUALIFIED`,
+schema-compatible candidate records pass the explicit V14.1 policy gate.
+
+**Outputs:** immutable `learning_material.json` records below `learning_engine/materials/`.
+
+**Hard boundary:** V14.1 materializes traceable offline learning material only. It cannot
+train, update weights or thresholds, modify recommendations, governance, executive decisions,
+runtime payloads, deployment, or live trading.
+
+**Execution:** `LearningEngineCoordinator.materialize_registry_async()` uses an isolated
+single worker. Records are atomically published write-once and registry errors fail closed for
+V14.1 only.
