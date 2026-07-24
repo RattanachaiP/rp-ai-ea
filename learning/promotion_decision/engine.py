@@ -237,9 +237,20 @@ class PromotionDecisionEngine:
             "reasons": reasons,
             "blocks": blocks,
         })))
+        configuration_digest = _digest(config.canonical_dict())
+        unsigned = {
+            "decision_uuid": identity, "knowledge_uuid": knowledge_uuid, "decision": decision,
+            "decision_status": decision_status, "reason": reasons,
+            "blocking_conditions": blocks, "snapshot_digest": snapshot_digest,
+            "qualification_digest": qualification_digest, "policy_version": config.version,
+            "created_at": config.evaluation_timestamp, "schema_version": "1.0",
+            "configuration_digest": configuration_digest,
+        }
+        signature = _digest(unsigned)
         return PromotionDecisionReport(
             identity, knowledge_uuid, decision, decision_status, tuple(reasons), tuple(blocks),
             snapshot_digest, qualification_digest, config.version, config.evaluation_timestamp,
+            "1.0", configuration_digest, signature,
         )
 
     def decision(self, qualification_report: Any, control_plane_snapshot: Mapping[str, Any], policy_config: PromotionPolicyConfig | None = None) -> PromotionDecisionReport:

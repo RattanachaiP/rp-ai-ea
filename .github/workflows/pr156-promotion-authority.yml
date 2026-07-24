@@ -1,0 +1,35 @@
+name: PR156 Promotion Authority
+on:
+  pull_request:
+    branches: [codex-dev]
+    paths:
+      - 'learning/promotion_authority/**'
+      - 'learning/promotion_decision/**'
+      - 'tests/learning/test_promotion_authority.py'
+      - '.github/workflows/pr156-promotion-authority.yml'
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: python -m pip install pytest
+      - run: python -m compileall -q learning/promotion_authority
+      - run: python -m pytest -q tests/learning/test_promotion_authority.py tests/learning/test_promotion_decision.py
+  authority-boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce execution-only dependencies
+        shell: python
+        run: |
+          import ast
+          from pathlib import Path
+          tree = ast.parse(Path('learning/promotion_authority/authority.py').read_text())
+          forbidden = {'learning.analytics', 'learning.qualification', 'learning.governance', 'learning.control_plane', 'learning.policy', 'learning.promotion_decision', 'runtime', 'bridge'}
+          imports = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module}
+          found = sorted(module for module in imports if any(module == root or module.startswith(root + '.') for root in forbidden))
+          if found: raise SystemExit(f'Forbidden authority dependency: {found}')
