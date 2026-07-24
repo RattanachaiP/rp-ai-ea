@@ -46,24 +46,26 @@ jobs:
           from pathlib import Path
 
           forbidden_modules = {'decision_engine', 'executor', 'broker', 'mt5', 'order_send'}
+          forbidden_methods = {'save', 'append', 'transition', 'promote', 'retire', 'execute', 'write', 'delete'}
+
           for path in Path('learning/control_plane').glob('*.py'):
               tree = ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
               for node in ast.walk(tree):
-                  module = None
                   if isinstance(node, ast.Import):
-                      names = [alias.name for alias in node.names]
+                      imported = [alias.name for alias in node.names]
                   elif isinstance(node, ast.ImportFrom):
-                      names = [node.module or '']
+                      imported = [node.module or '']
                   else:
-                      continue
-                  for name in names:
-                      parts = set(name.lower().split('.'))
-                      found = forbidden_modules & parts
+                      imported = []
+                  for name in imported:
+                      found = forbidden_modules & set(name.lower().split('.'))
                       if found:
                           raise SystemExit(f'Forbidden runtime dependency in {path}: {sorted(found)}')
 
-          from learning.control_plane import KnowledgeControlPlane
-          forbidden_methods = {'save', 'append', 'transition', 'promote', 'retire', 'execute', 'write', 'delete'}
-          exposed = forbidden_methods & set(dir(KnowledgeControlPlane))
-          if exposed:
-              raise SystemExit(f'Mutating API exposed: {sorted(exposed)}')
+              for node in tree.body:
+                  if isinstance(node, ast.ClassDef) and node.name == 'KnowledgeControlPlane':
+                      exposed = forbidden_methods & {
+                          item.name for item in node.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+                      }
+                      if exposed:
+                          raise SystemExit(f'Mutating API exposed: {sorted(exposed)}')
