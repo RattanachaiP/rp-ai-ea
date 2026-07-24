@@ -103,12 +103,14 @@ class PromotionDecisionReport:
     schema_version: str = "1.0"
     configuration_digest: str = ""
     signature: str = ""
+    semantic_identity: str = ""
 
     def __post_init__(self) -> None:
         if (not self.decision_uuid or not self.knowledge_uuid or self.decision not in _DECISIONS
                 or self.decision_status not in _STATUSES or not self.snapshot_digest
                 or not self.qualification_digest or not self.policy_version
-                or self.schema_version != "1.0" or not self.configuration_digest or not self.signature):
+                or self.schema_version != "1.0" or not self.configuration_digest or not self.signature
+                or not isinstance(self.semantic_identity, str)):
             raise ValueError("INVALID_PROMOTION_DECISION_REPORT")
         for field_name in ("reason", "blocking_conditions"):
             object.__setattr__(self, field_name, tuple(freeze(item) for item in getattr(self, field_name)))
