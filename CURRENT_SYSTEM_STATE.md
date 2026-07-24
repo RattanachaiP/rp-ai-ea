@@ -3,6 +3,12 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR169 governed knowledge rollback orchestration — ACTIVE
+
+- Architecture: `PR169`; module: `learning.rollback_orchestration`; component: Governed Knowledge Rollback Orchestration Engine.
+- The layer validates rollback requests, immutable manifests, compatibility, registry snapshots, policy, manual approval, deterministic replay identity, and expiration before it emits an authorization package.
+- It is evidence-only: it never modifies Runtime, the Active Knowledge Registry, or an existing KnowledgeVersion. Atomic append-only artifacts are stored below `learning_data/rollback_orchestration/`.
+
 ## V28 mandatory thinking-model rebuild — proposal state
 
 - V27 is not to be repaired or incrementally improved for this directive.

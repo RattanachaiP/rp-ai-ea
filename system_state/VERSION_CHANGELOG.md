@@ -1,6 +1,16 @@
 # RP TRADING GPT — VERSION CHANGELOG
 
 ==================================================
+PR169 GOVERNED KNOWLEDGE ROLLBACK ORCHESTRATION ENGINE
+==================================================
+
+Status: ACTIVE
+
+* Added `learning.rollback_orchestration` as the sole rollback planning and authorization boundary.
+* Rollback evidence is deterministic, replay-safe, canonical JSON, atomic, and append-only under `learning_data/rollback_orchestration`.
+* The component only validates and authorizes; it never mutates Runtime, the Active Knowledge Registry, or immutable KnowledgeVersions.
+
+==================================================
 V24.0 DEVELOPMENT PHASE
 =======================
 
