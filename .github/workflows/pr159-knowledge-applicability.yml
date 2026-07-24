@@ -1,0 +1,40 @@
+name: PR159 Runtime Knowledge Applicability
+
+on:
+  pull_request:
+    paths:
+      - "runtime/knowledge_applicability.py"
+      - "runtime/applicability_storage.py"
+      - "learning/applicability/**"
+      - "tests/learning/test_knowledge_applicability.py"
+      - ".github/workflows/pr159-knowledge-applicability.yml"
+  workflow_dispatch:
+
+jobs:
+  regression:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pytest
+      - run: python -m compileall -q runtime learning/applicability
+      - run: python -m pytest -q tests/learning/test_knowledge_applicability.py tests/runtime/test_knowledge_runtime_gateway.py tests/learning/test_active_knowledge_registry.py
+
+  architecture-boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce PR158 integration and stateless Runtime ownership
+        shell: bash
+        run: |
+          grep -q "from runtime.knowledge_gateway import KnowledgeRuntimeSnapshot" runtime/knowledge_applicability.py
+          ! grep -q "ActiveKnowledgeRegistry" runtime/knowledge_applicability.py
+          ! grep -q "self._last" runtime/knowledge_applicability.py
+          ! grep -q "class GatewaySnapshot" learning/applicability/models.py
+          grep -q "VOLATILITY" runtime/knowledge_applicability.py
+          grep -q "TREND_STATE" runtime/knowledge_applicability.py
