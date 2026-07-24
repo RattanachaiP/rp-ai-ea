@@ -88,3 +88,7 @@ Non-goals:
 * no new strategy layers
 * no new indicator stack
 * no hard-safety bypass
+
+## PR173 — Knowledge Outcome Attribution Engine
+
+Added `learning.outcome_attribution` as an offline deterministic, advisory-only descriptive analytics domain. It aggregates immutable outcome evidence into non-causal observed associations and conditional outcome profiles; it does not duplicate `learning.analytics`, which remains authoritative for lineage, conflict, stability, and governance analytics.
