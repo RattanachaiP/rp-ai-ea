@@ -1,138 +1,58 @@
-"""PR174 deterministic, offline eligibility gate for PR173 attribution reports."""
+"""PR174: deterministic structural and sample-sufficiency eligibility only."""
 from __future__ import annotations
-
+from datetime import datetime
 from hashlib import sha256
 import json
 from math import isfinite
 from typing import Any
 from uuid import UUID, uuid5
-
 from learning.outcome_attribution import KnowledgeOutcomeAttributionReport
-
 from .exceptions import GovernedLearningPolicyError
-from .models import GovernedLearningPolicyReport
-
-_NAMESPACE = UUID("4b4c2052-2f11-59ac-8fd4-469495b8be2e")
-_MINIMUM_PATTERN_SAMPLES = 30
-
-
-def _canonical(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
-
-
-def _valid_uuid(value: object) -> bool:
-    try:
-        UUID(str(value))
-        return True
-    except (TypeError, ValueError, AttributeError):
-        return False
-
-
-def _valid_digest(value: object) -> bool:
-    return isinstance(value, str) and len(value) == 64 and all(char in "0123456789abcdef" for char in value.lower())
-
-
-def _finite(value: object) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
-
+from .models import GovernedLearningPolicyConfig, GovernedLearningPolicyReport
+_NAMESPACE=UUID('4b4c2052-2f11-59ac-8fd4-469495b8be2e')
+def _json(v): return json.dumps(v,sort_keys=True,separators=(',',':'),allow_nan=False)
+def _digest(v): return isinstance(v,str) and len(v)==64 and all(c in '0123456789abcdef' for c in v.lower())
+def _uuid(v):
+ try: UUID(str(v));return True
+ except (TypeError,ValueError,AttributeError):return False
+def _time(v):
+ try:return datetime.fromisoformat(str(v).replace('Z','+00:00')).tzinfo is not None
+ except (TypeError,ValueError,AttributeError):return False
+def _finite(v):return isinstance(v,(int,float)) and not isinstance(v,bool) and isfinite(v)
+def _confidence(n): return 'INSUFFICIENT' if n<5 else 'LOW' if n<15 else 'MEDIUM' if n<30 else 'HIGH'
 
 class GovernedLearningPolicyEngine:
-    """Classifies immutable PR173 evidence; it never learns, mines, or mutates runtime."""
-
-    policy_version = "PR174.1.0"
-
-    def __init__(self, repository=None) -> None:
-        self._repository = repository
-
-    def evaluate(self, attribution: KnowledgeOutcomeAttributionReport) -> GovernedLearningPolicyReport:
-        """Return an advisory eligibility report for one immutable attribution report."""
-        facts = self._validate(attribution)
-        sample_count = facts["sample_count"]
-        sample_sufficiency = min(1.0, sample_count / _MINIMUM_PATTERN_SAMPLES)
-        # PR173 intentionally supplies aggregate, non-causal evidence.  Stability is
-        # therefore assessed only from sufficient observed outcome support.
-        outcome_stability = min(1.0, sample_count / 5.0)
-        historical_repeatability = facts["sample_support"]
-        components = {
-            "sample_sufficiency": sample_sufficiency,
-            "evidence_consistency": 1.0,
-            "outcome_stability": outcome_stability,
-            "historical_repeatability": historical_repeatability,
-            "data_quality": 1.0,
-        }
-        score = sum(components.values()) / len(components)
-        state = (
-            "ELIGIBLE_FOR_PATTERN_MINING" if sample_count >= _MINIMUM_PATTERN_SAMPLES and score >= 0.8
-            else "REQUIRES_MORE_DATA" if score >= 0.5
-            else "NOT_ELIGIBLE"
-        )
-        source = attribution.to_dict()
-        policy_uuid = str(uuid5(_NAMESPACE, sha256(_canonical([self.policy_version, source]).encode()).hexdigest()))
-        report = GovernedLearningPolicyReport(
-            policy_uuid=policy_uuid,
-            knowledge_uuid=facts["knowledge_uuid"],
-            knowledge_version=facts["knowledge_version"],
-            eligibility_score=score,
-            eligibility_state=state,
-            sample_quality={
-                "sample_count": sample_count,
-                "minimum_pattern_mining_samples": _MINIMUM_PATTERN_SAMPLES,
-                "sample_sufficiency": sample_sufficiency,
-            },
-            validation_summary={
-                "valid": True,
-                "advisory_only": True,
-                "outcome_metric": facts["outcome_metric"],
-                "outcome_unit": facts["outcome_unit"],
-                "replay_digest": facts["replay_digest"],
-            },
-            evaluation_summary={"components": components, "policy_version": self.policy_version},
-            generated_at=attribution.created_at,
-        )
-        if self._repository is not None:
-            self._repository.save(report)
-        return report
-
-    # A concise alias makes the boundary ergonomic while retaining one behavior.
-    assess = evaluate
-
-    def _validate(self, attribution: Any) -> dict[str, Any]:
-        if not isinstance(attribution, KnowledgeOutcomeAttributionReport):
-            raise GovernedLearningPolicyError("INVALID_OUTCOME_ATTRIBUTION_REPORT")
-        try:
-            data = attribution.to_dict()
-            _canonical(data)  # Reject NaN, Infinity, and non-canonical payloads.
-        except (TypeError, ValueError, OverflowError) as error:
-            raise GovernedLearningPolicyError("INVALID_OUTCOME_ATTRIBUTION_REPORT") from error
-        summary = attribution.summary
-        pairs = attribution.knowledge_versions
-        if (
-            not attribution.advisory_only
-            or not _valid_uuid(attribution.attribution_uuid)
-            or not _valid_digest(attribution.replay_digest)
-            or not _valid_digest(attribution.source_digest)
-            or len(pairs) != 1
-            or not isinstance(summary.outcome_metric, str) or not summary.outcome_metric
-            or not isinstance(summary.outcome_unit, str) or not summary.outcome_unit
-            or summary.replay_digest != attribution.replay_digest
-        ):
-            raise GovernedLearningPolicyError("INVALID_ATTRIBUTION_EVIDENCE")
-        knowledge_uuid, knowledge_version = pairs[0]
-        if not _valid_uuid(knowledge_uuid) or not isinstance(knowledge_version, str) or not knowledge_version:
-            raise GovernedLearningPolicyError("INVALID_KNOWLEDGE_IDENTITY")
-        numeric = (summary.total_outcome, summary.average_outcome)
-        counts = (summary.trade_count, summary.winning_trade_count, summary.losing_trade_count, summary.neutral_count)
-        if not all(_finite(value) for value in numeric) or not all(isinstance(value, int) and not isinstance(value, bool) and value >= 0 for value in counts) or sum(counts[1:]) != counts[0]:
-            raise GovernedLearningPolicyError("INVALID_OUTCOME_EVIDENCE")
-        profiles = attribution.performance_profiles
-        confidences = attribution.confidence
-        if len(profiles) != 1 or len(confidences) != 1:
-            raise GovernedLearningPolicyError("MIXED_KNOWLEDGE_IDENTITIES")
-        profile, confidence = profiles[0], confidences[0]
-        if (profile.knowledge_uuid, profile.knowledge_version) != (knowledge_uuid, knowledge_version) or (confidence.knowledge_uuid, confidence.knowledge_version) != (knowledge_uuid, knowledge_version):
-            raise GovernedLearningPolicyError("MIXED_KNOWLEDGE_IDENTITIES")
-        if profile.sample_count != summary.trade_count or confidence.sample_count != summary.trade_count:
-            raise GovernedLearningPolicyError("INCONSISTENT_SAMPLE_COUNT")
-        if not _finite(confidence.sample_support) or not 0.0 <= confidence.sample_support <= 1.0:
-            raise GovernedLearningPolicyError("INVALID_CONFIDENCE")
-        return {"knowledge_uuid": knowledge_uuid, "knowledge_version": knowledge_version, "sample_count": summary.trade_count, "sample_support": float(confidence.sample_support), "outcome_metric": summary.outcome_metric, "outcome_unit": summary.outcome_unit, "replay_digest": attribution.replay_digest}
+ """Validates one PR173 report for future offline pattern-mining entry; no execution authority."""
+ policy_version='PR174.2.0'
+ def __init__(self,config:GovernedLearningPolicyConfig|None=None,repository=None): self.config=config or GovernedLearningPolicyConfig();self._repository=repository
+ def evaluate(self,attribution:KnowledgeOutcomeAttributionReport)->GovernedLearningPolicyReport:
+  facts=self._validate(attribution); n=facts['sample_count']; minimum=self.config.minimum_pattern_samples; additional=max(0,minimum-n)
+  state='NOT_ELIGIBLE' if n==0 else 'REQUIRES_MORE_DATA' if additional else 'ELIGIBLE_FOR_PATTERN_MINING'
+  blocking=('ZERO_SAMPLE_REPORT',) if n==0 else ('MINIMUM_SAMPLE_THRESHOLD_NOT_MET',) if additional else ()
+  warnings=() if blocking else ('ELIGIBILITY_DOES_NOT_IMPLY_STABILITY','ELIGIBILITY_DOES_NOT_IMPLY_PROMOTION')
+  gates={'structural_validity':True,'identity_consistency':True,'outcome_contract_consistency':True,'replay_integrity':True}
+  identity={'policy_version':self.policy_version,'config':self.config.to_dict(),'source_attribution_uuid':attribution.attribution_uuid,'source_digest':attribution.source_digest,'replay_digest':attribution.replay_digest,'knowledge_uuid':facts['knowledge_uuid'],'knowledge_version':facts['knowledge_version'],'outcome_metric':facts['outcome_metric'],'outcome_unit':facts['outcome_unit'],'sample_count':n,'minimum_required_samples':minimum,'eligibility_state':state,'hard_gates':gates,'blocking_reasons':blocking,'warning_codes':warnings}
+  report=GovernedLearningPolicyReport(str(uuid5(_NAMESPACE,sha256(_json(identity).encode()).hexdigest())),self.policy_version,facts['knowledge_uuid'],facts['knowledge_version'],state,n,minimum,additional,gates,blocking,warnings,{'source_attribution_uuid':attribution.attribution_uuid,'source_digest':attribution.source_digest,'replay_digest':attribution.replay_digest,'outcome_contract':[facts['outcome_metric'],facts['outcome_unit']],'eligibility_scope':'OFFLINE_PATTERN_MINING_EVALUATION_ONLY'},attribution.created_at,True,min(1.0,n/minimum))
+  if self._repository:self._repository.save(report)
+  return report
+ assess=evaluate
+ def _validate(self,a:Any)->dict[str,Any]:
+  if not isinstance(a,KnowledgeOutcomeAttributionReport):raise GovernedLearningPolicyError('INVALID_OUTCOME_ATTRIBUTION_REPORT')
+  try:_json(a.to_dict())
+  except (TypeError,ValueError,OverflowError) as e:raise GovernedLearningPolicyError('INVALID_NESTED_REPORT_CONTENT') from e
+  if not a.advisory_only or not _uuid(a.attribution_uuid) or not _digest(a.source_digest) or not _digest(a.replay_digest) or not _time(a.created_at):raise GovernedLearningPolicyError('INVALID_ATTRIBUTION_EVIDENCE')
+  if a.attribution_version not in self.config.supported_attribution_versions:raise GovernedLearningPolicyError('UNSUPPORTED_ATTRIBUTION_VERSION')
+  if len(a.knowledge_versions)!=1:raise GovernedLearningPolicyError('MIXED_KNOWLEDGE_IDENTITIES')
+  k,v=a.knowledge_versions[0];s=a.summary
+  if not _uuid(k) or not isinstance(v,str) or not v:raise GovernedLearningPolicyError('INVALID_KNOWLEDGE_IDENTITY')
+  if (s.outcome_metric,s.outcome_unit) not in self.config.supported_outcome_contracts:raise GovernedLearningPolicyError('UNSUPPORTED_OUTCOME_CONTRACT')
+  if s.replay_digest!=a.replay_digest:raise GovernedLearningPolicyError('REPLAY_MISMATCH')
+  counts=(s.trade_count,s.winning_trade_count,s.losing_trade_count,s.neutral_count)
+  if not all(isinstance(x,int) and not isinstance(x,bool) and x>=0 for x in counts) or sum(counts[1:])!=counts[0] or not all(_finite(x) for x in (s.total_outcome,s.average_outcome)):raise GovernedLearningPolicyError('INVALID_OUTCOME_EVIDENCE')
+  if len(a.performance_profiles)!=1 or len(a.confidence)!=1:raise GovernedLearningPolicyError('MIXED_KNOWLEDGE_IDENTITIES')
+  p,c=a.performance_profiles[0],a.confidence[0]
+  if (p.knowledge_uuid,p.knowledge_version)!=(k,v):raise GovernedLearningPolicyError('INCONSISTENT_PROFILE_IDENTITY')
+  if (c.knowledge_uuid,c.knowledge_version)!=(k,v):raise GovernedLearningPolicyError('INCONSISTENT_CONFIDENCE_IDENTITY')
+  if (p.sample_count,p.wins,p.losses,p.neutral_count,p.total_outcome,p.average_outcome)!=(s.trade_count,s.winning_trade_count,s.losing_trade_count,s.neutral_count,s.total_outcome,s.average_outcome):raise GovernedLearningPolicyError('INCONSISTENT_PROFILE_SUMMARY')
+  if c.sample_count!=s.trade_count or not _finite(c.sample_support) or c.sample_support!=min(1,s.trade_count/30) or c.classification!=_confidence(s.trade_count):raise GovernedLearningPolicyError('INCONSISTENT_CONFIDENCE')
+  return {'knowledge_uuid':k,'knowledge_version':v,'sample_count':s.trade_count,'outcome_metric':s.outcome_metric,'outcome_unit':s.outcome_unit}

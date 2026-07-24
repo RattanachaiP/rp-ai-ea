@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+from uuid import UUID
 
 from .models import GovernedLearningPolicyReport
 
@@ -17,6 +18,10 @@ class GovernedLearningPolicyRepository:
         self.root.mkdir(parents=True, exist_ok=True)
 
     def path_for(self, policy_uuid: str) -> Path:
+        try:
+            policy_uuid = str(UUID(str(policy_uuid)))
+        except (TypeError, ValueError, AttributeError) as error:
+            raise ValueError("INVALID_POLICY_UUID") from error
         return self.root / f"report_{policy_uuid}.json"
 
     def save(self, report: GovernedLearningPolicyReport) -> Path:

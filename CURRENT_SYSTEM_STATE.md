@@ -203,3 +203,7 @@ Participation restoration intentionally comes before scaling. Before increasing 
 - Architecture: `PR173`; module: `learning.outcome_attribution`; component: Knowledge Outcome Attribution Engine.
 - It provides offline deterministic, advisory-only descriptive attribution over immutable runtime and learning evidence. It emits non-causal observed associations, conditional outcome profiles, and sample-support confidence only; it cannot modify Runtime, Registry, promotion, activation, rollback, or broker execution.
 - `learning.analytics` remains the separate authority for knowledge lineage, cross-version conflict, stability, and governance analytics. PR173 reports are atomic append-only artifacts under `learning_data/outcome_attribution/`.
+
+## PR174 Governed Learning Policy Gate — ACTIVE
+- `learning.learning_policy` validates one immutable PR173 outcome-attribution report for structural and minimum-sample entry into a future offline pattern-mining stage.
+- It does not measure profitability, statistical stability, historical repeatability, or promotion eligibility, and has no runtime, registry, learning, mining, or promotion authority.
