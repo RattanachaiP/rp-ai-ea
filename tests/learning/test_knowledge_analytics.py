@@ -1,5 +1,6 @@
 from __future__ import annotations
 import math
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import pytest
 from learning.analytics import AnalyticsConfig, KnowledgeAnalyticsEngine
@@ -28,6 +29,7 @@ def test_artifact_identity_and_canonical_replay_are_config_aware():
     assert first.analytics_uuid != KnowledgeAnalyticsEngine(reader, config=AnalyticsConfig(conflict_rr_delta=.9)).analyze().analytics_uuid
     assert first.analytics_uuid != KnowledgeAnalyticsEngine(reader, analytics_version="2.0").analyze().analytics_uuid
     assert first.analytics_uuid != KnowledgeAnalyticsEngine(reader, source_baseline=BASELINE).analyze().analytics_uuid
+    assert first.analytics_uuid != KnowledgeAnalyticsEngine(reader, config=AnalyticsConfig(maximum_conflict_comparisons=1)).analyze().analytics_uuid
 
 
 def test_persisted_report_requires_explicit_source_baseline(tmp_path):
@@ -41,6 +43,15 @@ def test_conflicts_never_coerce_invalid_metrics_to_zero():
     left = record("a", win=math.nan, rr=math.inf)
     right = record("b", win=.9, rr=2.)
     assert KnowledgeAnalyticsEngine(Reader((left, right))).detect_conflicts() == ()
+
+
+def test_conflict_comparison_budget_is_deterministic_and_bounded():
+    records = tuple(record(str(index), win=index / 10, rr=float(index)) for index in range(8))
+    config = AnalyticsConfig(maximum_findings=100, maximum_conflict_comparisons=3)
+    first = KnowledgeAnalyticsEngine(Reader(records), config=config).detect_conflicts()
+    second = KnowledgeAnalyticsEngine(Reader(tuple(reversed(records))), config=config).detect_conflicts()
+    assert first == second
+    assert len(first) <= 3
 
 
 def test_stability_bands_and_non_contiguous_lineage():
@@ -69,6 +80,17 @@ def test_storage_replay_and_collision_are_append_only(tmp_path):
     assert repo.save(report) == repo.storage.path_for(report.analytics_uuid)
     with pytest.raises(FileExistsError):
         repo.storage.write(replace(report, source_baseline="DIFFERENT"))
+
+
+def test_concurrent_identical_writers_are_idempotent(tmp_path):
+    from learning.analytics import AnalyticsRepository
+
+    repo = AnalyticsRepository(tmp_path)
+    report = KnowledgeAnalyticsEngine(Reader((record("a"),)), source_baseline=BASELINE).analyze()
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        paths = tuple(pool.map(lambda _: repo.save(report), range(16)))
+    assert len(set(paths)) == 1
+    assert paths[0] == repo.storage.path_for(report.analytics_uuid)
 
 
 def test_snapshot_permutation_has_identical_canonical_report():
@@ -109,7 +131,14 @@ def test_directory_sync_failure_is_platform_safe(tmp_path, monkeypatch):
 
     repo = AnalyticsRepository(tmp_path)
     report = KnowledgeAnalyticsEngine(Reader((record("a"),)), source_baseline=BASELINE).analyze()
-    monkeypatch.setattr(module.os, "fsync", lambda *_: (_ for _ in ()).throw(OSError("unsupported")))
-    with pytest.raises(OSError):
-        # File fsync remains mandatory; only directory fsync is best effort.
-        repo.save(report)
+    original_fsync = module.os.fsync
+    calls = iter((None, OSError("unsupported")))
+
+    def fail_directory_only(fd):
+        outcome = next(calls)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return original_fsync(fd)
+
+    monkeypatch.setattr(module.os, "fsync", fail_directory_only)
+    assert repo.save(report) == repo.storage.path_for(report.analytics_uuid)
