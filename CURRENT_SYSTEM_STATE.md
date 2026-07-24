@@ -197,3 +197,9 @@ Participation restoration intentionally comes before scaling. Before increasing 
 - Profile_E uses Profile_A as the baseline, widens the standard `0.01` XAUUSD SL from `$1.00` to `$1.30` (+30%), reduces fixed TP from `$1.00` to `$0.80` (-20%), and disables breakeven, trailing, runner, profit lock, time exit, partial exit, scaling, and pyramiding.
 - Validation compares stable post-patch production Profile_A vs Profile_E data only, excluding TP_ONLY data, broken SL=0 data, decision-contract repair data, and pre-production profile data.
 - Profile_E metrics must track trade count, win rate, average win/loss, profit factor, expectancy, SL/TP hit counts and rates, BE count (expected zero), average holding time, MFE, MAE, MFE capture ratio, and post-SL continuation direction when available.
+
+## PR173 knowledge outcome attribution — ACTIVE
+
+- Architecture: `PR173`; module: `learning.outcome_attribution`; component: Knowledge Outcome Attribution Engine.
+- It provides offline deterministic, advisory-only descriptive attribution over immutable runtime and learning evidence. It emits non-causal observed associations, conditional outcome profiles, and sample-support confidence only; it cannot modify Runtime, Registry, promotion, activation, rollback, or broker execution.
+- `learning.analytics` remains the separate authority for knowledge lineage, cross-version conflict, stability, and governance analytics. PR173 reports are atomic append-only artifacts under `learning_data/outcome_attribution/`.

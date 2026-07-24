@@ -303,3 +303,7 @@ Dashboard profile loading order:
 5. Publish `trade_management_dashboard`, `dashboard_active_profile`, schema version, and source/fallback metadata to `decision.json`.
 
 No V27 dashboard profile may mutate AI direction, bias, entry timing, signal generation, or market classification.
+
+## PR173 outcome attribution flow
+
+`Immutable Runtime / Learning Evidence` -> `learning.outcome_attribution` -> offline deterministic, advisory-only descriptive feature, indicator, risk, regime, context, success/failure, and sample-support attribution -> immutable report. This is non-causal analytical evidence and has no Runtime, Registry, promotion, activation, rollback, or execution authority. `learning.analytics` separately retains lineage, conflict, stability, and governance analytics authority.
