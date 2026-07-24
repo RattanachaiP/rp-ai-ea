@@ -1,0 +1,71 @@
+name: PR149 Knowledge Analytics
+
+on:
+  pull_request:
+    branches: [codex-dev]
+    paths:
+      - "learning/analytics/**"
+      - "tests/learning/test_knowledge_analytics.py"
+      - ".github/workflows/pr149-knowledge-analytics.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  baseline-compile:
+    name: Baseline architecture compile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout immutable baseline
+        uses: actions/checkout@v4
+        with:
+          ref: cb751c0747ee567016bc322834b6105684514c63
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile baseline learning and bridge
+        run: python -m compileall -q learning bridge
+
+  head-regression:
+    name: Head analytics regression
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependency
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile learning and bridge
+        run: python -m compileall -q learning bridge
+      - name: Enforce analytics authority boundary
+        shell: python
+        run: |
+          from pathlib import Path
+
+          forbidden_imports = (
+              "bridge.",
+              "mt5",
+              "executor",
+              "decision_engine",
+          )
+          forbidden_writes = (
+              "decision.json",
+              "execution_state",
+              "management_mode",
+              "order_send",
+          )
+          violations = []
+          for path in sorted(Path("learning/analytics").glob("*.py")):
+              text = path.read_text(encoding="utf-8").lower()
+              for token in forbidden_imports + forbidden_writes:
+                  if token in text:
+                      violations.append(f"{path}: forbidden authority token {token!r}")
+          if violations:
+              raise SystemExit("\n".join(violations))
+      - name: Run deterministic analytics tests
+        run: python -m pytest -q tests/learning/test_knowledge_analytics.py
