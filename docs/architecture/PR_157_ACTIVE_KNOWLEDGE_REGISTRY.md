@@ -1,23 +1,34 @@
 # PR157 — Active Knowledge Registry
 
-`learning.active_registry.ActiveKnowledgeRegistry` is the canonical, append-only
-catalog for Knowledge that has already completed promotion. It accepts caller-
-supplied committed Promotion Records and approved Promotion Decisions, and
-fails closed when either artifact, their UUID binding, or semantic lineage is
-missing or inconsistent. It does not import Promotion Authority, lifecycle,
-qualification, analytics, governance, runtime, executor, bridge, MT5, or broker
-code; registration is a catalog operation only and never performs promotion.
+`learning.active_registry.ActiveKnowledgeRegistry` is the canonical append-only
+read model for Knowledge lifecycle state. It performs no promotion, supersession,
+retirement, archival, qualification, or governance decision.
 
-Entries are immutable `ActiveKnowledgeEntry` events stored atomically at
-`learning_data/active_registry/entry_<uuid>.json`. The event projection is
-deterministic. Active entries are indexed through read operations by semantic
-identity first and knowledge UUID second; `list_active()`, `get_active()`, and
-`lookup()` expose ACTIVE only by default. `history()` exposes immutable
-append-only history and `get_by_uuid()` permits inspection of terminal state.
+The registry accepts only authoritative receipts whose UUID and canonical content
+digest are present in an injected trust registry. Receipts are bound to an approved
+source authority, monotonic sequence, authoritative timestamp, semantic identity,
+source event UUID, configuration version, and lineage reference. Arbitrary caller
+Promotion dictionaries are not executable registry inputs.
 
-Supersession appends a `SUPERSEDED` event for the prior knowledge containing
-both the prior activation reference and replacement knowledge UUID, then appends
-the replacement `ACTIVE` event. Retirement and archival append terminal events;
-they never delete or rewrite activation files. A second active knowledge for a
-semantic identity is rejected unless it explicitly supersedes the existing
-active knowledge with matching semantic identity.
+## Event model
+
+- `ACTIVATION`: trusted Promotion Authority receipt; exposes one ACTIVE Knowledge.
+- `SUPERSESSION`: one atomic receipt containing prior and replacement identities;
+  projection changes old to SUPERSEDED and new to ACTIVE without a two-file crash window.
+- `RETIREMENT`: trusted Lifecycle Authority receipt; changes ACTIVE to RETIRED.
+- `ARCHIVAL`: trusted Lifecycle Authority receipt; changes RETIRED to ARCHIVED.
+
+Registry entries are immutable files at
+`learning_data/active_registry/entry_<event_uuid>.json`. Replay ordering uses the
+trusted monotonic sequence, never caller-selected timestamps or file ordering.
+Corrupted records and duplicate sequences fail closed and block reads and writes.
+
+Semantic identity locks use exclusive filesystem ownership, lease expiration,
+host/PID metadata, stale-lock recovery, and owner verification before release.
+This prevents concurrent registration of multiple ACTIVE entries for one semantic
+identity.
+
+The public write boundary is deliberately limited to `register(receipt)` for
+ACTIVATION/SUPERSESSION and `apply_lifecycle_event(receipt)` for
+RETIREMENT/ARCHIVAL. Runtime consumers use `get_active()`, `resolve()`,
+`list_active()`, `lookup()`, and `history()` as read-only projections.
