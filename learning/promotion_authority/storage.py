@@ -8,6 +8,8 @@ from uuid import UUID, uuid4
 
 from .models import PromotionRecord
 
+_STATE_ORDER = {"PREPARED": 0, "COMMITTED": 1, "FAILED": 1, "IN_DOUBT": 1}
+
 
 class PromotionRecordStorage:
     def __init__(self, root="learning_data") -> None:
@@ -57,7 +59,12 @@ class PromotionRecordStorage:
                 records.append(PromotionRecord(**json.loads(path.read_text(encoding="utf-8"))))
             except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
                 continue
-        return tuple(sorted(records, key=lambda item: (item.timestamp, item.record_uuid)))
+        return tuple(sorted(records, key=lambda item: (
+            item.timestamp,
+            item.decision_uuid,
+            _STATE_ORDER[item.status],
+            item.record_uuid,
+        )))
 
     def for_decision(self, decision_uuid: str) -> tuple[PromotionRecord, ...]:
         return tuple(record for record in self.all() if record.decision_uuid == decision_uuid)
