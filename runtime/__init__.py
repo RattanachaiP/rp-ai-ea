@@ -1,5 +1,15 @@
-"""Runtime-facing contracts that do not perform publication or execution."""
+"""Runtime-facing Knowledge contracts; no Registry implementation is exported."""
 
-from .knowledge_gateway import KnowledgeRuntimeGateway, KnowledgeRuntimeSnapshot
+from .knowledge_gateway import (
+    ActiveKnowledgeReader,
+    KnowledgeRuntimeGateway,
+    KnowledgeRuntimeSnapshot,
+    RuntimeKnowledgeDescriptor,
+)
 
-__all__ = ["KnowledgeRuntimeGateway", "KnowledgeRuntimeSnapshot"]
+__all__ = [
+    "ActiveKnowledgeReader",
+    "KnowledgeRuntimeGateway",
+    "KnowledgeRuntimeSnapshot",
+    "RuntimeKnowledgeDescriptor",
+]
