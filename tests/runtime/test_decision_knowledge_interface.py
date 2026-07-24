@@ -6,7 +6,6 @@ import pytest
 from runtime.decision_knowledge_interface import (
     DecisionKnowledgeAccessError,
     DecisionKnowledgeInterface,
-    DecisionKnowledgeRecord,
 )
 from runtime.knowledge_applicability import ApplicabilityReport, KnowledgeApplicabilityEngine
 from tests.learning.test_knowledge_applicability import context, descriptor, snapshot
@@ -29,8 +28,6 @@ def test_read_contract_is_immutable_hides_metadata_and_retains_no_source_report(
 
 def test_lookup_resolve_and_public_identity_access_are_deterministic():
     source = report("plain-non-rfc-identifier")
-    dki = DecisionKnowledgeInterface(source._replace() if hasattr(source, "_replace") else source)
-    # Constructor accepts only a DKI snapshot; loading is the public report adapter.
     with pytest.raises(DecisionKnowledgeAccessError, match="SNAPSHOT_REQUIRED"):
         DecisionKnowledgeInterface(source)
     dki = DecisionKnowledgeInterface.load(source)
@@ -71,26 +68,22 @@ def test_rejects_unsupported_explicit_report_contract_without_fallback():
     with pytest.raises(DecisionKnowledgeAccessError, match="CORRUPTED|UNSUPPORTED"):
         DecisionKnowledgeInterface.load(valid)
     valid = report()
-    delattr_error = None
-    try:
-        object.__delattr__(valid, "report_contract_version")
-    except Exception as exc:  # frozen-object corruption simulation may vary by runtime
-        delattr_error = exc
-    if delattr_error is None:
-        with pytest.raises(DecisionKnowledgeAccessError, match="CORRUPTED"):
-            DecisionKnowledgeInterface.load(valid)
+    object.__delattr__(valid, "report_contract_version")
+    with pytest.raises(DecisionKnowledgeAccessError, match="CORRUPTED"):
+        DecisionKnowledgeInterface.load(valid)
 
 
 def test_rejects_duplicate_records_and_provenance_mismatch():
     valid = report()
-    with pytest.raises(ValueError, match="NON_CANONICAL|PROVENANCE|INVALID"):
-        ApplicabilityReport(
-            valid.snapshot_digest,
-            valid.context,
-            valid.applicable + valid.applicable,
-            valid.rejected,
-            valid.confidence,
-        )
+    duplicate = ApplicabilityReport(
+        valid.snapshot_digest,
+        valid.context,
+        valid.applicable + valid.applicable,
+        valid.rejected,
+        valid.confidence,
+    )
+    with pytest.raises(DecisionKnowledgeAccessError, match="CORRUPTED"):
+        DecisionKnowledgeInterface.load(duplicate)
     item = valid.applicable[0]
     corrupted_item = replace(item, snapshot_digest="0" * 64)
     with pytest.raises(ValueError, match="PROVENANCE"):
