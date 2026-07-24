@@ -307,3 +307,6 @@ No V27 dashboard profile may mutate AI direction, bias, entry timing, signal gen
 ## PR173 outcome attribution flow
 
 `Immutable Runtime / Learning Evidence` -> `learning.outcome_attribution` -> offline deterministic, advisory-only descriptive feature, indicator, risk, regime, context, success/failure, and sample-support attribution -> immutable report. This is non-causal analytical evidence and has no Runtime, Registry, promotion, activation, rollback, or execution authority. `learning.analytics` separately retains lineage, conflict, stability, and governance analytics authority.
+
+## PR173 / PR174 offline eligibility flow
+`Immutable evidence -> PR173 outcome attribution -> PR174 structural validation, identity/outcome/replay gates, and sample sufficiency -> immutable advisory eligibility report -> potential future offline pattern-mining stage.` PR174 performs no mining, learning, promotion, activation, registry, runtime, or broker action.

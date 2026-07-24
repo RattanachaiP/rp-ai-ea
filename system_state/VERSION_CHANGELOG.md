@@ -92,3 +92,6 @@ Non-goals:
 ## PR173 — Knowledge Outcome Attribution Engine
 
 Added `learning.outcome_attribution` as an offline deterministic, advisory-only descriptive analytics domain. It aggregates immutable outcome evidence into non-causal observed associations and conditional outcome profiles; it does not duplicate `learning.analytics`, which remains authoritative for lineage, conflict, stability, and governance analytics.
+
+## PR174 — Governed Learning Policy Gate
+`learning.learning_policy` is an offline, immutable advisory structural and minimum-sample gate between PR173 attribution and a future pattern-mining stage. It does not assess profitability, statistical stability, historical repeatability, or promotion eligibility, and cannot mutate runtime or registry state.
