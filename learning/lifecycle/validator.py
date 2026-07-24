@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Iterable
 from uuid import UUID
 
-from .schema import ALLOWED_TRANSITIONS, LIFECYCLE_SCHEMA_VERSION, LIFECYCLE_STATES
+from .schema import ALLOWED_TRANSITIONS, INITIAL_STATE, LIFECYCLE_SCHEMA_VERSION, LIFECYCLE_STATES
 from .transition import LifecycleTransition
 
 
@@ -41,9 +41,14 @@ class LifecycleValidator:
         validate_transition(transition.previous_state, transition.new_state)
 
         prior = list(history)
-        if prior:
-            last = prior[-1]
-            if transition.previous_state != last.new_state:
-                raise LifecycleValidationError("STALE_PREVIOUS_STATE")
-            if parsed_timestamp < datetime.fromisoformat(last.timestamp.replace("Z", "+00:00")):
-                raise LifecycleValidationError("NON_MONOTONIC_TIMESTAMP")
+        if not prior:
+            if transition.previous_state != INITIAL_STATE:
+                raise LifecycleValidationError("INVALID_INITIAL_STATE")
+            return
+
+        last = prior[-1]
+        if transition.previous_state != last.new_state:
+            raise LifecycleValidationError("STALE_PREVIOUS_STATE")
+        last_timestamp = datetime.fromisoformat(last.timestamp.replace("Z", "+00:00"))
+        if parsed_timestamp <= last_timestamp:
+            raise LifecycleValidationError("NON_MONOTONIC_TIMESTAMP")
