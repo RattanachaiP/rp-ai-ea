@@ -25,6 +25,16 @@ stacks, or runtime layers may be added under this directive.
 4. Test validation
 5. Approved LIVE promotion
 
+## PR169 rollback orchestration flow
+`Runtime Health / Rollback Request`
+-> `learning.rollback_orchestration` request, UUID, lineage, manifest, compatibility, and snapshot validation
+-> `MANUAL_ONLY` human approval
+-> deterministic rollback decision, authorization, plan, package, and append-only audit evidence
+-> `Controlled Activation` (outside PR169 authority)
+-> registry snapshot and immutable KnowledgeVersion (outside PR169 authority).
+
+PR169 has no Runtime, broker, registry, activation, promotion, or version-mutation capability.
+
 ## Runtime execution path (current)
 `bridge/ai_decision_engine_xauusd_v26_execution_confidence_engine.py`
 -> reads `market_state.json`
