@@ -1,0 +1,60 @@
+name: PR151 Knowledge Lifecycle
+
+on:
+  pull_request:
+    branches: [codex-dev]
+    paths:
+      - "learning/lifecycle/**"
+      - "tests/learning/test_knowledge_lifecycle.py"
+      - ".github/workflows/pr151-knowledge-lifecycle.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    name: Lifecycle regression (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile learning and bridge
+        run: python -m compileall -q learning bridge
+      - name: Run lifecycle and governance regressions
+        run: python -m pytest -q tests/learning/test_knowledge_lifecycle.py tests/learning/test_knowledge_governance.py tests/learning/test_knowledge_analytics.py
+
+  authority-boundary:
+    name: Lifecycle authority boundary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Enforce passive lifecycle boundary
+        shell: python
+        run: |
+          from pathlib import Path
+          forbidden = (
+              "bridge.", "mt5", "executor", "decision_engine", "decision.json",
+              "execution_state", "management_mode", "order_send",
+          )
+          violations = []
+          for path in sorted(Path("learning/lifecycle").glob("*.py")):
+              text = path.read_text(encoding="utf-8").lower()
+              for token in forbidden:
+                  if token in text:
+                      violations.append(f"{path}: forbidden authority token {token!r}")
+          if violations:
+              raise SystemExit("\n".join(violations))
