@@ -1,4 +1,24 @@
-from .models import RuntimeContext, GatewayKnowledge, GatewaySnapshot, ApplicableKnowledge, ApplicabilityReport, canonical_digest
-from .engine import KnowledgeApplicabilityEngine, ApplicabilityConfig, ApplicabilityEvaluationError
-from .storage import ApplicabilityReportRepository
-__all__ = ["RuntimeContext", "GatewayKnowledge", "GatewaySnapshot", "ApplicableKnowledge", "ApplicabilityReport", "canonical_digest", "KnowledgeApplicabilityEngine", "ApplicabilityConfig", "ApplicabilityEvaluationError", "ApplicabilityReportRepository"]
+"""Compatibility facade for the Runtime-owned applicability boundary."""
+from runtime.knowledge_applicability import (
+    ApplicableKnowledge,
+    ApplicabilityConfig,
+    ApplicabilityEvaluationError,
+    ApplicabilityReport,
+    ApplicabilityReportWriter,
+    KnowledgeApplicabilityEngine,
+    RuntimeContext,
+    canonical_digest,
+)
+from runtime.applicability_storage import ApplicabilityReportRepository
+
+__all__ = [
+    "ApplicableKnowledge",
+    "ApplicabilityConfig",
+    "ApplicabilityEvaluationError",
+    "ApplicabilityReport",
+    "ApplicabilityReportRepository",
+    "ApplicabilityReportWriter",
+    "KnowledgeApplicabilityEngine",
+    "RuntimeContext",
+    "canonical_digest",
+]
