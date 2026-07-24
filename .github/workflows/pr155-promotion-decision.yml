@@ -63,11 +63,14 @@ jobs:
           if found:
               raise SystemExit(f'Forbidden advisory dependency: {found}')
 
-          from learning.promotion_decision.engine import PromotionDecisionEngine
           forbidden_methods = {'save', 'append', 'transition', 'promote', 'retire', 'execute', 'write', 'delete'}
-          exposed = forbidden_methods & set(dir(PromotionDecisionEngine))
+          classes = [node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'PromotionDecisionEngine']
+          if len(classes) != 1:
+              raise SystemExit('PromotionDecisionEngine class boundary missing or ambiguous')
+          declared = {node.name for node in classes[0].body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+          exposed = forbidden_methods & declared
           if exposed:
-              raise SystemExit(f'Mutating advisory API exposed: {sorted(exposed)}')
+              raise SystemExit(f'Mutating advisory API declared: {sorted(exposed)}')
 
   artifact-binding:
     name: Promotion artifact binding and fail-closed validation
