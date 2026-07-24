@@ -1,0 +1,57 @@
+name: PR158 Knowledge Runtime Gateway
+
+on:
+  pull_request:
+    branches: [codex-dev]
+    paths:
+      - "runtime/**"
+      - "learning/active_registry/**"
+      - "tests/runtime/test_knowledge_runtime_gateway.py"
+      - "tests/learning/test_active_knowledge_registry.py"
+      - "docs/architecture/PR_158_KNOWLEDGE_RUNTIME_GATEWAY.md"
+      - ".github/workflows/pr158-knowledge-runtime-gateway.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pytest
+      - run: python -m compileall -q runtime learning/active_registry
+      - run: python -m pytest -q tests/runtime/test_knowledge_runtime_gateway.py tests/learning/test_active_knowledge_registry.py tests/learning/test_promotion_authority.py tests/learning/test_knowledge_lifecycle.py
+
+  runtime-boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce anti-corruption boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -R "from learning.active_registry import ActiveKnowledgeEntry" runtime
+          ! grep -R "from learning.active_registry import ActiveKnowledgeRegistry" runtime
+          grep -q "class ActiveKnowledgeReader(Protocol)" runtime/knowledge_gateway.py
+          grep -q "class RuntimeKnowledgeDescriptor" runtime/knowledge_gateway.py
+          grep -q "ACTIVE_KNOWLEDGE_REGISTRY_ROLLBACK_DETECTED" runtime/knowledge_gateway.py
+          grep -q "RUNTIME_KNOWLEDGE_PROJECTION_INVALID" runtime/knowledge_gateway.py
+
+  deterministic-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pytest
+      - name: Verify DTO, policy digest, rollback and corruption safety
+        run: python -m pytest -q tests/runtime/test_knowledge_runtime_gateway.py
