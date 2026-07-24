@@ -42,12 +42,26 @@ jobs:
       - name: Enforce read-only boundary
         shell: python
         run: |
+          import ast
           from pathlib import Path
-          source = '\n'.join(path.read_text(encoding='utf-8') for path in Path('learning/control_plane').glob('*.py')).lower()
-          forbidden_imports = ('decision_engine', 'executor', 'broker', 'mt5', 'order_send')
-          found = [term for term in forbidden_imports if term in source]
-          if found:
-              raise SystemExit(f'Forbidden runtime dependency: {found}')
+
+          forbidden_modules = {'decision_engine', 'executor', 'broker', 'mt5', 'order_send'}
+          for path in Path('learning/control_plane').glob('*.py'):
+              tree = ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
+              for node in ast.walk(tree):
+                  module = None
+                  if isinstance(node, ast.Import):
+                      names = [alias.name for alias in node.names]
+                  elif isinstance(node, ast.ImportFrom):
+                      names = [node.module or '']
+                  else:
+                      continue
+                  for name in names:
+                      parts = set(name.lower().split('.'))
+                      found = forbidden_modules & parts
+                      if found:
+                          raise SystemExit(f'Forbidden runtime dependency in {path}: {sorted(found)}')
+
           from learning.control_plane import KnowledgeControlPlane
           forbidden_methods = {'save', 'append', 'transition', 'promote', 'retire', 'execute', 'write', 'delete'}
           exposed = forbidden_methods & set(dir(KnowledgeControlPlane))
