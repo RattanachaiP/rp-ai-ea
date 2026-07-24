@@ -1,0 +1,64 @@
+name: PR160 Decision Knowledge Interface
+
+on:
+  pull_request:
+    paths:
+      - "runtime/decision_knowledge_interface.py"
+      - "runtime/knowledge_applicability.py"
+      - "runtime/__init__.py"
+      - "tests/runtime/test_decision_knowledge_interface.py"
+      - ".github/workflows/pr160-decision-knowledge-interface.yml"
+  workflow_dispatch:
+
+jobs:
+  regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pytest
+      - run: python -m compileall -q runtime learning/applicability
+      - name: Run focused regression
+        shell: bash
+        run: |
+          set +e
+          python -m pytest -q \
+            tests/runtime/test_decision_knowledge_interface.py \
+            tests/learning/test_knowledge_applicability.py \
+            tests/runtime/test_knowledge_runtime_gateway.py \
+            tests/learning/test_active_knowledge_registry.py \
+            > pytest-output.txt 2>&1
+          echo $? > pytest-status.txt
+      - name: Upload pytest diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr160-pytest-${{ matrix.os }}
+          path: |
+            pytest-output.txt
+            pytest-status.txt
+      - name: Enforce test result
+        shell: bash
+        run: |
+          cat pytest-output.txt
+          exit "$(cat pytest-status.txt)"
+
+  architecture-boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce immutable DKI projection boundary
+        shell: bash
+        run: |
+          grep -q "class DecisionKnowledgeSnapshot" runtime/decision_knowledge_interface.py
+          grep -q "APPLICABILITY_REPORT_CONTRACT_VERSION" runtime/knowledge_applicability.py
+          ! grep -q "RuntimeQuery" runtime/decision_knowledge_interface.py
+          ! grep -q "self._report" runtime/decision_knowledge_interface.py
+          ! grep -q "from uuid import UUID" runtime/decision_knowledge_interface.py
+          grep -q "item.snapshot_digest != verified.snapshot_digest" runtime/decision_knowledge_interface.py
