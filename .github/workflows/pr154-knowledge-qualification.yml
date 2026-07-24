@@ -48,9 +48,8 @@ jobs:
           engine_path = Path('learning/qualification/engine.py')
           tree = ast.parse(engine_path.read_text(encoding='utf-8'))
           forbidden_roots = {
-              'learning.decision_engine', 'learning.executor', 'learning.broker',
-              'learning.mt5', 'learning.knowledge', 'learning.governance',
-              'learning.lifecycle', 'learning.analytics', 'learning.policy',
+              'decision_engine', 'executor', 'broker', 'mt5', 'knowledge',
+              'governance', 'lifecycle', 'analytics', 'policy',
           }
           imports = set()
           for node in ast.walk(tree):
@@ -58,13 +57,24 @@ jobs:
                   imports.update(alias.name for alias in node.names)
               elif isinstance(node, ast.ImportFrom) and node.module:
                   imports.add(node.module)
-          found = sorted(name for name in imports if any(name == root or name.startswith(root + '.') for root in forbidden_roots))
+          found = sorted(
+              name for name in imports
+              if any(part in forbidden_roots for part in name.split('.'))
+          )
           if found:
               raise SystemExit(f'Forbidden evaluator dependency: {found}')
 
-          from learning.qualification import KnowledgeQualificationEngine
+          engine_class = next(
+              node for node in tree.body
+              if isinstance(node, ast.ClassDef) and node.name == 'KnowledgeQualificationEngine'
+          )
+          public_methods = {
+              node.name for node in engine_class.body
+              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+              and not node.name.startswith('_')
+          }
           forbidden_methods = {'save', 'append', 'transition', 'promote', 'retire', 'execute', 'write', 'delete'}
-          exposed = forbidden_methods & set(dir(KnowledgeQualificationEngine))
+          exposed = forbidden_methods & public_methods
           if exposed:
               raise SystemExit(f'Mutating evaluator API exposed: {sorted(exposed)}')
 
