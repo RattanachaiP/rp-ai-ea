@@ -1,8 +1,4 @@
-"""Deterministic, read-only coordination for Knowledge subsystems.
-
-The control plane observes published records only. It has no persistence,
-promotion, retirement, lifecycle mutation, policy execution, or runtime authority.
-"""
+"""Deterministic, read-only coordination for Knowledge subsystems."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -27,7 +23,7 @@ class SubsystemHealth(str, Enum):
 
 @runtime_checkable
 class PolicyResultProvider(Protocol):
-    """Explicit read-only provider contract for policy results."""
+    """Explicit read-only provider contract for published policy results."""
 
     def get_policy_result(self, knowledge_uuid: str | None = None) -> Any:
         ...
@@ -37,9 +33,9 @@ _SUBSYSTEMS = ("analytics", "governance", "lifecycle", "policy", "repository")
 _ERROR_CODES = {
     FileNotFoundError: "NOT_FOUND",
     PermissionError: "PERMISSION_DENIED",
-    ValueError: "INVALID_RECORD",
-    KeyError: "SCHEMA_MISMATCH",
     json.JSONDecodeError: "CORRUPT_RECORD",
+    KeyError: "SCHEMA_MISMATCH",
+    ValueError: "INVALID_RECORD",
 }
 
 
@@ -63,7 +59,7 @@ class _Observation:
     error: str | None = None
 
     def public(self) -> dict[str, Any]:
-        result = {"status": self.status.value}
+        result: dict[str, Any] = {"status": self.status.value}
         if self.status is SubsystemHealth.READY:
             result["value"] = self.value
         if self.error:
@@ -140,51 +136,52 @@ class KnowledgeControlPlane:
         return self._policy_read(knowledge_uuid).public()
 
     def get_knowledge(self, knowledge_uuid: str) -> dict[str, Any] | None:
-        observation = self.get_knowledge_observation(knowledge_uuid)
-        return observation.get("value") if observation["status"] == "READY" else None
+        item = self.get_knowledge_observation(knowledge_uuid)
+        return item.get("value") if item["status"] == "READY" else None
 
     def get_governance(self, knowledge_uuid: str) -> dict[str, Any] | None:
-        observation = self.get_governance_observation(knowledge_uuid)
-        return observation.get("value") if observation["status"] == "READY" else None
+        item = self.get_governance_observation(knowledge_uuid)
+        return item.get("value") if item["status"] == "READY" else None
 
     def get_lifecycle(self, knowledge_uuid: str) -> tuple[dict[str, Any], ...]:
-        observation = self.get_lifecycle_observation(knowledge_uuid)
-        return tuple(observation.get("value", ())) if observation["status"] == "READY" else ()
+        item = self.get_lifecycle_observation(knowledge_uuid)
+        return tuple(item.get("value", ())) if item["status"] == "READY" else ()
 
     def get_analytics(self) -> dict[str, Any] | None:
-        observation = self.get_analytics_observation()
-        return observation.get("value") if observation["status"] == "READY" else None
+        item = self.get_analytics_observation()
+        return item.get("value") if item["status"] == "READY" else None
 
     def get_policy_result(self, knowledge_uuid: str | None = None) -> Any | None:
-        observation = self.get_policy_observation(knowledge_uuid)
-        return observation.get("value") if observation["status"] == "READY" else None
+        item = self.get_policy_observation(knowledge_uuid)
+        return item.get("value") if item["status"] == "READY" else None
 
     @staticmethod
-    def _lineage(knowledge_uuid: str, knowledge: Any, governance: Any) -> _Observation:
+    def _lineage(knowledge_uuid: str, knowledge: _Observation, governance: _Observation) -> _Observation:
         if knowledge.status is not SubsystemHealth.READY:
             return _Observation(knowledge.status, error=knowledge.error)
-        required_knowledge = ("pattern_uuid", "validation_uuid", "knowledge_version")
-        required_governance = ("analytics_uuid", "lineage_reference", "source_baseline_commit")
+        if governance.status is not SubsystemHealth.READY:
+            return _Observation(governance.status, error=governance.error)
         try:
-            lineage = {"knowledge_uuid": knowledge_uuid}
-            lineage.update({key: knowledge.value[key] for key in required_knowledge})
-            if governance.status is SubsystemHealth.READY:
-                lineage.update({key: governance.value[key] for key in required_governance})
-            else:
-                return _Observation(governance.status, error=governance.error)
-        except KeyError:
+            lineage = {
+                "knowledge_uuid": knowledge_uuid,
+                **{key: knowledge.value[key] for key in ("pattern_uuid", "validation_uuid", "knowledge_version")},
+                **{key: governance.value[key] for key in ("analytics_uuid", "lineage_reference", "source_baseline_commit")},
+            }
+        except (KeyError, TypeError):
             return _Observation(SubsystemHealth.FAILED, error="SCHEMA_MISMATCH")
         return _Observation(SubsystemHealth.READY, _canonical(lineage))
 
     def get_lineage(self, knowledge_uuid: str) -> dict[str, Any]:
         knowledge = self._read(lambda: self._knowledge.load(knowledge_uuid))
         governance = self._read(lambda: self._governance.load(knowledge_uuid))
-        observation = self._lineage(knowledge_uuid, knowledge, governance)
-        return observation.value if observation.status is SubsystemHealth.READY else {"knowledge_uuid": knowledge_uuid, "status": observation.status.value, "error": observation.error}
+        result = self._lineage(knowledge_uuid, knowledge, governance)
+        if result.status is SubsystemHealth.READY:
+            return result.value
+        return {"knowledge_uuid": knowledge_uuid, "status": result.status.value, "error": result.error}
 
-    def _health_from(self, observations: Mapping[str, _Observation]) -> dict[str, Any]:
-        required = ("repository", "governance", "lifecycle", "analytics")
-        required_statuses = [observations[name].status for name in required]
+    @staticmethod
+    def _health_from(observations: Mapping[str, _Observation]) -> dict[str, Any]:
+        required_statuses = [observations[name].status for name in ("repository", "governance", "lifecycle", "analytics")]
         if SubsystemHealth.FAILED in required_statuses:
             aggregate = SubsystemHealth.FAILED
         elif SubsystemHealth.DEGRADED in required_statuses:
@@ -196,25 +193,35 @@ class KnowledgeControlPlane:
         return {
             "status": aggregate.value,
             "optional_policy_available": observations["policy"].status is SubsystemHealth.READY,
-            "subsystems": {name: observations[name].public() | {"value": observations[name].value if False else None} for name in ()},
-        } | {
             "subsystems": {
-                name: {"status": observations[name].status.value, **({"error": observations[name].error} if observations[name].error else {})}
+                name: {
+                    "status": observations[name].status.value,
+                    **({"error": observations[name].error} if observations[name].error else {}),
+                }
                 for name in _SUBSYSTEMS
-            }
+            },
         }
 
+    def _lifecycle_health(self, repository: _Observation) -> _Observation:
+        if repository.status is not SubsystemHealth.READY:
+            return _Observation(repository.status, error=repository.error)
+        records = repository.value
+        if not isinstance(records, list):
+            return _Observation(SubsystemHealth.FAILED, error="SCHEMA_MISMATCH")
+        if not records:
+            return _Observation(SubsystemHealth.READY, [])
+        try:
+            knowledge_uuid = records[0]["knowledge_uuid"]
+        except (KeyError, TypeError):
+            return _Observation(SubsystemHealth.FAILED, error="SCHEMA_MISMATCH")
+        return self._read(lambda: self._lifecycle.timeline(knowledge_uuid))
+
     def _global_observations(self) -> dict[str, _Observation]:
-        lifecycle_history = getattr(self._lifecycle, "history", None)
-        lifecycle_observation = (
-            self._read(lifecycle_history)
-            if callable(lifecycle_history)
-            else _Observation(SubsystemHealth.UNKNOWN, error="HEALTH_API_UNAVAILABLE")
-        )
+        repository = self._read(lambda: self._knowledge.query())
         return {
-            "repository": self._read(lambda: self._knowledge.query()),
+            "repository": repository,
             "governance": self._read(lambda: self._governance.query()),
-            "lifecycle": lifecycle_observation,
+            "lifecycle": self._lifecycle_health(repository),
             "analytics": self._read(self._analytics.latest),
             "policy": self._policy_read(),
         }
@@ -234,52 +241,55 @@ class KnowledgeControlPlane:
         )))
 
     def get_snapshot(self, knowledge_uuid: str | None = None) -> dict[str, Any]:
-        """Read every participating subsystem once and digest that observation set."""
+        """Read each participating record once and digest the resulting observation set."""
         repository = self._read(lambda: self._knowledge.query())
         analytics = self._read(self._analytics.latest)
-        policy_global = self._policy_read()
-        lifecycle_history = getattr(self._lifecycle, "history", None)
-        lifecycle_health = self._read(lifecycle_history) if callable(lifecycle_history) else _Observation(SubsystemHealth.UNKNOWN, error="HEALTH_API_UNAVAILABLE")
         governance_health = self._read(lambda: self._governance.query())
+        lifecycle_health = self._lifecycle_health(repository)
+        policy_global = self._policy_read()
 
-        if repository.status is not SubsystemHealth.READY:
-            identifiers: list[str] = []
-        else:
+        identifiers: list[str] = []
+        if repository.status is SubsystemHealth.READY:
             try:
                 identifiers = [record["knowledge_uuid"] for record in repository.value]
             except (KeyError, TypeError):
                 repository = _Observation(SubsystemHealth.FAILED, error="SCHEMA_MISMATCH")
-                identifiers = []
         if knowledge_uuid is not None:
             identifiers = [knowledge_uuid]
 
-        entries = []
-        entry_complete = True
+        entries: list[dict[str, Any]] = []
+        entries_complete = True
         for identifier in sorted(set(identifiers)):
             knowledge = self._read(lambda identifier=identifier: self._knowledge.load(identifier))
             governance = self._read(lambda identifier=identifier: self._governance.load(identifier))
             lifecycle = self._read(lambda identifier=identifier: self._lifecycle.timeline(identifier))
             policy = self._policy_read(identifier)
             lineage = self._lineage(identifier, knowledge, governance)
-            observations = {"knowledge": knowledge, "governance": governance, "lifecycle": lifecycle, "policy": policy, "lineage": lineage}
-            required_entry = (knowledge, governance, lifecycle, lineage)
-            complete = all(item.status is SubsystemHealth.READY for item in required_entry)
-            entry_complete = entry_complete and complete
+            observations = {
+                "knowledge": knowledge,
+                "governance": governance,
+                "lifecycle": lifecycle,
+                "policy": policy,
+                "lineage": lineage,
+            }
+            complete = all(item.status is SubsystemHealth.READY for item in (knowledge, governance, lifecycle, lineage))
+            entries_complete = entries_complete and complete
             entries.append({
                 "knowledge_uuid": identifier,
                 "status": "COMPLETE" if complete else "INCOMPLETE",
                 "observations": {name: observation.public() for name, observation in observations.items()},
             })
 
-        global_observations = {
+        globals_ = {
             "repository": repository,
             "governance": governance_health,
             "lifecycle": lifecycle_health,
             "analytics": analytics,
             "policy": policy_global,
         }
-        health = self._health_from(global_observations)
-        complete = health["status"] == "READY" and entry_complete and (knowledge_uuid is None or bool(entries) and entries[0]["observations"]["knowledge"]["status"] == "READY")
+        health = self._health_from(globals_)
+        requested_exists = knowledge_uuid is None or bool(entries) and entries[0]["observations"]["knowledge"]["status"] == "READY"
+        complete = health["status"] == "READY" and entries_complete and requested_exists
         analytics_value = analytics.value if analytics.status is SubsystemHealth.READY else None
         snapshot = {
             "snapshot_status": "COMPLETE" if complete else "INCOMPLETE",
@@ -302,5 +312,7 @@ class KnowledgeControlPlane:
             },
         }
         canonical = _canonical(snapshot)
-        canonical["snapshot_digest"] = sha256(json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        canonical["snapshot_digest"] = sha256(
+            json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
         return canonical
