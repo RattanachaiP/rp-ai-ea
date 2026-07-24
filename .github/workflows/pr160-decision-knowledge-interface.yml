@@ -34,9 +34,20 @@ jobs:
             tests/runtime/test_knowledge_runtime_gateway.py \
             tests/learning/test_active_knowledge_registry.py \
             > pytest-output.txt 2>&1
-          status=$?
+          echo $? > pytest-status.txt
+      - name: Upload pytest diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr160-pytest-${{ matrix.os }}
+          path: |
+            pytest-output.txt
+            pytest-status.txt
+      - name: Enforce test result
+        shell: bash
+        run: |
           cat pytest-output.txt
-          exit $status
+          exit "$(cat pytest-status.txt)"
 
   architecture-boundary:
     runs-on: ubuntu-latest
