@@ -15,6 +15,8 @@ class KnowledgeAnalyticsEngine:
     def __init__(self, knowledge_reader, analytics_repository=None, config=None, analytics_version=ANALYTICS_VERSION, source_baseline="UNKNOWN"):
         if knowledge_reader is None or not hasattr(knowledge_reader, "query"):
             raise TypeError("KNOWLEDGE_READER_REQUIRED")
+        if analytics_repository is not None and source_baseline == "UNKNOWN":
+            raise ValueError("SOURCE_BASELINE_REQUIRED_FOR_PERSISTENCE")
         self._reader, self._repository = knowledge_reader, analytics_repository
         self.config, self.analytics_version, self.source_baseline = config or AnalyticsConfig(), analytics_version, source_baseline
 
