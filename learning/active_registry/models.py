@@ -1,53 +1,103 @@
-"""Immutable contracts for the Active Knowledge Registry."""
+"""Immutable contracts for the trusted Active Knowledge Registry projection."""
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Mapping
 from uuid import UUID
+
 from learning.common.immutable import freeze, thaw
 
+EVENT_TYPES = frozenset({"ACTIVATION", "SUPERSESSION", "RETIREMENT", "ARCHIVAL"})
 STATUSES = frozenset({"ACTIVE", "SUPERSEDED", "RETIRED", "ARCHIVED"})
 
+
 def _uuid(value: object) -> bool:
-    try: UUID(str(value)); return True
-    except (ValueError, TypeError, AttributeError): return False
+    try:
+        UUID(str(value))
+        return True
+    except (ValueError, TypeError, AttributeError):
+        return False
+
 
 def _timestamp(value: object) -> bool:
-    try: return datetime.fromisoformat(str(value).replace("Z", "+00:00")).tzinfo is not None
-    except (ValueError, TypeError, AttributeError): return False
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).tzinfo is not None
+    except (ValueError, TypeError, AttributeError):
+        return False
+
 
 @dataclass(frozen=True)
 class ActiveKnowledgeEntry:
-    """One append-only registry event; consumers receive only projected records."""
+    """One immutable trusted registry event.
+
+    SUPERSESSION is represented by one atomic event containing both the prior and
+    replacement identities; projection code exposes the prior record as SUPERSEDED
+    and the replacement as ACTIVE without requiring a two-file transaction.
+    """
+
     activation_uuid: str
     knowledge_uuid: str
     semantic_identity: str
     activation_timestamp: str
     activation_reason: str
-    promotion_decision_uuid: str
-    promotion_record_uuid: str
+    source_receipt_uuid: str
+    source_event_uuid: str
+    source_authority: str
     schema_version: str
     configuration_version: str
     lineage_reference: str
+    event_type: str = "ACTIVATION"
+    sequence: int = 1
     status: str = "ACTIVE"
-    replaces_activation_uuid: str = ""
-    superseded_by_knowledge_uuid: str = ""
+    previous_knowledge_uuid: str = ""
+    previous_activation_uuid: str = ""
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        required_uuids = (self.activation_uuid, self.knowledge_uuid, self.promotion_decision_uuid, self.promotion_record_uuid)
-        if (not all(_uuid(value) for value in required_uuids) or not _timestamp(self.activation_timestamp)
-                or self.status not in STATUSES
-                or not all(isinstance(value, str) and value for value in (
-                    self.semantic_identity, self.activation_reason, self.schema_version,
-                    self.configuration_version, self.lineage_reference))):
+        required_uuids = (
+            self.activation_uuid,
+            self.knowledge_uuid,
+            self.source_receipt_uuid,
+            self.source_event_uuid,
+        )
+        required_text = (
+            self.semantic_identity,
+            self.activation_reason,
+            self.source_authority,
+            self.schema_version,
+            self.configuration_version,
+            self.lineage_reference,
+        )
+        if (
+            not all(_uuid(value) for value in required_uuids)
+            or not _timestamp(self.activation_timestamp)
+            or self.event_type not in EVENT_TYPES
+            or self.status not in STATUSES
+            or not isinstance(self.sequence, int)
+            or isinstance(self.sequence, bool)
+            or self.sequence < 1
+            or not all(isinstance(value, str) and value.strip() for value in required_text)
+            or not isinstance(self.metadata, Mapping)
+        ):
             raise ValueError("INVALID_ACTIVE_REGISTRY_ENTRY")
-        if self.replaces_activation_uuid and not _uuid(self.replaces_activation_uuid):
-            raise ValueError("INVALID_ACTIVE_REGISTRY_ENTRY")
-        if self.superseded_by_knowledge_uuid and not _uuid(self.superseded_by_knowledge_uuid):
-            raise ValueError("INVALID_ACTIVE_REGISTRY_ENTRY")
-        if self.status == "SUPERSEDED" and not self.superseded_by_knowledge_uuid:
-            raise ValueError("INVALID_SUPERSESSION_REFERENCE")
+
+        if self.event_type == "ACTIVATION":
+            valid = self.status == "ACTIVE" and not self.previous_knowledge_uuid and not self.previous_activation_uuid
+        elif self.event_type == "SUPERSESSION":
+            valid = (
+                self.status == "ACTIVE"
+                and _uuid(self.previous_knowledge_uuid)
+                and _uuid(self.previous_activation_uuid)
+                and self.previous_knowledge_uuid != self.knowledge_uuid
+            )
+        elif self.event_type == "RETIREMENT":
+            valid = self.status == "RETIRED" and not self.previous_knowledge_uuid and _uuid(self.previous_activation_uuid)
+        else:
+            valid = self.status == "ARCHIVED" and not self.previous_knowledge_uuid and _uuid(self.previous_activation_uuid)
+        if not valid:
+            raise ValueError("INVALID_ACTIVE_REGISTRY_TRANSITION")
+
         object.__setattr__(self, "metadata", freeze(dict(self.metadata)))
 
     def to_dict(self) -> dict[str, Any]:
