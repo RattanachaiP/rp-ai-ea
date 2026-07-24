@@ -1,22 +1,42 @@
-# PR159 — Knowledge Applicability Engine
+# PR159 — Runtime Knowledge Applicability Engine
 
-`learning.applicability.KnowledgeApplicabilityEngine` is a read-only,
-deterministic evaluator between a Gateway Snapshot and the Decision Engine. It
-imports neither the Active Knowledge Registry nor learning lifecycle,
-promotion, governance, analytics, decision, risk, execution, broker, or MT5
-components.
+`runtime.knowledge_applicability.KnowledgeApplicabilityEngine` is a deterministic,
+stateless Runtime consumer of the PR158 `KnowledgeRuntimeSnapshot`. It does not
+create a second Gateway DTO, read the Active Knowledge Registry, or own lifecycle,
+promotion, governance, decision, risk, broker, MT5, or execution behavior.
 
-The engine validates the immutable Gateway Snapshot digest and its schema and
-configuration versions before any candidate is evaluated. It then validates
-runtime session and regime, rejects duplicate candidate UUIDs, evaluates symbol,
-session, timeframe, regime, execution-profile, runtime-version, and feature
-compatibility, and emits stable reason codes. Invalid inputs fail closed: no
-partial report is returned.
+Architecture:
 
-Applicable items expose only UUID, semantic identity, score, priority,
-confidence, matching factors, reason codes, snapshot digest, and registry
-sequence scalar provenance. Conflicts are resolved to one winner per semantic
-identity by priority, score, confidence, and stable identity tie-breakers.
-Reports are immutable and can be persisted append-only under
-`learning_data/applicability_reports/report_<uuid>.json` without modifying the
-Gateway Snapshot or Registry.
+```text
+Active Knowledge Registry
+        ↓
+PR158 Knowledge Runtime Gateway
+        ↓
+KnowledgeRuntimeSnapshot / RuntimeKnowledgeDescriptor
+        ↓
+PR159 Runtime Knowledge Applicability Engine
+        ↓
+Immutable ApplicabilityReport
+        ↓
+Runtime decision consumer
+```
+
+Applicability constraints are read from each Runtime descriptor's immutable
+metadata. Exact and explicit `("*",)` wildcard matching are supported for symbol,
+session, timeframe, market regime, volatility class, trend state, execution
+profile, and Runtime version. Exact matches produce a specificity score; conflict
+resolution is priority, specificity, confidence, then stable knowledge UUID.
+
+The engine validates Gateway contract and compatibility-policy semantic-version
+majors, known session/regime values, candidate invariants, finite confidence, and
+required feature flags. It owns no mutable last-report state. Reports recompute and
+verify their digest and deterministic UUID during construction.
+
+`runtime.applicability_storage.ApplicabilityReportRepository` provides durable,
+append-only persistence under `learning_data/applicability_reports/`. Writes use a
+unique temporary file, file fsync, atomic hard-link publication, collision byte
+verification, cleanup, and directory fsync where supported. Existing content can
+never be silently replaced.
+
+`learning.applicability` remains only a compatibility facade; Runtime owns the
+contracts, evaluation semantics, and report persistence boundary.
