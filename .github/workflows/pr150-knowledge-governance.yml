@@ -1,0 +1,73 @@
+name: PR150 Knowledge Governance
+
+on:
+  pull_request:
+    branches: [codex-dev]
+    paths:
+      - "learning/governance/**"
+      - "tests/learning/test_knowledge_governance.py"
+      - ".github/workflows/pr150-knowledge-governance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  baseline-compile:
+    name: Baseline architecture compile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout immutable PR150 baseline
+        uses: actions/checkout@v4
+        with:
+          ref: 6e4258261adf30f42c59c5a91511f2e0ab895049
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile baseline learning and bridge
+        run: python -m compileall -q learning bridge
+
+  head-regression:
+    name: Head governance regression
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependency
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile learning and bridge
+        run: python -m compileall -q learning bridge
+      - name: Enforce governance authority boundary
+        shell: python
+        run: |
+          from pathlib import Path
+
+          forbidden_tokens = (
+              "bridge.",
+              "mt5",
+              "executor",
+              "decision_engine",
+              "decision.json",
+              "execution_state",
+              "management_mode",
+              "order_send",
+          )
+          violations = []
+          for path in sorted(Path("learning/governance").glob("*.py")):
+              text = path.read_text(encoding="utf-8").lower()
+              for token in forbidden_tokens:
+                  if token in text:
+                      violations.append(f"{path}: forbidden authority token {token!r}")
+          if violations:
+              raise SystemExit("\n".join(violations))
+      - name: Run governance and dependency regressions
+        run: >-
+          python -m pytest -q
+          tests/learning/test_knowledge_governance.py
+          tests/learning/test_knowledge_repository.py
+          tests/learning/test_knowledge_analytics.py
