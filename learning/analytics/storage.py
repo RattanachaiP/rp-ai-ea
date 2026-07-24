@@ -1,10 +1,10 @@
-"""Crash-safe, append-only analytics artifact publication."""
+"""Append-only analytics artifact publication."""
 from __future__ import annotations
 import json
 import os
 import tempfile
-import time
 from pathlib import Path
+
 
 class AnalyticsStorage:
     def __init__(self, root="learning_data"):
@@ -16,55 +16,66 @@ class AnalyticsStorage:
 
     @staticmethod
     def _same(path, data):
-        try: return path.read_text(encoding="utf-8") == data
-        except OSError: return False
+        try:
+            return path.read_text(encoding="utf-8") == data
+        except OSError:
+            return False
+
+    def _sync_directory_best_effort(self):
+        """Persist directory metadata where the platform supports directory fsync."""
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        try:
+            directory_fd = os.open(self.root, flags)
+        except OSError:
+            return
+        try:
+            os.fsync(directory_fd)
+        except OSError:
+            # Windows and some filesystems do not support directory fsync.
+            pass
+        finally:
+            os.close(directory_fd)
 
     def write(self, report):
-        from .validator import validate
-        validate(report)
-        """Publish a fully-fsynced temp artifact with an exclusive lock.
+        """Publish without overwrite using an atomic fail-if-exists hard link.
 
-        The lock prevents ``os.replace`` from overwriting an artifact written by
-        another AnalyticsStorage caller.  A stale lock without a final artifact
-        is safely recovered; orphan temporary files are deliberately ignored.
+        No persistent lock file is used, so a crashed writer cannot permanently
+        block publication. The temporary file is fully flushed before linking.
+        Directory metadata is synced on platforms that support it.
         """
+        from .validator import validate
+
+        validate(report)
         path = self.path_for(report.analytics_uuid)
-        lock = self.root / f".{path.name}.lock"
-        data = json.dumps(report.to_dict(), sort_keys=True, separators=(",", ":"), allow_nan=False)
+        data = json.dumps(
+            report.to_dict(),
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
         if path.exists():
-            if self._same(path, data): return path
+            if self._same(path, data):
+                return path
             raise FileExistsError("ANALYTICS_IMMUTABLE")
+
+        fd, temporary_name = tempfile.mkstemp(
+            dir=self.root,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+        )
+        temporary = Path(temporary_name)
         try:
-            lock_fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-        except FileExistsError:
-            # Never reclaim a lock automatically: a slow live writer owns it.
-            deadline = time.monotonic() + 5.0
-            while time.monotonic() < deadline and not path.exists():
-                time.sleep(0.01)
-            if path.exists():
-                if self._same(path, data): return path
-                raise FileExistsError("ANALYTICS_IMMUTABLE")
-            raise TimeoutError("ANALYTICS_PUBLICATION_IN_PROGRESS")
-        os.close(lock_fd)
-        temporary = None
-        try:
-            if path.exists():
-                if self._same(path, data): return path
-                raise FileExistsError("ANALYTICS_IMMUTABLE")
-            fd, temporary_name = tempfile.mkstemp(dir=self.root, prefix=f".{path.name}.", suffix=".tmp")
-            temporary = Path(temporary_name)
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(data); handle.flush(); os.fsync(handle.fileno())
-            # link is fail-if-exists publication: unlike replace it cannot
-            # overwrite an immutable final artifact created by another writer.
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
             try:
                 os.link(temporary, path)
             except FileExistsError:
-                if self._same(path, data): return path
+                if self._same(path, data):
+                    return path
                 raise FileExistsError("ANALYTICS_IMMUTABLE")
-            temporary.unlink()
-            temporary = None
+            self._sync_directory_best_effort()
             return path
         finally:
-            if temporary is not None: temporary.unlink(missing_ok=True)
-            lock.unlink(missing_ok=True)
+            temporary.unlink(missing_ok=True)
