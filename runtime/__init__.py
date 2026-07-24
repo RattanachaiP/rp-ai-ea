@@ -10,7 +10,7 @@ from .decision_knowledge_interface import (
     DecisionKnowledgeAccessError,
     DecisionKnowledgeInterface,
     DecisionKnowledgeRecord,
-    RuntimeQuery,
+    DecisionKnowledgeSnapshot,
 )
 
 __all__ = [
@@ -21,5 +21,5 @@ __all__ = [
     "DecisionKnowledgeAccessError",
     "DecisionKnowledgeInterface",
     "DecisionKnowledgeRecord",
-    "RuntimeQuery",
+    "DecisionKnowledgeSnapshot",
 ]
