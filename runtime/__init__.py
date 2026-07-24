@@ -13,6 +13,14 @@ from .decision_knowledge_interface import (
     DecisionKnowledgeRecord,
     DecisionKnowledgeSnapshot,
 )
+from .decision_knowledge_observation import (
+    DecisionKnowledgeObservationError,
+    DecisionKnowledgeObservationRecord,
+    DecisionKnowledgeObservationRepository,
+    DecisionKnowledgeObserver,
+    KnowledgeObservation,
+    ObservedKnowledgeReference,
+)
 
 __all__ = [
     "ActiveKnowledgeReader",
@@ -24,4 +32,10 @@ __all__ = [
     "DecisionKnowledgeInterface",
     "DecisionKnowledgeRecord",
     "DecisionKnowledgeSnapshot",
+    "DecisionKnowledgeObservationError",
+    "DecisionKnowledgeObservationRecord",
+    "DecisionKnowledgeObservationRepository",
+    "DecisionKnowledgeObserver",
+    "KnowledgeObservation",
+    "ObservedKnowledgeReference",
 ]
