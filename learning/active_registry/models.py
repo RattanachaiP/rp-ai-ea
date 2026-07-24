@@ -29,12 +29,7 @@ def _timestamp(value: object) -> bool:
 
 @dataclass(frozen=True)
 class ActiveKnowledgeEntry:
-    """One immutable trusted registry event.
-
-    SUPERSESSION is represented by one atomic event containing both the prior and
-    replacement identities; projection code exposes the prior record as SUPERSEDED
-    and the replacement as ACTIVE without requiring a two-file transaction.
-    """
+    """One immutable trusted registry event or deterministic projected state."""
 
     activation_uuid: str
     knowledge_uuid: str
@@ -85,12 +80,19 @@ class ActiveKnowledgeEntry:
         if self.event_type == "ACTIVATION":
             valid = self.status == "ACTIVE" and not self.previous_knowledge_uuid and not self.previous_activation_uuid
         elif self.event_type == "SUPERSESSION":
-            valid = (
+            active_replacement = (
                 self.status == "ACTIVE"
                 and _uuid(self.previous_knowledge_uuid)
                 and _uuid(self.previous_activation_uuid)
                 and self.previous_knowledge_uuid != self.knowledge_uuid
             )
+            projected_prior = (
+                self.status == "SUPERSEDED"
+                and _uuid(self.previous_knowledge_uuid)
+                and _uuid(self.previous_activation_uuid)
+                and self.previous_knowledge_uuid == self.knowledge_uuid
+            )
+            valid = active_replacement or projected_prior
         elif self.event_type == "RETIREMENT":
             valid = self.status == "RETIRED" and not self.previous_knowledge_uuid and _uuid(self.previous_activation_uuid)
         else:
