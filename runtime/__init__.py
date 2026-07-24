@@ -6,6 +6,7 @@ from .knowledge_gateway import (
     KnowledgeRuntimeSnapshot,
     RuntimeKnowledgeDescriptor,
 )
+from .knowledge_applicability import APPLICABILITY_REPORT_CONTRACT_VERSION
 from .decision_knowledge_interface import (
     DecisionKnowledgeAccessError,
     DecisionKnowledgeInterface,
@@ -18,6 +19,7 @@ __all__ = [
     "KnowledgeRuntimeGateway",
     "KnowledgeRuntimeSnapshot",
     "RuntimeKnowledgeDescriptor",
+    "APPLICABILITY_REPORT_CONTRACT_VERSION",
     "DecisionKnowledgeAccessError",
     "DecisionKnowledgeInterface",
     "DecisionKnowledgeRecord",
