@@ -1,0 +1,92 @@
+name: PR154 Knowledge Qualification
+
+on:
+  pull_request:
+    branches: [codex-dev]
+    paths:
+      - 'learning/qualification/**'
+      - 'tests/learning/test_knowledge_qualification.py'
+      - '.github/workflows/pr154-knowledge-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    name: Qualification regression (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest
+        run: python -m pip install pytest
+      - name: Compile qualification package
+        run: python -m compileall -q learning/qualification
+      - name: Run qualification and upstream learning regressions
+        run: python -m pytest -q tests/learning/test_knowledge_qualification.py tests/learning
+
+  authority-boundary:
+    name: Qualification authority boundary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Enforce snapshot-only evaluator boundary
+        shell: python
+        run: |
+          import ast
+          from pathlib import Path
+
+          engine_path = Path('learning/qualification/engine.py')
+          tree = ast.parse(engine_path.read_text(encoding='utf-8'))
+          forbidden_roots = {
+              'decision_engine', 'executor', 'broker', 'mt5', 'knowledge',
+              'governance', 'lifecycle', 'analytics', 'policy',
+          }
+          imports = set()
+          for node in ast.walk(tree):
+              if isinstance(node, ast.Import):
+                  imports.update(alias.name for alias in node.names)
+              elif isinstance(node, ast.ImportFrom) and node.module:
+                  imports.add(node.module)
+          found = sorted(
+              name for name in imports
+              if any(part in forbidden_roots for part in name.split('.'))
+          )
+          if found:
+              raise SystemExit(f'Forbidden evaluator dependency: {found}')
+
+          engine_class = next(
+              node for node in tree.body
+              if isinstance(node, ast.ClassDef) and node.name == 'KnowledgeQualificationEngine'
+          )
+          public_methods = {
+              node.name for node in engine_class.body
+              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+              and not node.name.startswith('_')
+          }
+          forbidden_methods = {'save', 'append', 'transition', 'promote', 'retire', 'execute', 'write', 'delete'}
+          exposed = forbidden_methods & public_methods
+          if exposed:
+              raise SystemExit(f'Mutating evaluator API exposed: {sorted(exposed)}')
+
+  persistence:
+    name: Qualification append-only persistence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest
+        run: python -m pip install pytest
+      - name: Verify deterministic replay and immutability
+        run: python -m pytest -q tests/learning/test_knowledge_qualification.py -k 'immutable or deterministic'
