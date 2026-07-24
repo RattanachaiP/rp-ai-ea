@@ -24,7 +24,19 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install pytest
       - run: python -m compileall -q runtime learning/applicability
-      - run: python -m pytest -q tests/runtime/test_decision_knowledge_interface.py tests/learning/test_knowledge_applicability.py tests/runtime/test_knowledge_runtime_gateway.py tests/learning/test_active_knowledge_registry.py
+      - name: Run focused regression
+        shell: bash
+        run: |
+          set +e
+          python -m pytest -q \
+            tests/runtime/test_decision_knowledge_interface.py \
+            tests/learning/test_knowledge_applicability.py \
+            tests/runtime/test_knowledge_runtime_gateway.py \
+            tests/learning/test_active_knowledge_registry.py \
+            > pytest-output.txt 2>&1
+          status=$?
+          cat pytest-output.txt
+          exit $status
 
   architecture-boundary:
     runs-on: ubuntu-latest
