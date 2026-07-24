@@ -1,0 +1,61 @@
+name: PR157 Active Knowledge Registry
+on:
+  pull_request:
+    branches: [codex-dev]
+    paths:
+      - 'learning/active_registry/**'
+      - 'tests/learning/test_active_knowledge_registry.py'
+      - 'docs/architecture/PR_157_ACTIVE_KNOWLEDGE_REGISTRY.md'
+      - '.github/workflows/pr157-active-registry.yml'
+permissions:
+  contents: read
+jobs:
+  regression:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: python -m pip install pytest
+      - run: python -m compileall -q learning/active_registry
+      - run: python -m pytest -q tests/learning/test_active_knowledge_registry.py tests/learning/test_promotion_authority.py tests/learning/test_knowledge_lifecycle.py
+
+  trust-and-replay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: python -m pip install pytest
+      - name: Trusted receipts, atomic supersession, corruption and lock safety
+        run: python -m pytest -q tests/learning/test_active_knowledge_registry.py
+
+  architecture-boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce projection-only dependencies and APIs
+        shell: python
+        run: |
+          import ast
+          from pathlib import Path
+          path = Path('learning/active_registry/registry.py')
+          tree = ast.parse(path.read_text())
+          forbidden = {
+              'learning.analytics', 'learning.qualification', 'learning.governance',
+              'learning.control_plane', 'learning.policy', 'learning.promotion_authority',
+              'learning.promotion_decision', 'learning.lifecycle', 'runtime', 'bridge'
+          }
+          imports = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
+          found = sorted(m for m in imports if any(m == root or m.startswith(root + '.') for root in forbidden))
+          if found:
+              raise SystemExit(f'Forbidden registry dependency: {found}')
+          cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'ActiveKnowledgeRegistry')
+          methods = {n.name for n in cls.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+          forbidden_methods = {'promote', 'retire', 'archive', 'supersede', 'transition', 'rollback'}
+          exposed = sorted(methods & forbidden_methods)
+          if exposed:
+              raise SystemExit(f'Authority method exposed by registry: {exposed}')
