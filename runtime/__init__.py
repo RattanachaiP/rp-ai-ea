@@ -13,6 +13,16 @@ from .decision_knowledge_interface import (
     DecisionKnowledgeRecord,
     DecisionKnowledgeSnapshot,
 )
+from .decision_outcome_observation import (
+    CompletedTradeResult,
+    DecisionOutcomeObservation,
+    DecisionOutcomeObservationError,
+    DecisionOutcomeObservationRecord,
+    DecisionOutcomeObservationRepository,
+    DecisionOutcomeObserver,
+    TradeResult,
+)
+
 from .decision_knowledge_observation import (
     DecisionKnowledgeObservationError,
     DecisionKnowledgeObservationRecord,
@@ -38,4 +48,11 @@ __all__ = [
     "DecisionKnowledgeObserver",
     "KnowledgeObservation",
     "ObservedKnowledgeReference",
+    "CompletedTradeResult",
+    "DecisionOutcomeObservation",
+    "DecisionOutcomeObservationError",
+    "DecisionOutcomeObservationRecord",
+    "DecisionOutcomeObservationRepository",
+    "DecisionOutcomeObserver",
+    "TradeResult",
 ]
