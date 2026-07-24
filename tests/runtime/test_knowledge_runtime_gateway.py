@@ -115,9 +115,10 @@ def test_gateway_rejects_duplicate_projection_invariants(tmp_path):
 
 
 def test_gateway_detects_registry_rollback(tmp_path):
-    first_item = receipt(sequence=2)
+    first_item = receipt()
     first = registry(tmp_path, first_item).list_active()[0]
-    reader = Reader((first,))
+    advanced = replace(first, sequence=2)
+    reader = Reader((advanced,))
     gateway = KnowledgeRuntimeGateway(reader)
     assert gateway.snapshot().highest_registry_sequence == 2
     reader.entries = ()
