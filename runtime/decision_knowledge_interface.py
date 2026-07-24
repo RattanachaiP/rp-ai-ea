@@ -111,6 +111,8 @@ class DecisionKnowledgeInterface:
     def _project(report: object) -> DecisionKnowledgeSnapshot:
         if not isinstance(report, ApplicabilityReport):
             raise DecisionKnowledgeAccessError("MISSING_APPLICABILITY_REPORT")
+        if "report_contract_version" not in vars(report):
+            raise DecisionKnowledgeAccessError("CORRUPTED_APPLICABILITY_REPORT")
         try:
             verified = ApplicabilityReport(
                 report.snapshot_digest,
