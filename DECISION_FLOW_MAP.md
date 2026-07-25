@@ -310,3 +310,7 @@ No V27 dashboard profile may mutate AI direction, bias, entry timing, signal gen
 
 ## PR173 / PR174 offline eligibility flow
 `Immutable evidence -> PR173 outcome attribution -> PR174 structural validation, identity/outcome/replay gates, and sample sufficiency -> immutable advisory eligibility report -> potential future offline pattern-mining stage.` PR174 performs no mining, learning, promotion, activation, registry, runtime, or broker action.
+
+## PR175 offline pattern-mining flow
+
+`PR174 eligible policy report + immutable ApprovedPatternMiningEvidenceEnvelope -> provenance and evidence integrity validation -> normalized offline grouping -> deterministic advisory CandidatePattern artifacts -> append-only PatternMiningReport -> future PR176 Pattern Memory.` PR175 consumes approved evidence only and never creates or modifies evidence. It has no learning, promotion, activation, Registry, Runtime, decision-publication, broker, or execution authority.

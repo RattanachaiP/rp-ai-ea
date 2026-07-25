@@ -1,6 +1,16 @@
 # RP TRADING GPT — VERSION CHANGELOG
 
 ==================================================
+PR175 OFFLINE PATTERN MINING ENGINE
+==================================================
+
+Status: ACTIVE
+
+* Added `learning.pattern_mining` as the deterministic offline pattern discovery boundary after PR174.
+* Mining requires immutable sample-level `ApprovedPatternMiningEvidenceEnvelope` evidence; absent, tampered, mixed-lineage, or conflicting evidence fails closed and synthetic outcomes are forbidden.
+* Outputs are immutable, provenance-complete, advisory-only `CandidatePattern` artifacts and atomic append-only reports. PR175 has no learning, promotion, activation, Registry, Runtime, broker, execution, or evidence-generation authority.
+
+==================================================
 PR169 GOVERNED KNOWLEDGE ROLLBACK ORCHESTRATION ENGINE
 ==================================================
 

@@ -3,6 +3,12 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR175 offline pattern mining — ACTIVE
+
+- Architecture: `PR175`; module: `learning.pattern_mining`; component: Offline Pattern Mining Engine.
+- PR175 consumes an eligible PR174 policy report together with an immutable `ApprovedPatternMiningEvidenceEnvelope`; missing, inconsistent, or tampered evidence fails closed and is never inferred or synthesized.
+- It produces immutable, deterministic, advisory-only `CandidatePattern` artifacts and append-only mining reports. It has no learning, promotion, activation, Registry, Runtime, broker, execution, or evidence-creation authority.
+
 ## PR169 governed knowledge rollback orchestration — ACTIVE
 
 - Architecture: `PR169`; module: `learning.rollback_orchestration`; component: Governed Knowledge Rollback Orchestration Engine.
