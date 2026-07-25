@@ -14,3 +14,7 @@ philosophy. Until explicit approval of `docs/v28/V28_DECISION_PHILOSOPHY.md`
 and `docs/v28/V28_EXPECTANCY_FIRST_ARCHITECTURE_ADDENDUM.md`, no V28 runtime
 changes are authorized and no V27 filters, cooldowns, waits, score adjustments,
 patch stacks, or runtime layers may be introduced.
+
+## PR186 boundary
+
+PR186 Execution Readiness is governance-only and advisory-only. Emergency-patch authority may not use a readiness state to alter strategy, bias, direction, risk, decision publication, runtime activation, broker communication, position management, exits, or execution.

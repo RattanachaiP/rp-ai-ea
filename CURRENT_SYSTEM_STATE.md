@@ -298,3 +298,10 @@ PR179 follows PR178 as an offline, immutable governance-recording boundary. It o
 - PR180 owns canonical PR179 artifact verification, immutable packaging-policy and package identity, complete PR179 provenance retention, exact snapshot membership and source binding, replay verification, append-only package history, repository snapshots and integrity, and advisory-only packaging reports.
 - PR180 does not own knowledge use in Runtime decisions, selection, ranking, weighting, activation, inference, confidence, bias, scoring, direction, risk construction, decision publication, broker safety, `OrderSend`, position management, exit authority, or execution authority.
 - `ADVISORY_PACKAGE_PREPARED` means only that a canonical immutable package was prepared for a future separately governed stage. It does not mean selected, active, consumed, weighted, applied, approved for inference, tradable, or execution-authorized.
+
+## PR186 governed advisory Execution Readiness — IMPLEMENTED, PENDING ACCEPTANCE
+
+- Architecture: `PR186`; module: `learning.execution_readiness`; component: Governed Advisory Execution Readiness Engine.
+- The engine accepts only canonical PR185 Recommendation records, reports, and snapshots and verifies exact provenance, repository, snapshot, policy, replay, and lineage continuity.
+- Output states are `REJECTED`, `INSUFFICIENT_EXECUTION_READINESS`, and `EXECUTION_READY_FOR_ENVIRONMENT_CHECK`. Every state is advisory-only and grants no trading, publication, runtime, broker, or execution authority.
+- Readiness history is canonical, atomic, append-only, replay-safe, policy-partitioned, and protected by deterministic identities and a digest-linked snapshot chain under `learning_data/execution_readiness/`.

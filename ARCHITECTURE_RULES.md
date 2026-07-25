@@ -82,3 +82,15 @@ with `READY_FOR_DECISION`, `RECOMMENDATION_MANUAL_REVIEW` pairs only with
 `MANUAL_REVIEW`, and `RECOMMENDATION_NOT_READY` pairs only with `NOT_READY`.
 No PR185 state or classification means BUY, SELL, HOLD, publication authorization,
 or execution authorization.
+
+## PR186 governed advisory Execution Readiness rule
+
+**Rule #021 — Advisory Execution Readiness.** PR186 may consume only immutable,
+canonical PR185 Recommendation records, reports, or snapshots. It verifies exact
+repository, snapshot, provenance, policy, engine, replay, and historical-lineage
+partitions before producing immutable Execution Readiness evidence.
+`EXECUTION_READY_FOR_ENVIRONMENT_CHECK` means only that the advisory governance
+pipeline is internally complete and consistent for future PR187 environment
+assessment. It grants no strategy, bias, direction, risk, decision-publication,
+runtime-activation, broker, position-management, exit, `OrderSend`, or execution
+authority.
