@@ -3,6 +3,13 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR181 governed Runtime Knowledge Selection — ACTIVE
+
+- Architecture: `PR181`; module: `learning.runtime_selection`; component: Governed Runtime Knowledge Selector.
+- PR181 consumes only canonical PR180 packages, snapshots, and packaging reports, verifies their integrity, provenance, policy, snapshot membership, and repository binding, and applies one immutable deterministic eligibility policy.
+- It emits immutable advisory-only selections and reports into an atomic append-only, replay-safe repository with a chained snapshot history. `SELECTED` means only eligible for future PR182 Runtime Confidence evaluation; it never means applied, activated, tradable, execution-approved, or decision-published.
+- PR181 has no confidence scoring, weighting, learning, Registry mutation, Runtime behavior, decision-publication, broker, `OrderSend`, position-management, exit, or execution authority.
+
 ## PR175 offline pattern mining — ACTIVE
 
 - Architecture: `PR175`; module: `learning.pattern_mining`; component: Offline Pattern Mining Engine.
