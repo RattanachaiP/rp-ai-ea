@@ -44,11 +44,20 @@ promotion, validation, reason-severity, membership, lineage, and policy-partitio
 -> policy-bound weighted normalization, deterministic rounding, and advisory banding
 -> immutable `ConfidenceRecord` and `RuntimeConfidenceReport`
 -> atomic append-only confidence repository and source-context-bound snapshot history
--> future PR183 advisory decision-intelligence preparation (outside PR182 authority).
+-> future PR183 Governed Advisory Decision-Context Preparation (outside PR182 authority and blocked pending PR182.1 approval and merge).
 
 `CONFIDENCE_EVALUATED` means only that the evidence calculation completed. PR182
 does not activate or apply knowledge, rank it for trading, or control strategy,
 bias, direction, risk, decision publication, Runtime behavior, or execution.
+
+PR182.1 confirmed and remediated all four consolidated review findings. The
+PR180 -> PR181 -> PR182 path now carries and identity-binds the complete
+canonical upstream lineage, while eligibility/confidence records reconstruct
+their explicitly bound immutable parent artifacts fail-closed. Repository,
+snapshot, and report partitions include the inherited PR175 mining and PR177
+validation engine/policy/configuration dimensions. No Runtime activation or
+trading authority was added; PR183 remains unimplemented and blocked until
+PR182.1 is approved and merged.
 
 ## Runtime execution path (current)
 `bridge/ai_decision_engine_xauusd_v26_execution_confidence_engine.py`

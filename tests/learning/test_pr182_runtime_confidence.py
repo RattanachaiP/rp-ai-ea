@@ -121,29 +121,16 @@ def test_dimensions_weighted_score_reasons_band_and_recomputation(tmp_path):
     assert record.authority_scope == "ADVISORY_CONFIDENCE_ONLY"
 
 
-def test_insufficient_and_rejected_are_evidence_scored_not_fixed_mapping(tmp_path):
-    insufficient, _, evaluator = alternate_eligibility(
-        tmp_path / "insufficient", "INSUFFICIENT_SELECTION_EVIDENCE"
+def test_altered_upstream_state_without_canonical_parent_identity_fails_closed(tmp_path):
+    report, _, _ = governed_artifacts(tmp_path)
+    values = report.runtime_selections[0].identity_payload()
+    values.update(
+        source_validation_state="INSUFFICIENT_EVIDENCE",
+        selection_state="INSUFFICIENT_SELECTION_EVIDENCE",
+        selection_reasons=("VALIDATION_STATE_INSUFFICIENT",),
     )
-    insufficient_record = evaluator.evaluate_confidence(
-        insufficient
-    ).confidence_records[0]
-    assert insufficient_record.confidence_state == "INSUFFICIENT_CONFIDENCE_EVIDENCE"
-    assert 0.0 < insufficient_record.confidence_score < 1.0
-    assert any(
-        item.normalized_score not in (0.0, 1.0)
-        for item in insufficient_record.confidence_dimension_results
-    )
-
-    rejected, _, rejected_evaluator = alternate_eligibility(
-        tmp_path / "rejected", "REJECTED"
-    )
-    rejected_record = rejected_evaluator.evaluate_confidence(
-        rejected
-    ).confidence_records[0]
-    assert rejected_record.confidence_state == "REJECTED"
-    assert 0.0 < rejected_record.confidence_score < 1.0
-    assert rejected_record.confidence_score != insufficient_record.confidence_score
+    with pytest.raises(ValueError, match="INVALID_RUNTIME_KNOWLEDGE_SELECTION_PROVENANCE"):
+        KnowledgeEligibilityRecord.create(**values)
 
 
 def test_policy_behavior_changes_policy_and_record_identity(tmp_path):
@@ -252,6 +239,7 @@ def test_complete_standalone_provenance_is_retained(tmp_path):
     assert all(left == right for left, right in pairs)
     assert record.source_eligibility_reasons == source.selection_reasons
     assert record.source_promotion_reasons == source.source_promotion_reasons
+    assert KnowledgeEligibilityRecord(**record.eligibility_record_dict()) == source
 
 
 @pytest.mark.parametrize(
@@ -407,10 +395,8 @@ def test_repository_record_and_snapshot_corruption_codes(tmp_path):
     with pytest.raises(RuntimeConfidenceError, match="CORRUPT_CONFIDENCE_REPOSITORY"):
         evaluator.repository.records()
 
-    _, _, clean = governed_artifacts(tmp_path / "snapshot")
-    clean_result = clean.evaluate_confidence(
-        governed_artifacts(tmp_path / "snapshot")[0]
-    )
+    clean_report, _, clean = governed_artifacts(tmp_path / "snapshot")
+    clean_result = clean.evaluate_confidence(clean_report)
     snapshot_path = (
         clean.repository.snapshot_root / f"{clean_result.snapshot_uuid}.json"
     )
@@ -447,11 +433,9 @@ def test_repository_filename_collision_and_mixed_policy_partition(tmp_path):
 
 
 def test_mixed_pr181_and_upstream_partition_is_rejected(tmp_path):
-    report, _, evaluator = governed_artifacts(tmp_path)
+    report, repository, evaluator = governed_artifacts(tmp_path)
     evaluator.evaluate_confidence(report)
-    record, repository, _ = alternate_eligibility(
-        tmp_path / "alternate", "INSUFFICIENT_SELECTION_EVIDENCE"
-    )
+    record = report.runtime_selections[0]
     changed_values = record.identity_payload()
     changed_values.update(
         selector_version="PR181.changed",

@@ -1,6 +1,19 @@
 # RP TRADING GPT — VERSION CHANGELOG
 
 ==================================================
+PR182.1 GOVERNANCE PROVENANCE AND PARTITION INTEGRITY REMEDIATION
+==================================================
+
+Status: IMPLEMENTED — PENDING APPROVAL AND MERGE
+
+- **CONFIRMED finding 1:** PR181 retained only a reduced subset of canonical PR180 provenance. Eligibility records now retain all PR180 mining, evidence-envelope, memory, validation, promotion, Registry, package, timestamp, state, reason, statistics, threshold, and outcome-contract fields and reconstruct the bound canonical package fail-closed.
+- **CONFIRMED finding 2:** PR182 inherited the reduced PR181 lineage. Confidence records now retain the complete eligibility/upstream lineage and reconstruct the bound canonical eligibility record fail-closed.
+- **CONFIRMED finding 3:** downstream partitions omitted PR175 mining and PR177 validation dimensions. PR181 and PR182 records, reports, snapshots, repositories, deterministic UUIDs, and digests now bind their engine/policy/configuration identities.
+- **CONFIRMED finding 4:** authoritative documentation overstated complete retention. The current-state, flow-map, and changelog contracts are synchronized to the remediated source truth.
+- Replay, historical snapshot membership, snapshot chaining, and report accounting remain fail-closed and deterministic. No confidence formula changed.
+- PR182.1 adds no Runtime activation or trading authority and changes neither Runtime nor Executor behavior. PR183 is not implemented and remains blocked until PR182.1 is approved and merged.
+
+==================================================
 PR182 GOVERNED ADVISORY CONFIDENCE EVALUATION
 ==================================================
 

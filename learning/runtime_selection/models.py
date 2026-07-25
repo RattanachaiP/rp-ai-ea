@@ -1,8 +1,11 @@
 """Immutable, independently auditable PR181 advisory eligibility artifacts."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
+from learning.common.immutable import freeze, thaw
 from learning.pattern_memory.models import valid_digest, valid_timestamp, valid_uuid
+from learning.runtime_knowledge import RuntimeKnowledgePackage
 
 from .identity import digest, report_uuid, selection_uuid, snapshot_uuid
 
@@ -41,6 +44,13 @@ UPSTREAM_PARTITION_FIELDS = (
     "source_promotion_policy_uuid",
     "source_promotion_policy_digest",
     "source_promotion_policy_version",
+    "source_validator_version",
+    "source_validation_policy_version",
+    "source_validation_config_digest",
+    "source_mining_engine_version",
+    "source_mining_policy_uuid",
+    "source_mining_policy_version",
+    "source_mining_config_digest",
 )
 PARTITION_FIELDS = POLICY_PARTITION_FIELDS + UPSTREAM_PARTITION_FIELDS
 
@@ -79,6 +89,13 @@ class RuntimeKnowledgeSelection:
     source_promotion_policy_uuid: str
     source_promotion_policy_digest: str
     source_promotion_policy_version: str
+    source_validator_version: str
+    source_validation_policy_version: str
+    source_validation_config_digest: str
+    source_mining_engine_version: str
+    source_mining_policy_uuid: str
+    source_mining_policy_version: str
+    source_mining_config_digest: str
     source_registry_uuid: str
     source_registry_digest: str
     source_promotion_uuid: str
@@ -91,6 +108,26 @@ class RuntimeKnowledgeSelection:
     source_pattern_hash: str
     knowledge_uuid: str
     knowledge_version: str
+    memory_version: str
+    memory_state: str
+    source_report_uuid: str
+    source_policy_uuid: str
+    source_policy_version: str
+    source_attribution_uuid: str
+    source_digest: str
+    replay_digest: str
+    evidence_envelope_uuid: str
+    evidence_envelope_digest: str
+    source_engine_version: str
+    mining_config_digest: str
+    outcome_contract: tuple[str, str]
+    source_validation_statistics: Mapping
+    source_validated_at: str
+    source_validation_thresholds: Mapping
+    promotion_policy_thresholds: Mapping
+    threshold_monotonicity_result: str
+    source_promotion_created_at: str
+    source_registry_recorded_at: str
     source_runtime_package_state: str
     source_runtime_package_reasons: tuple[str, ...]
     source_registry_state: str
@@ -119,6 +156,17 @@ class RuntimeKnowledgeSelection:
         )
         for name in reason_fields:
             object.__setattr__(self, name, tuple(getattr(self, name)))
+        object.__setattr__(self, "outcome_contract", tuple(self.outcome_contract))
+        for name in (
+            "source_validation_statistics",
+            "source_validation_thresholds",
+            "promotion_policy_thresholds",
+        ):
+            object.__setattr__(self, name, freeze(thaw(getattr(self, name))))
+        try:
+            RuntimeKnowledgePackage(**self.runtime_package_dict())
+        except (TypeError, ValueError) as exc:
+            raise ValueError("INVALID_RUNTIME_KNOWLEDGE_SELECTION_PROVENANCE") from exc
         uuids = (
             self.selection_uuid,
             self.source_runtime_package_uuid,
@@ -132,6 +180,10 @@ class RuntimeKnowledgeSelection:
             self.source_memory_uuid,
             self.source_pattern_uuid,
             self.knowledge_uuid,
+            self.source_report_uuid,
+            self.source_policy_uuid,
+            self.source_attribution_uuid,
+            self.evidence_envelope_uuid,
             self.selection_policy_uuid,
         )
         digests = (
@@ -148,6 +200,11 @@ class RuntimeKnowledgeSelection:
             self.source_memory_digest,
             self.source_pattern_hash,
             self.selection_policy_digest,
+            self.source_validation_config_digest,
+            self.source_digest,
+            self.replay_digest,
+            self.evidence_envelope_digest,
+            self.mining_config_digest,
         )
         text_fields = (
             self.source_runtime_engine_version,
@@ -163,6 +220,13 @@ class RuntimeKnowledgeSelection:
             self.source_promotion_state,
             self.selection_policy_version,
             self.selector_version,
+            self.source_validator_version,
+            self.source_validation_policy_version,
+            self.memory_version,
+            self.memory_state,
+            self.source_policy_version,
+            self.source_engine_version,
+            self.threshold_monotonicity_result,
         )
         expected_reasons = self.expected_selection_reasons()
         if (
@@ -173,12 +237,35 @@ class RuntimeKnowledgeSelection:
             or self.selection_state not in SELECTION_STATES
             or self.selection_reasons != expected_reasons
             or self.selection_scope != SELECTION_SCOPE
+            or self.source_mining_engine_version != self.source_engine_version
+            or self.source_mining_policy_uuid != self.source_policy_uuid
+            or self.source_mining_policy_version != self.source_policy_version
+            or self.source_mining_config_digest != self.mining_config_digest
             or not valid_timestamp(self.created_at)
             or self.advisory_only is not True
             or selection_uuid(self.identity_payload()) != self.selection_uuid
             or digest(self.digest_payload()) != self.selection_digest
         ):
             raise ValueError("INVALID_RUNTIME_KNOWLEDGE_SELECTION")
+
+    def runtime_package_dict(self):
+        direct = {
+            "runtime_package_uuid": self.source_runtime_package_uuid,
+            "runtime_package_digest": self.source_runtime_package_digest,
+            "runtime_engine_version": self.source_runtime_engine_version,
+            "runtime_packaging_policy_uuid": self.source_runtime_packaging_policy_uuid,
+            "runtime_packaging_policy_digest": self.source_runtime_packaging_policy_digest,
+            "runtime_packaging_policy_version": self.source_runtime_packaging_policy_version,
+            "source_registry_recorded_at": self.source_registry_recorded_at,
+            "runtime_package_state": self.source_runtime_package_state,
+            "runtime_package_reasons": self.source_runtime_package_reasons,
+            "generated_at": self.created_at,
+            "advisory_only": True,
+        }
+        for name in RuntimeKnowledgePackage.__dataclass_fields__:
+            if name not in direct:
+                direct[name] = thaw(getattr(self, name))
+        return direct
 
     def expected_selection_reasons(self):
         hard = []
@@ -204,7 +291,7 @@ class RuntimeKnowledgeSelection:
 
     def identity_payload(self):
         return {
-            name: getattr(self, name)
+            name: thaw(getattr(self, name))
             for name in self.__dataclass_fields__
             if name not in {"selection_uuid", "selection_digest"}
         }
@@ -230,6 +317,13 @@ class RuntimeKnowledgeSelection:
             "selection_reasons",
         ):
             values[name] = tuple(values[name])
+        values["outcome_contract"] = tuple(values["outcome_contract"])
+        for name in (
+            "source_validation_statistics",
+            "source_validation_thresholds",
+            "promotion_policy_thresholds",
+        ):
+            values[name] = thaw(values[name])
         identity = selection_uuid(values)
         return cls(
             selection_uuid=identity,
@@ -258,6 +352,13 @@ class RuntimeKnowledgeSelectionSnapshot:
     source_promotion_policy_uuid: str
     source_promotion_policy_digest: str
     source_promotion_policy_version: str
+    source_validator_version: str
+    source_validation_policy_version: str
+    source_validation_config_digest: str
+    source_mining_engine_version: str
+    source_mining_policy_uuid: str
+    source_mining_policy_version: str
+    source_mining_config_digest: str
     source_runtime_snapshot_uuid: str
     source_runtime_snapshot_digest: str
     source_runtime_repository_digest: str
@@ -385,6 +486,13 @@ class RuntimeKnowledgeSelectionReport:
     source_promotion_policy_uuid: str
     source_promotion_policy_digest: str
     source_promotion_policy_version: str
+    source_validator_version: str
+    source_validation_policy_version: str
+    source_validation_config_digest: str
+    source_mining_engine_version: str
+    source_mining_policy_uuid: str
+    source_mining_policy_version: str
+    source_mining_config_digest: str
     runtime_selections: tuple[RuntimeKnowledgeSelection, ...]
     processed_package_count: int
     new_selection_count: int

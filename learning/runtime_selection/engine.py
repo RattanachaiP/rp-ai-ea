@@ -81,6 +81,26 @@ class RuntimeKnowledgeSelector:
                 source_pattern_hash=package.source_pattern_hash,
                 knowledge_uuid=package.knowledge_uuid,
                 knowledge_version=package.knowledge_version,
+                memory_version=package.memory_version,
+                memory_state=package.memory_state,
+                source_report_uuid=package.source_report_uuid,
+                source_policy_uuid=package.source_policy_uuid,
+                source_policy_version=package.source_policy_version,
+                source_attribution_uuid=package.source_attribution_uuid,
+                source_digest=package.source_digest,
+                replay_digest=package.replay_digest,
+                evidence_envelope_uuid=package.evidence_envelope_uuid,
+                evidence_envelope_digest=package.evidence_envelope_digest,
+                source_engine_version=package.source_engine_version,
+                mining_config_digest=package.mining_config_digest,
+                outcome_contract=package.outcome_contract,
+                source_validation_statistics=package.source_validation_statistics,
+                source_validated_at=package.source_validated_at,
+                source_validation_thresholds=package.source_validation_thresholds,
+                promotion_policy_thresholds=package.promotion_policy_thresholds,
+                threshold_monotonicity_result=package.threshold_monotonicity_result,
+                source_promotion_created_at=package.source_promotion_created_at,
+                source_registry_recorded_at=package.source_registry_recorded_at,
                 source_runtime_package_state=package.runtime_package_state,
                 source_runtime_package_reasons=package.runtime_package_reasons,
                 source_registry_state=package.source_registry_state,
@@ -366,6 +386,13 @@ class RuntimeKnowledgeSelector:
             "source_promotion_policy_uuid": first.source_promotion_policy_uuid,
             "source_promotion_policy_digest": first.source_promotion_policy_digest,
             "source_promotion_policy_version": first.source_promotion_policy_version,
+            "source_validator_version": first.source_validator_version,
+            "source_validation_policy_version": first.source_validation_policy_version,
+            "source_validation_config_digest": first.source_validation_config_digest,
+            "source_mining_engine_version": first.source_engine_version,
+            "source_mining_policy_uuid": first.source_policy_uuid,
+            "source_mining_policy_version": first.source_policy_version,
+            "source_mining_config_digest": first.mining_config_digest,
         }
         if any(
             tuple(self._package_partition(item)[name] for name in PARTITION_FIELDS[4:])
@@ -395,10 +422,20 @@ class RuntimeKnowledgeSelector:
 
     @classmethod
     def _package_partition(cls, package):
-        return {
+        partition = {
             cls._source_name(name): getattr(package, name)
             for name in PR180_PARTITION_FIELDS
         }
+        partition.update(
+            source_validator_version=package.source_validator_version,
+            source_validation_policy_version=package.source_validation_policy_version,
+            source_validation_config_digest=package.source_validation_config_digest,
+            source_mining_engine_version=package.source_engine_version,
+            source_mining_policy_uuid=package.source_policy_uuid,
+            source_mining_policy_version=package.source_policy_version,
+            source_mining_config_digest=package.mining_config_digest,
+        )
+        return partition
 
     def _classify(self, package):
         hard = []
