@@ -242,3 +242,9 @@ Participation restoration intentionally comes before scaling. Before increasing 
 - PR178 does **not** own Knowledge Registry publication or mutation, pattern approval, registration or activation, Runtime activation or mutation, decision publication, trading bias or direction, broker safety, `OrderSend`, position management, exit authority, or execution authority.
 - `POLICY_CRITERIA_MET` means only that the immutable PR178 governance-policy criteria were satisfied. It does not mean that a pattern has been promoted, published, registered, activated, approved for Runtime use, or made tradable.
 - Canonical PR178 defaults (`60` samples, `0.60` support, `0.55` confidence, and `0.05` expectancy) are independent governance selectivity thresholds, not trading-performance guarantees.
+
+## PR179 advisory Knowledge Registry admission — ACTIVE
+
+PR179 follows PR178 as an offline, immutable governance-recording boundary. It owns registry admission-policy identity, advisory registry-record identity, complete PR178 provenance retention, replay verification, append-only registry history, repository snapshots and integrity, and advisory-only reporting.
+
+`ADVISORY_ENTRY_RECORDED` means only that a governance record was added to the offline Knowledge Registry. It does not make a pattern active, approved for inference, approved for Runtime consumption, tradable, or execution-authorized. PR179 has no Runtime knowledge activation or consumption, inference, pattern activation, execution approval, trading bias or direction, decision publication, broker safety, `OrderSend`, position-management, exit, or execution authority.

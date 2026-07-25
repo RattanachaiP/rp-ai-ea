@@ -122,3 +122,9 @@ The neutral state `STATISTICALLY_CONSISTENT` is not pattern approval and never a
 - Added the offline, deterministic, immutable, advisory-only `learning.pattern_promotion` assessment boundary after PR177 and before a future separately governed Registry Admission stage.
 - Added exact source-artifact and snapshot binding, complete PR176/PR177 provenance retention, recursive statistics validation, anti-downgrade enforcement, explicit engine/policy identities, replay counts, append-only history, and policy-bound snapshot chains.
 - Canonical states are `REJECTED`, `INSUFFICIENT_PROMOTION_EVIDENCE`, and `POLICY_CRITERIA_MET`. The latter records criteria satisfaction only; it grants no publication, registration, activation, Runtime, trading, broker, position-management, exit, or execution authority.
+
+## PR179 — Governed Advisory Knowledge Registry Admission Engine
+
+Added `learning.knowledge_registry` after PR178 as an offline, immutable, append-only governance-recording stage. PR179 independently identifies its admission policy and engine, retains complete PR178 provenance, verifies replay and repository partitions, and creates deterministic advisory records and chained snapshots.
+
+`ADVISORY_ENTRY_RECORDED` means only that an offline governance record exists. It grants no Runtime consumption, inference, activation, trading, publication, broker, position-management, exit, or execution authority.
