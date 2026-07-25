@@ -3,6 +3,13 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR185 governed advisory Decision Recommendation — IMPLEMENTED, PENDING ACCEPTANCE
+
+- Architecture: `PR185`; module: `learning.decision_recommendation`; component: Governed Advisory Decision Recommendation Engine.
+- The engine consumes only immutable canonical PR184 Decision Intelligence records, reports, and snapshots, verifies repository, snapshot, provenance, and policy partitions, and produces immutable advisory Recommendation artifacts.
+- Output states are `REJECTED`, `INSUFFICIENT_RECOMMENDATION_EVIDENCE`, and `RECOMMENDATION_READY`; classifications are `READY_FOR_DECISION`, `NOT_READY`, `INSUFFICIENT_EVIDENCE`, `MANUAL_REVIEW`, and `REJECTED`. None is a trading decision or grants execution authority.
+- Recommendation history is canonical, atomic, append-only, replay-safe, policy-partitioned, and protected by deterministic identities and a digest-linked snapshot chain under `learning_data/decision_recommendation/`.
+
 ## PR184 governed advisory Decision Intelligence — IMPLEMENTED, PENDING ACCEPTANCE
 
 - Architecture: `PR184`; module: `learning.decision_intelligence`; component: Governed Advisory Decision Intelligence Engine.
