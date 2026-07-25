@@ -385,12 +385,12 @@ PR178 owns promotion-policy identity, criteria assessment, assessment identity, 
 
 ## PR179 advisory Knowledge Registry flow
 
-`PR176 Pattern Memory -> PR177 Pattern Validation -> PR178 Promotion Policy Assessment -> PR179 Advisory Knowledge Registry Admission -> future Governed Runtime Knowledge Consumption Gate`.
+`PR176 Pattern Memory -> PR177 Pattern Validation -> PR178 Promotion Policy Assessment -> PR179 Advisory Knowledge Registry Admission -> PR180 Advisory Runtime Knowledge Packaging -> future PR181 Governed Knowledge Selector`.
 
 PR179 records offline historical governance metadata only. It owns its admission-policy and record identities, complete PR178 provenance, replay checks, append-only history, snapshots, repository integrity, and advisory reports. It does not own Runtime activation or consumption, inference authority, pattern activation or execution approval, trading bias or direction, decision publication, broker safety, `OrderSend`, position management, exit authority, or execution authority. `ADVISORY_ENTRY_RECORDED` has no operational meaning.
 
-## PR180 governed Runtime Knowledge Consumption flow
+## PR180 governed advisory Runtime knowledge packaging flow
 
 `PR179 canonical Knowledge Registry -> registry/snapshot/repository/replay/governance verification -> immutable advisory RuntimeKnowledgePackage -> future PR181 selector`.
 
-PR180 is a fail-closed packaging boundary only. It reads no raw trades, mining, Pattern Memory, Pattern Validation, or Pattern Promotion repositories. It has no selection, ranking, weighting, activation, learning, confidence, bias, scoring, decision, risk, position-management, broker, or execution authority, and the existing Runtime Decision Engine remains unchanged.
+PR180 is a fail-closed verification and advisory packaging boundary only. It owns exact canonical PR179 report/record binding, historical snapshot membership verification, complete governance provenance retention, packaging-policy and package identities, replay verification, append-only history, and package-repository integrity. It reads no raw trades, mining, Pattern Memory, Pattern Validation, or Pattern Promotion repositories. It has no Runtime decision use, selection, ranking, weighting, activation, inference, confidence, bias, scoring, direction, risk, decision-publication, position-management, broker, exit, or execution authority, and the existing Runtime Decision Engine remains unchanged. `ADVISORY_PACKAGE_PREPARED` denotes preparation for a future separately governed stage only.

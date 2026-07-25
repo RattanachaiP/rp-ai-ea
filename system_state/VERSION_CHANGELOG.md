@@ -128,3 +128,9 @@ The neutral state `STATISTICALLY_CONSISTENT` is not pattern approval and never a
 Added `learning.knowledge_registry` after PR178 as an offline, immutable, append-only governance-recording stage. PR179 independently identifies its admission policy and engine, retains complete PR178 provenance, verifies replay and repository partitions, and creates deterministic advisory records and chained snapshots.
 
 `ADVISORY_ENTRY_RECORDED` means only that an offline governance record exists. It grants no Runtime consumption, inference, activation, trading, publication, broker, position-management, exit, or execution authority.
+
+## PR180 — Governed Advisory Runtime Knowledge Packaging Gate
+
+Added `learning.runtime_knowledge` after PR179 as a fail-closed verification and advisory packaging boundary. PR180 identifies its immutable packaging policy, reconstructs exact PR179 report or record sources, binds every record to a canonical registry snapshot, retains complete PR179 provenance, and writes deterministic packages and chained repository snapshots append-only.
+
+`ADVISORY_PACKAGE_PREPARED` means only that a canonical immutable package was prepared for a future separately governed selector. PR180 grants no Runtime decision use, selection, ranking, weighting, activation, inference, confidence, bias, scoring, direction, risk, decision-publication, broker, `OrderSend`, position-management, exit, or execution authority.

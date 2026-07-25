@@ -249,8 +249,10 @@ PR179 follows PR178 as an offline, immutable governance-recording boundary. It o
 
 `ADVISORY_ENTRY_RECORDED` means only that a governance record was added to the offline Knowledge Registry. It does not make a pattern active, approved for inference, approved for Runtime consumption, tradable, or execution-authorized. PR179 has no Runtime knowledge activation or consumption, inference, pattern activation, execution approval, trading bias or direction, decision publication, broker safety, `OrderSend`, position-management, exit, or execution authority.
 
-## PR180 governed Runtime Knowledge Consumption Gate — ACTIVE
+## PR180 Governed Advisory Runtime Knowledge Packaging Gate — ACTIVE
 
-- Architecture: `PR180`; module: `learning.runtime_knowledge`; component: Governed Runtime Knowledge Consumption Gate.
-- PR180 accepts only canonical PR179 `KnowledgeRegistryReport` and `RegistryRecord` artifacts, verifies their immutable repository snapshot, digest, replay, policy, engine, memory, and knowledge provenance, and fails closed on any mismatch.
-- It emits deterministic, immutable, advisory-only runtime packages, reports, and append-only snapshots under `learning_data/runtime_knowledge/`. It never selects, ranks, weights, activates, or learns from knowledge and cannot modify confidence, bias, scoring, decisions, risk, position management, broker safety, `OrderSend`, or execution.
+- Architecture: `PR180`; module: `learning.runtime_knowledge`; component: Governed Advisory Runtime Knowledge Packaging Gate.
+- Official lineage is `PR176 Pattern Memory -> PR177 Pattern Validation -> PR178 Promotion Policy Assessment -> PR179 Advisory Knowledge Registry Admission -> PR180 Advisory Runtime Knowledge Packaging -> future PR181 Governed Knowledge Selector`.
+- PR180 owns canonical PR179 artifact verification, immutable packaging-policy and package identity, complete PR179 provenance retention, exact snapshot membership and source binding, replay verification, append-only package history, repository snapshots and integrity, and advisory-only packaging reports.
+- PR180 does not own knowledge use in Runtime decisions, selection, ranking, weighting, activation, inference, confidence, bias, scoring, direction, risk construction, decision publication, broker safety, `OrderSend`, position management, exit authority, or execution authority.
+- `ADVISORY_PACKAGE_PREPARED` means only that a canonical immutable package was prepared for a future separately governed stage. It does not mean selected, active, consumed, weighted, applied, approved for inference, tradable, or execution-authorized.

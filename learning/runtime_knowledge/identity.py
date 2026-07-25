@@ -8,6 +8,7 @@ from uuid import UUID, uuid5
 RUNTIME_PACKAGE_NAMESPACE = UUID("9ae211f4-2992-59f0-aedd-6d2297d95ba5")
 RUNTIME_SNAPSHOT_NAMESPACE = UUID("605970ca-ee97-59bb-b7bf-a755ed35ad2d")
 RUNTIME_REPORT_NAMESPACE = UUID("aa8f1218-935a-5fa5-927b-8aad9c1b518d")
+RUNTIME_POLICY_NAMESPACE = UUID("d1897bea-e910-5bad-8649-f83493d33d55")
 
 
 def canonical_bytes(value):
@@ -32,3 +33,7 @@ def snapshot_uuid(value):
 
 def report_uuid(value):
     return identifier(RUNTIME_REPORT_NAMESPACE, value)
+
+
+def policy_uuid(value):
+    return identifier(RUNTIME_POLICY_NAMESPACE, value)
