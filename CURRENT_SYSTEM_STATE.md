@@ -214,3 +214,13 @@ Participation restoration intentionally comes before scaling. Before increasing 
 ## PR174 Governed Learning Policy Gate — ACTIVE
 - `learning.learning_policy` validates one immutable PR173 outcome-attribution report for structural and minimum-sample entry into a future offline pattern-mining stage.
 - It does not measure profitability, statistical stability, historical repeatability, or promotion eligibility, and has no runtime, registry, learning, mining, or promotion authority.
+
+## PR176 governed Pattern Memory — ACTIVE
+
+- Architecture: `PR176`; module: `learning.pattern_memory`; component: offline Pattern Memory Engine.
+- PR176 consumes only an immutable PR175 `PatternMiningReport`. Each stored record retains the complete report, policy, attribution, replay, evidence-envelope, knowledge, mining-configuration, and outcome-contract provenance chain.
+- One canonical governance identity derives both `memory_identity_digest` and the content-addressed memory UUID. A separate full-record digest protects all serialized record content. Records are append-only, replay-verifiable, advisory-only historical evidence.
+- `STORED` means persisted historical evidence only; it does not mean approved, promoted, activated, or runtime-active.
+- PR176 owns pattern history storage, memory identity, append-only persistence, immutable indexing, replay verification, and repository snapshot reporting.
+- PR176 does not own learning, pattern approval or promotion, activation, knowledge promotion, Registry mutation, Runtime mutation, decision publication, broker safety, `OrderSend`, position management, or execution authority.
+- Repository snapshots retain ordered memory UUID/digest pairs, counts, and previous-snapshot identity, providing an immutable append-only observation chain under `learning_data/pattern_memory/snapshots/`.
