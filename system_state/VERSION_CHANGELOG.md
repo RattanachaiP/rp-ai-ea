@@ -106,3 +106,7 @@ Added `learning.outcome_attribution` as an offline deterministic, advisory-only 
 
 ## PR174 — Governed Learning Policy Gate
 `learning.learning_policy` is an offline, immutable advisory structural and minimum-sample gate between PR173 attribution and a future pattern-mining stage. It does not assess profitability, statistical stability, historical repeatability, or promotion eligibility, and cannot mutate runtime or registry state.
+
+## PR176 — Pattern Memory Engine
+
+Added `learning.pattern_memory` as the governed offline historical-memory stage after PR175. It retains complete PR175 provenance in independently content-addressed records, validates UUID and full-record digest at the model/replay boundary, persists records append-only, exposes immutable historical indexes, and records chained repository snapshots. The `STORED` state denotes persistence only, never approval or runtime activation. PR176 has no learning, promotion, activation, Registry, Runtime, decision-publication, broker, `OrderSend`, position-management, or execution authority.

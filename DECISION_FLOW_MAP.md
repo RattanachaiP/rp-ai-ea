@@ -314,3 +314,24 @@ No V27 dashboard profile may mutate AI direction, bias, entry timing, signal gen
 ## PR175 offline pattern-mining flow
 
 `PR174 eligible policy report + content-addressed ApprovedPatternMiningEvidenceEnvelope (version + UUID + digest + policy/attribution/replay provenance + outcome contract + unique canonical samples) -> strict mining configuration + normalization -> deterministic grouping -> support/expectancy/confidence -> provenance-complete advisory CandidatePattern + envelope/config-bound PatternMiningReport -> future PR176 Pattern Memory.` Duplicate sample identities are forbidden and mining configuration is part of replay identity. PR175 never creates, modifies, infers, promotes, activates, or publishes Runtime evidence and has no Registry, broker, or execution authority.
+
+## PR176 offline Pattern Memory flow
+
+```text
+PR175 PatternMiningReport
+        |
+        v
+PR176 Pattern Memory validation
+        |-- full provenance retention
+        |-- canonical governance identity
+        |-- content-addressed memory UUID
+        |-- immutable full-record digest
+        |-- append-only persistence
+        |-- historical grouping indexes
+        `-- chained repository snapshot integrity
+        |
+        v
+Future governed validation/promotion stages
+```
+
+PR176 owns pattern history storage, memory identity, append-only persistence, immutable indexing, replay verification, and repository snapshot reporting. It does not own learning, pattern approval, pattern promotion, activation, knowledge promotion, Registry or Runtime mutation, decision publication, broker safety, `OrderSend`, position management, or execution authority. `STORED` is a persistence state only and never means runtime-active; Pattern Memory is historical evidence only.
