@@ -310,3 +310,7 @@ No V27 dashboard profile may mutate AI direction, bias, entry timing, signal gen
 
 ## PR173 / PR174 offline eligibility flow
 `Immutable evidence -> PR173 outcome attribution -> PR174 structural validation, identity/outcome/replay gates, and sample sufficiency -> immutable advisory eligibility report -> potential future offline pattern-mining stage.` PR174 performs no mining, learning, promotion, activation, registry, runtime, or broker action.
+
+## PR175 offline pattern-mining flow
+
+`PR174 eligible policy report + content-addressed ApprovedPatternMiningEvidenceEnvelope (version + UUID + digest + policy/attribution/replay provenance + outcome contract + unique canonical samples) -> strict mining configuration + normalization -> deterministic grouping -> support/expectancy/confidence -> provenance-complete advisory CandidatePattern + envelope/config-bound PatternMiningReport -> future PR176 Pattern Memory.` Duplicate sample identities are forbidden and mining configuration is part of replay identity. PR175 never creates, modifies, infers, promotes, activates, or publishes Runtime evidence and has no Registry, broker, or execution authority.
