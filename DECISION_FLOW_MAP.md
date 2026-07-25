@@ -424,3 +424,9 @@ PR180 is a fail-closed verification and advisory packaging boundary only. It own
 `PR180 Advisory Runtime Knowledge Packaging -> PR181 canonical source and exact snapshot-membership verification -> immutable advisory eligibility evidence and state -> future PR182 Governed Confidence Evaluation`.
 
 `evaluate_eligibility()` records advisory eligibility only. It does not activate, apply, weight, rank, score, or authorize Runtime knowledge. PR181 owns canonical source verification, exact snapshot membership, eligibility-policy identity, eligibility evidence and state retention, replay protection, append-only history, and repository/snapshot/report integrity. It never owns activation, application, confidence scoring, inference, trading bias, direction, risk, decision publication, broker safety, `OrderSend`, position management, exit authority, or execution.
+
+## PR182 / PR183 governed advisory Decision Context flow
+
+`PR181 Eligibility -> PR182 Confidence Evaluation -> PR183 canonical confidence provenance, repository, snapshot, and policy verification -> immutable advisory DecisionContext -> future PR184 Decision Intelligence Evaluation.`
+
+PR183 prepares context only. `CONTEXT_PREPARED` has no trading or operational meaning and cannot influence Market Analysis, strategy, bias, direction, risk, decision publication, Runtime or knowledge activation, broker safety, `OrderSend`, position management, exit authority, or execution. Only future PR184 may consume a `DecisionContext` to derive advisory Decision Intelligence.
