@@ -35,6 +35,21 @@ stacks, or runtime layers may be added under this directive.
 
 PR169 has no Runtime, broker, registry, activation, promotion, or version-mutation capability.
 
+## PR182 governed advisory confidence flow
+
+`PR181 canonical eligibility record / report / snapshot`
+-> exact provenance and historical eligibility-snapshot verification
+-> deterministic extraction of eligibility completeness, package, registry,
+promotion, validation, reason-severity, membership, lineage, and policy-partition evidence
+-> policy-bound weighted normalization, deterministic rounding, and advisory banding
+-> immutable `ConfidenceRecord` and `RuntimeConfidenceReport`
+-> atomic append-only confidence repository and source-context-bound snapshot history
+-> future PR183 advisory decision-intelligence preparation (outside PR182 authority).
+
+`CONFIDENCE_EVALUATED` means only that the evidence calculation completed. PR182
+does not activate or apply knowledge, rank it for trading, or control strategy,
+bias, direction, risk, decision publication, Runtime behavior, or execution.
+
 ## Runtime execution path (current)
 `bridge/ai_decision_engine_xauusd_v26_execution_confidence_engine.py`
 -> reads `market_state.json`
