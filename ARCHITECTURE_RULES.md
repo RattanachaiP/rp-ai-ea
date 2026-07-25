@@ -94,3 +94,14 @@ pipeline is internally complete and consistent for future PR187 environment
 assessment. It grants no strategy, bias, direction, risk, decision-publication,
 runtime-activation, broker, position-management, exit, `OrderSend`, or execution
 authority.
+
+## PR187 governed advisory Execution Environment Intelligence rule
+
+**Rule #022 — Advisory Execution Environment Intelligence.** PR187 may consume only
+immutable, canonical PR186 Execution Readiness records, reports, or snapshots. It
+verifies exact repository, snapshot, provenance, policy, engine, replay, and
+historical-lineage partitions before producing immutable environment-quality
+evidence. `ENVIRONMENT_READY_FOR_FEASIBILITY` means only that the environment
+assessment completed for future PR188 feasibility review. It grants no strategy,
+bias, direction, risk, publication, activation, broker, position-management, exit,
+`OrderSend`, or execution authority.
