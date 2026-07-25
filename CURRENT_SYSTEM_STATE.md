@@ -3,6 +3,13 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR182 governed advisory confidence evaluation — ACTIVE
+
+- Architecture: `PR182`; module: `learning.runtime_confidence`; component: Governed Advisory Confidence Evaluation Engine.
+- `evaluate_confidence()` accepts only canonical PR181 eligibility records, reports, and snapshots, verifies their provenance and exact repository membership, and emits immutable advisory confidence records and reports.
+- `CONFIDENCE_EVALUATED` means only that confidence was evaluated. PR182 never interprets its immutable score and has no selection, ranking, weighting, strategy, bias, direction, risk, decision-publication, Runtime activation, broker, position-management, or execution authority.
+- Confidence history is canonical, atomic, append-only, replay-safe, policy-partitioned, and protected by deterministic identities and a digest-linked snapshot chain under `learning_data/runtime_confidence/`.
+
 ## PR181 governed advisory knowledge eligibility — ACTIVE
 
 - Architecture: `PR181`; module: `learning.runtime_selection`; component: Governed Advisory Knowledge Eligibility Selector.

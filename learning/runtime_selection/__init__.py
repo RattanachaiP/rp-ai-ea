@@ -14,6 +14,12 @@ from .models import (
 from .policy import RuntimeKnowledgeSelectionPolicy
 from .repository import RuntimeKnowledgeSelectionRepository
 
+# Architecture-facing PR181 names consumed by PR182.  These are aliases, not
+# wrappers, so the confidence boundary can enforce exact canonical types.
+KnowledgeEligibilityRecord = RuntimeKnowledgeSelection
+KnowledgeEligibilityReport = RuntimeKnowledgeSelectionReport
+KnowledgeEligibilitySnapshot = RuntimeKnowledgeSelectionSnapshot
+
 __all__ = [
     "RuntimeKnowledgeSelector",
     "RuntimeKnowledgeSelection",
@@ -22,4 +28,7 @@ __all__ = [
     "RuntimeKnowledgeSelectionPolicy",
     "RuntimeKnowledgeSelectionRepository",
     "RuntimeKnowledgeSelectionError",
+    "KnowledgeEligibilityRecord",
+    "KnowledgeEligibilityReport",
+    "KnowledgeEligibilitySnapshot",
 ]
