@@ -430,3 +430,10 @@ PR180 is a fail-closed verification and advisory packaging boundary only. It own
 `PR181 Eligibility -> PR182 Confidence Evaluation -> PR183 canonical confidence provenance, repository, snapshot, and policy verification -> immutable advisory DecisionContext -> future PR184 Decision Intelligence Evaluation.`
 
 PR183 prepares context only. `CONTEXT_PREPARED` has no trading or operational meaning and cannot influence Market Analysis, strategy, bias, direction, risk, decision publication, Runtime or knowledge activation, broker safety, `OrderSend`, position management, exit authority, or execution. Only future PR184 may consume a `DecisionContext` to derive advisory Decision Intelligence.
+
+
+## PR184 governed advisory Decision Intelligence flow
+
+`PR183 Decision Context -> PR184 canonical provenance, repository, snapshot, policy, and engine verification -> immutable advisory Decision Intelligence -> future PR185 Decision Recommendation.`
+
+PR184's quality, reliability, consistency, and recommendation-review fields are advisory evidence only. `DECISION_INTELLIGENCE_READY` is not BUY, SELL, HOLD, trade approval, publication, activation, or execution approval. Only future PR185 may consume Decision Intelligence, and PR185 remains advisory-only.

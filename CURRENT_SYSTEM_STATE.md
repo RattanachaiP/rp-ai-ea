@@ -3,6 +3,13 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR184 governed advisory Decision Intelligence — IMPLEMENTED, PENDING ACCEPTANCE
+
+- Architecture: `PR184`; module: `learning.decision_intelligence`; component: Governed Advisory Decision Intelligence Engine.
+- The engine accepts only canonical PR183 Decision Context records, reports, and snapshots, verifies exact repository and snapshot provenance and policy partitions, and constructs immutable advisory Decision Intelligence with deterministic quality, reliability, consistency, and recommendation-review evidence.
+- `DECISION_INTELLIGENCE_READY` means only successful artifact construction for future PR185 review. It cannot publish or influence strategy, bias, direction, risk, trading decisions, Runtime, broker operations, position management, exits, or execution.
+- Intelligence history is canonical, atomic, append-only, replay-safe, policy-partitioned, and protected by deterministic identities and a digest-linked snapshot chain under `learning_data/decision_intelligence/`.
+
 ## PR183 governed advisory Decision Context — IMPLEMENTED, PENDING ACCEPTANCE
 
 - Architecture: `PR183`; module: `learning.decision_context`; component: Governed Advisory Decision Context Engine.
