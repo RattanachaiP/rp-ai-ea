@@ -248,3 +248,9 @@ Participation restoration intentionally comes before scaling. Before increasing 
 PR179 follows PR178 as an offline, immutable governance-recording boundary. It owns registry admission-policy identity, advisory registry-record identity, complete PR178 provenance retention, replay verification, append-only registry history, repository snapshots and integrity, and advisory-only reporting.
 
 `ADVISORY_ENTRY_RECORDED` means only that a governance record was added to the offline Knowledge Registry. It does not make a pattern active, approved for inference, approved for Runtime consumption, tradable, or execution-authorized. PR179 has no Runtime knowledge activation or consumption, inference, pattern activation, execution approval, trading bias or direction, decision publication, broker safety, `OrderSend`, position-management, exit, or execution authority.
+
+## PR180 governed Runtime Knowledge Consumption Gate — ACTIVE
+
+- Architecture: `PR180`; module: `learning.runtime_knowledge`; component: Governed Runtime Knowledge Consumption Gate.
+- PR180 accepts only canonical PR179 `KnowledgeRegistryReport` and `RegistryRecord` artifacts, verifies their immutable repository snapshot, digest, replay, policy, engine, memory, and knowledge provenance, and fails closed on any mismatch.
+- It emits deterministic, immutable, advisory-only runtime packages, reports, and append-only snapshots under `learning_data/runtime_knowledge/`. It never selects, ranks, weights, activates, or learns from knowledge and cannot modify confidence, bias, scoring, decisions, risk, position management, broker safety, `OrderSend`, or execution.

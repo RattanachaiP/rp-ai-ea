@@ -388,3 +388,9 @@ PR178 owns promotion-policy identity, criteria assessment, assessment identity, 
 `PR176 Pattern Memory -> PR177 Pattern Validation -> PR178 Promotion Policy Assessment -> PR179 Advisory Knowledge Registry Admission -> future Governed Runtime Knowledge Consumption Gate`.
 
 PR179 records offline historical governance metadata only. It owns its admission-policy and record identities, complete PR178 provenance, replay checks, append-only history, snapshots, repository integrity, and advisory reports. It does not own Runtime activation or consumption, inference authority, pattern activation or execution approval, trading bias or direction, decision publication, broker safety, `OrderSend`, position management, exit authority, or execution authority. `ADVISORY_ENTRY_RECORDED` has no operational meaning.
+
+## PR180 governed Runtime Knowledge Consumption flow
+
+`PR179 canonical Knowledge Registry -> registry/snapshot/repository/replay/governance verification -> immutable advisory RuntimeKnowledgePackage -> future PR181 selector`.
+
+PR180 is a fail-closed packaging boundary only. It reads no raw trades, mining, Pattern Memory, Pattern Validation, or Pattern Promotion repositories. It has no selection, ranking, weighting, activation, learning, confidence, bias, scoring, decision, risk, position-management, broker, or execution authority, and the existing Runtime Decision Engine remains unchanged.
