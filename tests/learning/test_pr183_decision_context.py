@@ -83,3 +83,210 @@ def test_snapshot_chain_and_context_replay(tmp_path):
         DecisionContextRepository(engine.repository.root)).construct_context(report)
     assert replay.snapshot_uuid == first.snapshot_uuid
     assert replay.repository_digest == first.repository_digest
+
+from uuid import uuid4
+
+from learning.decision_context.identity import digest, report_uuid
+from learning.decision_context.models import (
+    DecisionContext,
+    DecisionContextReport,
+    DecisionContextSnapshot,
+)
+from learning.runtime_confidence.identity import digest as confidence_digest
+from learning.runtime_confidence.identity import report_uuid as confidence_report_uuid
+
+
+def _invalid_context(context, **changes):
+    values = context.identity_payload()
+    values.update(changes)
+    with pytest.raises(ValueError, match="INVALID_DECISION_CONTEXT"):
+        DecisionContext.create(**values)
+
+
+def _invalid_snapshot(snapshot, **changes):
+    values = snapshot.identity_payload()
+    values.update(changes)
+    with pytest.raises(ValueError, match="INVALID_CONTEXT_SNAPSHOT"):
+        DecisionContextSnapshot.create(**values)
+
+
+def test_context_model_independently_enforces_policy_mapping_and_band(tmp_path):
+    report, _, engine = setup_engine(tmp_path)
+    context = engine.construct_context(report).decision_contexts[0]
+    for changes in (
+        {"context_policy_uuid": str(uuid4())},
+        {"context_policy_digest": "f" * 64},
+        {"context_policy_version": "PR183-CONTEXT-POLICY.9.9"},
+        {"context_engine_version": "PR183.9.9"},
+        {"context_state": "REJECTED"},
+        {"context_reason": "ARBITRARY_REASON"},
+        {"confidence_state": "UNKNOWN_CONFIDENCE"},
+        {"confidence_band": "EXTREME"},
+    ):
+        _invalid_context(context, **changes)
+
+
+def test_snapshot_model_enforces_all_governance_policy_fields(tmp_path):
+    report, _, engine = setup_engine(tmp_path)
+    engine.construct_context(report)
+    snapshot = engine.repository.latest_snapshot()
+    for changes in (
+        {"context_policy_uuid": str(uuid4())},
+        {"context_policy_digest": "f" * 64},
+        {"context_policy_version": "PR183-CONTEXT-POLICY.9.9"},
+        {"context_engine_version": "PR183.9.9"},
+        {"confidence_policy_uuid": str(uuid4())},
+        {"confidence_policy_digest": "e" * 64},
+        {"confidence_policy_version": "PR182-CONFIDENCE-POLICY.9.9"},
+        {"confidence_engine_version": "PR182.9.9"},
+    ):
+        _invalid_snapshot(snapshot, **changes)
+
+
+def test_canonical_artifact_reconstruction_from_dict(tmp_path):
+    report, _, engine = setup_engine(tmp_path)
+    context_report = engine.construct_context(report)
+    context = context_report.decision_contexts[0]
+    snapshot = engine.repository.latest_snapshot()
+    assert DecisionContext(**context.to_dict()) == context
+    assert DecisionContextSnapshot(**snapshot.to_dict()) == snapshot
+    assert DecisionContextReport(**context_report.to_dict()) == context_report
+
+
+def test_repository_filename_noncanonical_json_and_save_taxonomy(tmp_path):
+    report, _, engine = setup_engine(tmp_path)
+    context = engine.construct_context(report).decision_contexts[0]
+    repository = engine.repository
+    with pytest.raises(DecisionContextError, match="INVALID_DECISION_CONTEXT"):
+        repository.save(object())
+
+    original = repository.root / f"{context.context_uuid}.json"
+    mismatch = repository.root / f"{uuid4()}.json"
+    mismatch.write_bytes(original.read_bytes())
+    with pytest.raises(DecisionContextError, match="FILENAME_IDENTITY_MISMATCH"):
+        repository.records()
+    mismatch.unlink()
+
+    original.write_text(json.dumps(context.to_dict(), indent=2))
+    with pytest.raises(DecisionContextError, match="NONCANONICAL_DECISION_CONTEXT_JSON"):
+        repository.records()
+
+
+def test_same_identity_different_content_collision_and_mixed_policy(tmp_path):
+    report, _, engine = setup_engine(tmp_path)
+    context = engine.construct_context(report).decision_contexts[0]
+    path = engine.repository.root / f"{context.context_uuid}.json"
+    path.write_bytes(b"{}")
+    with pytest.raises(DecisionContextError, match="REPLAY_COLLISION"):
+        engine.repository.save(context)
+
+    clean_report, _, clean_engine = setup_engine(tmp_path / "mixed")
+    clean_engine.construct_context(clean_report)
+    stored = clean_engine.repository.records()[0]
+    object.__setattr__(stored, "context_policy_version", "FOREIGN_POLICY")
+    clean_engine.repository.records = lambda: (stored,)
+    with pytest.raises(DecisionContextError, match="POLICY_MISMATCH"):
+        clean_engine.construct_context(clean_report)
+
+
+def _chain_repository(tmp_path):
+    report, _, engine = setup_engine(tmp_path)
+    engine.construct_context(report)
+    return engine.repository, engine.repository.latest_snapshot()
+
+
+def test_snapshot_parent_uuid_and_digest_corruption_and_orphan(tmp_path):
+    for name, changes in (
+        ("uuid", {"previous_snapshot_uuid": str(uuid4()), "previous_snapshot_digest": "a" * 64}),
+        ("digest", {"previous_snapshot_digest": "b" * 64}),
+    ):
+        repository, root = _chain_repository(tmp_path / name)
+        values = root.identity_payload()
+        values.update(changes)
+        if name == "digest":
+            values["previous_snapshot_uuid"] = root.snapshot_uuid
+        child = DecisionContextSnapshot.create(**values)
+        repository.save_snapshot(child)
+        with pytest.raises(DecisionContextError, match="SNAPSHOT_MISMATCH"):
+            repository.latest_snapshot()
+
+
+def test_snapshot_cycle_multiple_heads_and_disconnected_orphan(tmp_path):
+    repository, root = _chain_repository(tmp_path / "cycle")
+    second_values = root.identity_payload()
+    second_values.update(generated_at="2026-07-25T00:00:01Z")
+    second = DecisionContextSnapshot.create(**second_values)
+    repository.save_snapshot(second)
+    with pytest.raises(DecisionContextError, match="SNAPSHOT_MISMATCH"):
+        repository.latest_snapshot()
+
+    cycle_repository, cycle_root = _chain_repository(tmp_path / "actual-cycle")
+    cycle_values = cycle_root.identity_payload()
+    cycle_values.update(
+        previous_snapshot_uuid=cycle_root.snapshot_uuid,
+        previous_snapshot_digest=cycle_root.snapshot_digest,
+        generated_at="2026-07-25T00:00:02Z",
+    )
+    cycle_child = DecisionContextSnapshot.create(**cycle_values)
+    object.__setattr__(cycle_root, "previous_snapshot_uuid", cycle_child.snapshot_uuid)
+    object.__setattr__(cycle_root, "previous_snapshot_digest", cycle_child.snapshot_digest)
+    cycle_repository.snapshots = lambda: (cycle_root, cycle_child)
+    with pytest.raises(DecisionContextError, match="SNAPSHOT_MISMATCH"):
+        cycle_repository.latest_snapshot()
+
+
+def test_confidence_record_uses_canonical_latest_snapshot(tmp_path):
+    confidence_report, confidence_repository, engine = setup_engine(tmp_path)
+    record = confidence_report.confidence_records[0]
+    first = confidence_repository.latest_snapshot()
+    values = first.identity_payload()
+    values.update(
+        previous_snapshot_uuid=first.snapshot_uuid,
+        previous_snapshot_digest=first.snapshot_digest,
+        generated_at="2026-07-25T00:00:03Z",
+    )
+    latest = type(first).create(**values)
+    confidence_repository.save_snapshot(latest)
+    output = engine.construct_context(record)
+    assert output.decision_contexts[0].confidence_snapshot_uuid == latest.snapshot_uuid
+
+
+def test_confidence_report_identity_digest_and_membership_fail_closed(tmp_path):
+    source_report, _, engine = setup_engine(tmp_path / "source")
+    object.__setattr__(source_report, "report_uuid", str(uuid4()))
+    with pytest.raises(DecisionContextError, match="BROKEN_PROVENANCE"):
+        engine.construct_context(source_report)
+
+    digest_report, _, digest_engine = setup_engine(tmp_path / "digest")
+    object.__setattr__(digest_report, "report_digest", "a" * 64)
+    with pytest.raises(DecisionContextError, match="BROKEN_PROVENANCE"):
+        digest_engine.construct_context(digest_report)
+
+    bound_report, repository, membership_engine = setup_engine(tmp_path / "bound")
+    foreign_report, foreign_repository, _ = setup_engine(tmp_path / "foreign")
+    foreign = foreign_report.confidence_records[0]
+    original_records = repository.records
+    canonical_latest = repository.latest_snapshot()
+    repository.records = lambda: original_records() + (foreign,)
+    repository.latest_snapshot = lambda: canonical_latest
+    values = bound_report.identity_payload()
+    values["confidence_records"] = [foreign.to_dict()]
+    values["processed_record_count"] = 1
+    values["new_confidence_record_count"] = 1
+    values["duplicate_confidence_record_count"] = 0
+    values["confidence_evaluated_count"] = int(foreign.confidence_state == "CONFIDENCE_EVALUATED")
+    values["insufficient_confidence_evidence_count"] = int(foreign.confidence_state == "INSUFFICIENT_CONFIDENCE_EVIDENCE")
+    values["rejected_count"] = int(foreign.confidence_state == "REJECTED")
+    object.__setattr__(bound_report, "confidence_records", (foreign,))
+    for name in (
+        "processed_record_count", "new_confidence_record_count",
+        "duplicate_confidence_record_count", "confidence_evaluated_count",
+        "insufficient_confidence_evidence_count", "rejected_count",
+    ):
+        object.__setattr__(bound_report, name, values[name])
+    identity_payload = bound_report.identity_payload()
+    identity = confidence_report_uuid(identity_payload)
+    object.__setattr__(bound_report, "report_uuid", identity)
+    object.__setattr__(bound_report, "report_digest", confidence_digest({"report_uuid": identity, **identity_payload}))
+    with pytest.raises(DecisionContextError, match="SNAPSHOT_MISMATCH"):
+        membership_engine.construct_context(bound_report)

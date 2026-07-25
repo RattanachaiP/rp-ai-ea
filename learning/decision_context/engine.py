@@ -1,6 +1,7 @@
 """Governed construction of advisory Decision Context; never a trading decision."""
 from learning.runtime_confidence import ConfidenceRecord, ConfidenceSnapshot, RuntimeConfidenceReport, RuntimeConfidenceRepository
 from learning.runtime_confidence.identity import digest as confidence_digest, report_uuid as confidence_report_uuid
+from learning.runtime_confidence.exceptions import RuntimeConfidenceError
 from .exceptions import DecisionContextError
 from .models import AUTHORITY_SCOPE, DecisionContext, DecisionContextReport, DecisionContextSnapshot
 from .policy import DecisionContextPolicy
@@ -48,17 +49,26 @@ class GovernedDecisionContextEngine:
     run = construct_context
 
     def _verify(self, source):
-        try: records = self.confidence_repository.records(); snapshots = self.confidence_repository.snapshots(); self.confidence_repository.latest_snapshot()
-        except Exception as exc: raise DecisionContextError("BROKEN_PROVENANCE") from exc
-        by_record = {x.confidence_uuid: x for x in records}; by_snapshot = {x.snapshot_uuid: x for x in snapshots}
+        try:
+            records = self.confidence_repository.records()
+            snapshots = self.confidence_repository.snapshots()
+            latest_snapshot = self.confidence_repository.latest_snapshot()
+        except (RuntimeConfidenceError, ValueError, OSError) as exc:
+            raise DecisionContextError("BROKEN_PROVENANCE") from exc
+        if latest_snapshot is None:
+            raise DecisionContextError("BROKEN_PROVENANCE")
+        by_record = {x.confidence_uuid: x for x in records}
+        by_snapshot = {x.snapshot_uuid: x for x in snapshots}
         def verify_record(item):
             try: valid = confidence_digest(item.digest_payload()) == item.confidence_digest
             except Exception: valid = False
             if by_record.get(item.confidence_uuid) != item or not valid: raise DecisionContextError("BROKEN_PROVENANCE")
         if type(source) is ConfidenceRecord:
-            verify_record(source); matches = [x for x in snapshots if (source.confidence_uuid, source.confidence_digest) in x.confidence_identities]
-            if not matches: raise DecisionContextError("SNAPSHOT_MISMATCH")
-            return (source,), matches[0], source.created_at
+            verify_record(source)
+            identity = (source.confidence_uuid, source.confidence_digest)
+            if identity not in latest_snapshot.confidence_identities:
+                raise DecisionContextError("SNAPSHOT_MISMATCH")
+            return (source,), latest_snapshot, source.created_at
         if type(source) is ConfidenceSnapshot:
             snapshot = by_snapshot.get(source.snapshot_uuid)
             if snapshot != source: raise DecisionContextError("SNAPSHOT_MISMATCH")
