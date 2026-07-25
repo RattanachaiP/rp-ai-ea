@@ -57,3 +57,13 @@ Risk Engine.
 ## RAIP V7 Executive Domain rule
 
 **Rule #018 — Executive decision preparation.** Every Executive Decision Package must be deterministic, explainable, fully traceable, and governance-approved before presentation. The Executive Domain is advisory-only and may not modify the Trading or Intelligence domains, runtime payloads, deployment, or learning behavior.
+
+## PR184 governed advisory Decision Intelligence rule
+
+**Rule #019 — Advisory Decision Intelligence.** PR184 may consume only immutable,
+canonical PR183 Decision Context records, reports, or snapshots. It verifies exact
+repository, snapshot, provenance, policy, and engine partitions before constructing
+immutable Decision Intelligence. `DECISION_INTELLIGENCE_READY` means only that the
+advisory artifact was constructed; it grants no strategy, bias, direction, risk,
+publication, activation, broker, position-management, exit, or execution authority.
+Only PR185 may consume PR184 Decision Intelligence.
