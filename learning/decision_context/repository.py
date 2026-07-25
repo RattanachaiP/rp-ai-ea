@@ -106,10 +106,31 @@ class DecisionContextRepository:
             raise DecisionContextError("SNAPSHOT_MISMATCH")
         head = current = heads[0]
         seen = set()
+        partition = (
+            head.context_policy_uuid,
+            head.context_policy_digest,
+            head.context_policy_version,
+            head.context_engine_version,
+            head.confidence_policy_uuid,
+            head.confidence_policy_digest,
+            head.confidence_policy_version,
+            head.confidence_engine_version,
+        )
         while True:
             if current.snapshot_uuid in seen:
                 raise DecisionContextError("SNAPSHOT_MISMATCH")
             seen.add(current.snapshot_uuid)
+            if (
+                current.context_policy_uuid,
+                current.context_policy_digest,
+                current.context_policy_version,
+                current.context_engine_version,
+                current.confidence_policy_uuid,
+                current.confidence_policy_digest,
+                current.confidence_policy_version,
+                current.confidence_engine_version,
+            ) != partition:
+                raise DecisionContextError("POLICY_MISMATCH")
             if current.previous_snapshot_uuid is None:
                 break
             previous = by_uuid.get(current.previous_snapshot_uuid)

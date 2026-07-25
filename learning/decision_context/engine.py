@@ -2,6 +2,7 @@
 from learning.runtime_confidence import ConfidenceRecord, ConfidenceSnapshot, RuntimeConfidenceReport, RuntimeConfidenceRepository
 from learning.runtime_confidence.identity import digest as confidence_digest, report_uuid as confidence_report_uuid
 from learning.runtime_confidence.exceptions import RuntimeConfidenceError
+from learning.pattern_memory.models import valid_digest, valid_uuid
 from .exceptions import DecisionContextError
 from .models import AUTHORITY_SCOPE, DecisionContext, DecisionContextReport, DecisionContextSnapshot
 from .policy import DecisionContextPolicy
@@ -21,6 +22,7 @@ class GovernedDecisionContextEngine:
     def construct_context(self, source):
         if type(source) not in (ConfidenceRecord, RuntimeConfidenceReport, ConfidenceSnapshot): raise DecisionContextError("INVALID_CONFIDENCE")
         records, snapshot, generated_at = self._verify(source)
+        self._verify_confidence_partition(records, snapshot)
         stored_contexts = self.repository.records()
         for stored in stored_contexts:
             if (stored.context_policy_uuid, stored.context_policy_digest,
@@ -47,6 +49,38 @@ class GovernedDecisionContextEngine:
         return DecisionContextReport.create(decision_contexts=tuple(contexts), processed_count=len(contexts), prepared_count=sum(x.context_state == "CONTEXT_PREPARED" for x in contexts), insufficient_count=sum(x.context_state == "INSUFFICIENT_CONTEXT_EVIDENCE" for x in contexts), rejected_count=sum(x.context_state == "REJECTED" for x in contexts), duplicate_count=duplicates, repository_digest=repository_digest, snapshot_uuid=context_snapshot.snapshot_uuid, snapshot_digest=context_snapshot.snapshot_digest, generated_at=generated_at, advisory_only=True)
 
     run = construct_context
+
+    @staticmethod
+    def _verify_confidence_partition(records, snapshot):
+        """Bind every selected record to the selected PR182 policy partition."""
+        if not records:
+            raise DecisionContextError("INVALID_CONFIDENCE")
+        expected = (
+            snapshot.confidence_policy_uuid,
+            snapshot.confidence_policy_digest,
+            snapshot.confidence_policy_version,
+            snapshot.confidence_engine_version,
+        )
+        if (
+            not valid_uuid(expected[0])
+            or not valid_digest(expected[1])
+            or not isinstance(expected[2], str)
+            or not expected[2]
+            or expected[2] != expected[2].strip()
+            or not isinstance(expected[3], str)
+            or not expected[3]
+            or expected[3] != expected[3].strip()
+        ):
+            raise DecisionContextError("POLICY_MISMATCH")
+        for record in records:
+            actual = (
+                record.confidence_policy_uuid,
+                record.confidence_policy_digest,
+                record.confidence_policy_version,
+                record.confidence_engine_version,
+            )
+            if actual != expected:
+                raise DecisionContextError("POLICY_MISMATCH")
 
     def _verify(self, source):
         try:

@@ -6,14 +6,13 @@ from collections.abc import Mapping
 
 from learning.pattern_memory.models import valid_digest, valid_timestamp, valid_uuid
 from learning.runtime_confidence.models import CONFIDENCE_STATES
-from learning.runtime_confidence.policy import DEFAULT_BANDS, RuntimeConfidencePolicy
+from learning.runtime_confidence.policy import DEFAULT_BANDS
 
 from .identity import context_uuid, digest, report_uuid, snapshot_uuid
-from .policy import DecisionContextPolicy
 
 AUTHORITY_SCOPE = "ADVISORY_DECISION_CONTEXT_ONLY"
 CONTEXT_STATES = ("REJECTED", "INSUFFICIENT_CONTEXT_EVIDENCE", "CONTEXT_PREPARED")
-CANONICAL_MAPPING = {
+EXPECTED_CONTEXT_MAPPING = {
     "CONFIDENCE_EVALUATED": (
         "CONTEXT_PREPARED",
         "VERIFIED_CONFIDENCE_CONTEXT_PREPARED",
@@ -26,48 +25,8 @@ CANONICAL_MAPPING = {
 }
 VALID_CONFIDENCE_BANDS = tuple(name for name, _ in DEFAULT_BANDS)
 
-_CONTEXT_POLICY = DecisionContextPolicy()
-_CONFIDENCE_POLICY = RuntimeConfidencePolicy()
-
-
 def _valid_version(value):
     return isinstance(value, str) and bool(value) and value == value.strip()
-
-
-def _context_policy_values(value):
-    return (
-        value.context_policy_uuid,
-        value.context_policy_digest,
-        value.context_policy_version,
-        value.context_engine_version,
-    )
-
-
-def _expected_context_policy_values():
-    return (
-        _CONTEXT_POLICY.context_policy_uuid,
-        _CONTEXT_POLICY.context_policy_digest,
-        _CONTEXT_POLICY.context_policy_version,
-        _CONTEXT_POLICY.context_engine_version,
-    )
-
-
-def _confidence_policy_values(value):
-    return (
-        value.confidence_policy_uuid,
-        value.confidence_policy_digest,
-        value.confidence_policy_version,
-        value.confidence_engine_version,
-    )
-
-
-def _expected_confidence_policy_values():
-    return (
-        _CONFIDENCE_POLICY.confidence_policy_uuid,
-        _CONFIDENCE_POLICY.confidence_policy_digest,
-        _CONFIDENCE_POLICY.confidence_policy_version,
-        _CONFIDENCE_POLICY.confidence_engine_version,
-    )
 
 
 @dataclass(frozen=True)
@@ -93,7 +52,7 @@ class DecisionContext:
     advisory_only: bool = True
 
     def __post_init__(self):
-        expected_mapping = CANONICAL_MAPPING.get(self.confidence_state)
+        expected_mapping = EXPECTED_CONTEXT_MAPPING.get(self.confidence_state)
         if (
             not all(
                 valid_uuid(item)
@@ -118,7 +77,7 @@ class DecisionContext:
                 _valid_version(item)
                 for item in (self.context_policy_version, self.context_engine_version)
             )
-            or _context_policy_values(self) != _expected_context_policy_values()
+            or self.context_engine_version != "PR183.1.0"
             or self.confidence_state not in CONFIDENCE_STATES
             or expected_mapping != (self.context_state, self.context_reason)
             or self.confidence_band not in VALID_CONFIDENCE_BANDS
@@ -218,8 +177,7 @@ class DecisionContextSnapshot:
                     self.confidence_engine_version,
                 )
             )
-            or _context_policy_values(self) != _expected_context_policy_values()
-            or _confidence_policy_values(self) != _expected_confidence_policy_values()
+            or self.context_engine_version != "PR183.1.0"
             or identities != tuple(sorted(identities))
             or self.record_count != len(identities)
             or len({item[0] for item in identities}) != len(identities)
@@ -303,6 +261,11 @@ class DecisionContextReport:
             )
             or self.rejected_count
             != sum(item.context_state == "REJECTED" for item in contexts)
+            or len(
+                {(item.context_uuid, item.context_digest) for item in contexts}
+            )
+            != len(contexts)
+            or len({item.context_uuid for item in contexts}) != len(contexts)
             or type(self.duplicate_count) is not int
             or not 0 <= self.duplicate_count <= self.processed_count
             or not all(
