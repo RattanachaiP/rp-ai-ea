@@ -335,3 +335,24 @@ Future governed validation/promotion stages
 ```
 
 PR176 owns pattern history storage, memory identity, append-only persistence, immutable indexing, replay verification, and repository snapshot reporting. It does not own learning, pattern approval, pattern promotion, activation, knowledge promotion, Registry or Runtime mutation, decision publication, broker safety, `OrderSend`, position management, or execution authority. `STORED` is a persistence state only and never means runtime-active; Pattern Memory is historical evidence only.
+
+## PR177 governed Pattern Validation flow
+
+```text
+PR176 Pattern Memory
+        |
+        v
+PR177 Pattern Validation
+        |-- complete provenance verification
+        |-- source replay and snapshot verification
+        |-- versioned historical-quality configuration
+        |-- statistical consistency classification
+        |-- domain-separated validation identity
+        |-- append-only validation history and snapshot chain
+        `-- immutable advisory-only reporting
+        |
+        v
+Future separately governed promotion stages
+```
+
+`STATISTICALLY_CONSISTENT` means only that the versioned PR177 historical checks passed. Statistical consistency is not pattern approval, and PR177 never authorizes runtime usage. PR177 owns historical validation, validation identity, replay verification, validation history, and repository reporting. It has no learning, approval, promotion, activation, Runtime or Registry mutation, decision-publication, broker-safety, `OrderSend`, position-management, or execution authority.
