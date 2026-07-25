@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from collections.abc import Mapping
 from learning.pattern_memory.models import valid_digest, valid_timestamp, valid_uuid
 from learning.decision_recommendation.models import RECOMMENDATION_STATES
-from learning.decision_recommendation.policy import DecisionRecommendationPolicy
 from .identity import digest, execution_readiness_uuid, report_uuid, snapshot_uuid
+from .policy import ExecutionReadinessPolicy
 
 AUTHORITY_SCOPE = "ADVISORY_EXECUTION_READINESS_ONLY"
 EXECUTION_READINESS_STATES = (
@@ -46,6 +46,7 @@ class ExecutionReadiness:
     advisory_only: bool = True
 
     def __post_init__(self):
+        readiness_policy = ExecutionReadinessPolicy()
         allowed = {
             "REJECTED": {("REJECTED", "RECOMMENDATION_REJECTED")},
             "INSUFFICIENT_RECOMMENDATION_EVIDENCE": {("INSUFFICIENT_EXECUTION_READINESS", "RECOMMENDATION_EVIDENCE_INSUFFICIENT")},
@@ -90,6 +91,8 @@ class ExecutionReadiness:
             != self.readiness_classification
             or self.readiness_policy_version != "PR186-EXECUTION_READINESS-POLICY.1.0"
             or self.readiness_engine_version != "PR186.1.0"
+            or self.readiness_policy_uuid != readiness_policy.readiness_policy_uuid
+            or self.readiness_policy_digest != readiness_policy.readiness_policy_digest
             or not valid_timestamp(self.created_at)
             or self.authority_scope != AUTHORITY_SCOPE
             or self.advisory_only is not True
@@ -148,7 +151,7 @@ class ExecutionReadinessSnapshot:
     advisory_only: bool = True
 
     def __post_init__(self):
-        recommendation_policy = DecisionRecommendationPolicy()
+        readiness_policy = ExecutionReadinessPolicy()
         ids = tuple(tuple(x) for x in self.readiness_identities)
         object.__setattr__(self, "readiness_identities", ids)
         prev = (
@@ -192,12 +195,10 @@ class ExecutionReadinessSnapshot:
             )
             or self.readiness_policy_version != "PR186-EXECUTION_READINESS-POLICY.1.0"
             or self.readiness_engine_version != "PR186.1.0"
+            or self.readiness_policy_uuid != readiness_policy.readiness_policy_uuid
+            or self.readiness_policy_digest != readiness_policy.readiness_policy_digest
             or self.recommendation_policy_version != "PR185-RECOMMENDATION-POLICY.1.0"
             or self.recommendation_engine_version != "PR185.1.0"
-            or self.recommendation_policy_uuid
-            != recommendation_policy.recommendation_policy_uuid
-            or self.recommendation_policy_digest
-            != recommendation_policy.recommendation_policy_digest
             or not valid_timestamp(self.generated_at)
             or self.authority_scope != AUTHORITY_SCOPE
             or self.advisory_only is not True
