@@ -443,3 +443,9 @@ PR184's quality, reliability, consistency, and recommendation-review fields are 
 `PR184 Decision Intelligence -> PR185 canonical provenance, repository, snapshot, policy, and engine verification -> immutable advisory Recommendation.`
 
 PR185 outputs `REJECTED`, `INSUFFICIENT_RECOMMENDATION_EVIDENCE`, or `RECOMMENDATION_READY`, classified as `READY_FOR_DECISION`, `NOT_READY`, `INSUFFICIENT_EVIDENCE`, `MANUAL_REVIEW`, or `REJECTED`. Every result remains advisory: it is not BUY, SELL, HOLD, a trading decision, or execution approval.
+
+## PR186 governed advisory Execution Readiness flow
+
+`PR185 Recommendation -> PR186 canonical provenance, repository, snapshot, policy, engine, replay, and lineage verification -> immutable advisory Execution Readiness -> future PR187 Execution Environment Intelligence.`
+
+`EXECUTION_READY_FOR_ENVIRONMENT_CHECK` confirms only internal advisory-pipeline completeness. It is not BUY, SELL, trade approval, decision publication, runtime activation, broker communication, `OrderSend`, or execution approval. PR187 may assess environment quality separately; execution authority remains exclusively in the MT5 Executor.
