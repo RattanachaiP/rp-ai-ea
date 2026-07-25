@@ -233,3 +233,12 @@ Participation restoration intentionally comes before scaling. Before increasing 
 - Validation records retain complete PR176 provenance and use a domain-separated validation UUID namespace. Reports identify the exact source artifact and distinguish newly appended validation history from duplicate replay.
 - The repository is atomic and append-only and maintains domain-separated, digest-protected snapshot chains. All records, reports, snapshots, policy/config identities, and source bindings are immutable and advisory-only.
 - PR177 owns historical validation, validation identity, replay verification, validation history, and repository reporting. It does not own learning, approval, promotion, activation, runtime mutation, Registry mutation, decision publication, broker safety, `OrderSend`, position management, or execution.
+
+## PR178 governed promotion policy assessment — ACTIVE
+
+- Architecture: `PR178`; module: `learning.pattern_promotion`; component: governed, offline Promotion Policy Assessment Engine.
+- Official lineage is `PR176 Pattern Memory -> PR177 Pattern Validation -> PR178 Promotion Policy Assessment -> future separately governed Registry Admission stage`.
+- PR178 owns promotion-policy identity, promotion-criteria assessment, promotion-assessment identity, replay verification, append-only assessment history, promotion-repository snapshots, and advisory-only assessment reporting.
+- PR178 does **not** own Knowledge Registry publication or mutation, pattern approval, registration or activation, Runtime activation or mutation, decision publication, trading bias or direction, broker safety, `OrderSend`, position management, exit authority, or execution authority.
+- `POLICY_CRITERIA_MET` means only that the immutable PR178 governance-policy criteria were satisfied. It does not mean that a pattern has been promoted, published, registered, activated, approved for Runtime use, or made tradable.
+- Canonical PR178 defaults (`60` samples, `0.60` support, `0.55` confidence, and `0.05` expectancy) are independent governance selectivity thresholds, not trading-performance guarantees.
