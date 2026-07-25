@@ -449,3 +449,11 @@ PR185 outputs `REJECTED`, `INSUFFICIENT_RECOMMENDATION_EVIDENCE`, or `RECOMMENDA
 `PR185 Recommendation -> PR186 canonical provenance, repository, snapshot, policy, engine, replay, and lineage verification -> immutable advisory Execution Readiness -> future PR187 Execution Environment Intelligence.`
 
 `EXECUTION_READY_FOR_ENVIRONMENT_CHECK` confirms only internal advisory-pipeline completeness. It is not BUY, SELL, trade approval, decision publication, runtime activation, broker communication, `OrderSend`, or execution approval. PR187 may assess environment quality separately; execution authority remains exclusively in the MT5 Executor.
+
+## PR187 governed advisory Execution Environment Intelligence flow
+
+`PR186 Execution Readiness -> PR187 canonical provenance, repository, snapshot, policy, engine, replay, and lineage verification -> immutable advisory Execution Environment -> future PR188 Execution Feasibility.`
+
+PR187 evaluates environment quality only. `ENVIRONMENT_READY_FOR_FEASIBILITY` is
+not BUY, SELL, trade approval, decision publication, runtime activation, broker
+communication, `OrderSend`, or execution approval.
