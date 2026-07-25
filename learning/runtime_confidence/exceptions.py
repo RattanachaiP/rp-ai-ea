@@ -1,2 +1,2 @@
 class RuntimeConfidenceError(Exception):
-    """A fail-closed PR182 boundary violation."""
+    """Deterministic fail-closed PR182 governance boundary error."""

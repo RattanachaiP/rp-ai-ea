@@ -3,11 +3,12 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
-## PR182 governed advisory confidence evaluation — ACTIVE
+## PR182 governed advisory confidence evaluation — IMPLEMENTED, PENDING ACCEPTANCE
 
 - Architecture: `PR182`; module: `learning.runtime_confidence`; component: Governed Advisory Confidence Evaluation Engine.
-- `evaluate_confidence()` accepts only canonical PR181 eligibility records, reports, and snapshots, verifies their provenance and exact repository membership, and emits immutable advisory confidence records and reports.
-- `CONFIDENCE_EVALUATED` means only that confidence was evaluated. PR182 never interprets its immutable score and has no selection, ranking, weighting, strategy, bias, direction, risk, decision-publication, Runtime activation, broker, position-management, or execution authority.
+- `evaluate_confidence()` accepts only canonical PR181 eligibility records, reports, and snapshots, resolves their exact historical snapshot membership, and evaluates nine explicit governance-evidence dimensions under a complete deterministic scoring policy.
+- Confidence records retain dimension states, raw values, normalized scores, weights, contributions, reasons, confidence bands, the complete PR181/upstream lineage, and exact source-artifact, repository, and snapshot bindings. No market-performance, profitability, expectancy, or execution evidence is invented.
+- `CONFIDENCE_EVALUATED` means only that the deterministic advisory calculation completed. PR182 does not activate or apply knowledge, rank knowledge for trading, or control strategy, bias, direction, risk, decision publication, Runtime behavior, broker operations, position management, or execution.
 - Confidence history is canonical, atomic, append-only, replay-safe, policy-partitioned, and protected by deterministic identities and a digest-linked snapshot chain under `learning_data/runtime_confidence/`.
 
 ## PR181 governed advisory knowledge eligibility — ACTIVE

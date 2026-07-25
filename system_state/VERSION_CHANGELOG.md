@@ -1,6 +1,16 @@
 # RP TRADING GPT — VERSION CHANGELOG
 
 ==================================================
+PR182 GOVERNED ADVISORY CONFIDENCE EVALUATION
+==================================================
+
+Status: IMPLEMENTED — PENDING ACCEPTANCE
+
+- Reworked confidence evaluation from eligibility-state translation into nine explicit immutable evidence dimensions with policy-bound weights, normalization, half-even rounding, reason ordering, and advisory confidence bands.
+- Added complete PR181 and upstream provenance retention, exact record/report/snapshot source binding, historical snapshot resolution, complete repository partitions, separated new/duplicate counters, replay collision protection, and source-context-bound confidence snapshot history.
+- `CONFIDENCE_EVALUATED` records calculation completion only. PR182 never activates, applies, ranks, or weights knowledge for trading and never controls strategy, bias, direction, risk, decision publication, broker operations, position management, or execution.
+
+==================================================
 PR181 GOVERNED ADVISORY KNOWLEDGE ELIGIBILITY SELECTOR
 ==================================================
 
