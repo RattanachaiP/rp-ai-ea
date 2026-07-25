@@ -1,6 +1,17 @@
 # RP TRADING GPT — VERSION CHANGELOG
 
 ==================================================
+PR181 GOVERNED ADVISORY KNOWLEDGE ELIGIBILITY SELECTOR
+==================================================
+
+Status: ACTIVE
+
+- Added `evaluate_eligibility()` as the canonical PR181 API for advisory eligibility recording; `select()` and `run()` remain compatibility aliases only.
+- Bound every immutable eligibility artifact to the complete PR180, Registry, and Promotion governance partition; full lineage UUID/digest pairs; source states/reasons; immutable PR181 policy UUID/digest/version; and exact canonical PR180 snapshot/repository identity.
+- Added deterministic historical package membership resolution, multi-reason eligibility classification, eligibility-specific states, complete source-bound reports and counters, and atomic append-only partitioned history with chained snapshots.
+- `ELIGIBLE_FOR_CONFIDENCE_EVALUATION` authorizes only future PR182 confidence evaluation. PR181 has no activation, application, ranking, weighting, confidence, inference, Runtime decision, broker, position, exit, or execution authority.
+
+==================================================
 PR175 OFFLINE PATTERN MINING ENGINE
 ==================================================
 

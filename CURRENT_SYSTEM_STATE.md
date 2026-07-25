@@ -3,12 +3,12 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
-## PR181 governed Runtime Knowledge Selection — ACTIVE
+## PR181 governed advisory knowledge eligibility — ACTIVE
 
-- Architecture: `PR181`; module: `learning.runtime_selection`; component: Governed Runtime Knowledge Selector.
-- PR181 consumes only canonical PR180 packages, snapshots, and packaging reports, verifies their integrity, provenance, policy, snapshot membership, and repository binding, and applies one immutable deterministic eligibility policy.
-- It emits immutable advisory-only selections and reports into an atomic append-only, replay-safe repository with a chained snapshot history. `SELECTED` means only eligible for future PR182 Runtime Confidence evaluation; it never means applied, activated, tradable, execution-approved, or decision-published.
-- PR181 has no confidence scoring, weighting, learning, Registry mutation, Runtime behavior, decision-publication, broker, `OrderSend`, position-management, exit, or execution authority.
+- Architecture: `PR181`; module: `learning.runtime_selection`; component: Governed Advisory Knowledge Eligibility Selector.
+- `evaluate_eligibility()` records advisory eligibility only. It consumes only canonical PR180 packages, snapshots, and packaging reports and retains their complete governance partition, lineage, evidence, and exact snapshot membership.
+- It emits immutable advisory-only eligibility artifacts and reports into an atomic append-only, replay-safe repository with chained snapshot history. `ELIGIBLE_FOR_CONFIDENCE_EVALUATION` means only eligible for future PR182 governed confidence evaluation; it never means active, applied, confidence-approved, decision-eligible, tradable, or execution-authorized.
+- PR181 owns canonical source verification, exact snapshot membership, eligibility-policy and state identity, evidence retention, replay protection, append-only history, and repository/report integrity. It has no activation, application, ranking, weighting, confidence scoring, inference, trading bias, direction, risk, Registry mutation, Runtime behavior, decision-publication, broker, `OrderSend`, position-management, exit, or execution authority.
 
 ## PR175 offline pattern mining — ACTIVE
 

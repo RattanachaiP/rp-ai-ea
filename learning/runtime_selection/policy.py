@@ -9,7 +9,7 @@ from .identity import digest, policy_uuid
 class RuntimeKnowledgeSelectionPolicy:
     selection_policy_version: str = "PR181-SELECTION-POLICY.1.0"
     runtime_selector_version: str = "PR181.1.0"
-    minimum_package_integrity: str = "ADVISORY_PACKAGE_PREPARED"
+    required_runtime_package_state: str = "ADVISORY_PACKAGE_PREPARED"
     required_registry_state: str = "ADVISORY_ENTRY_RECORDED"
     required_validation_state: str = "STATISTICALLY_CONSISTENT"
     required_promotion_state: str = "POLICY_CRITERIA_MET"
@@ -22,7 +22,7 @@ class RuntimeKnowledgeSelectionPolicy:
             "POLICY_CRITERIA_MET",
         )
         actual = (
-            self.minimum_package_integrity,
+            self.required_runtime_package_state,
             self.required_registry_state,
             self.required_validation_state,
             self.required_promotion_state,

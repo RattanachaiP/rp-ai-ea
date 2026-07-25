@@ -1,4 +1,8 @@
-"""PR181 governed advisory Runtime knowledge selection public API."""
+"""PR181 governed advisory knowledge eligibility public API.
+
+``evaluate_eligibility()`` records advisory eligibility only. It does not
+activate, apply, weight, rank, score, or authorize Runtime knowledge.
+"""
 
 from .engine import RuntimeKnowledgeSelector
 from .exceptions import RuntimeKnowledgeSelectionError
