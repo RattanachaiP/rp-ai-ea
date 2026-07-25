@@ -76,3 +76,9 @@ repository, snapshot, provenance, policy, and engine partitions before construct
 immutable Recommendation. Recommendation states and classifications are advisory evidence
 only: they are not trading decisions and grant no strategy, bias, direction, risk,
 publication, activation, broker, position-management, exit, or execution authority.
+
+PR185 state/classification pairs are unambiguous: `RECOMMENDATION_READY` pairs only
+with `READY_FOR_DECISION`, `RECOMMENDATION_MANUAL_REVIEW` pairs only with
+`MANUAL_REVIEW`, and `RECOMMENDATION_NOT_READY` pairs only with `NOT_READY`.
+No PR185 state or classification means BUY, SELL, HOLD, publication authorization,
+or execution authorization.

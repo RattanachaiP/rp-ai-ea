@@ -63,8 +63,16 @@ class DecisionRecommendationRepository:
                 raise DecisionRecommendationError(f"INVALID_{label}_FILENAME")
             try:
                 item = model(**json.loads(path.read_text()))
-            except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
-                raise DecisionRecommendationError(f"CORRUPT_{label}_REPOSITORY") from exc
+            except (
+                OSError,
+                ValueError,
+                TypeError,
+                KeyError,
+                json.JSONDecodeError,
+            ) as exc:
+                raise DecisionRecommendationError(
+                    f"CORRUPT_{label}_REPOSITORY"
+                ) from exc
             if getattr(item, identity_field) != path.stem:
                 raise DecisionRecommendationError(f"{label}_FILENAME_IDENTITY_MISMATCH")
             if path.read_bytes() != canonical_bytes(item.to_dict()):
@@ -73,7 +81,12 @@ class DecisionRecommendationRepository:
         return tuple(output)
 
     def records(self):
-        return self._load(self.root, DecisionRecommendation, "DECISION_RECOMMENDATION", "recommendation_uuid")
+        return self._load(
+            self.root,
+            DecisionRecommendation,
+            "DECISION_RECOMMENDATION",
+            "recommendation_uuid",
+        )
 
     def snapshots(self):
         return self._load(
@@ -85,7 +98,8 @@ class DecisionRecommendationRepository:
 
     def identities(self):
         return tuple(
-            (item.recommendation_uuid, item.recommendation_digest) for item in self.records()
+            (item.recommendation_uuid, item.recommendation_digest)
+            for item in self.records()
         )
 
     def digest(self):

@@ -11,7 +11,9 @@ POLICY_NAMESPACE = UUID("f1850004-0000-5000-8000-000000000004")
 
 
 def canonical_bytes(value):
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode()
 
 
 def digest(value):
@@ -22,7 +24,17 @@ def _uuid(namespace, value):
     return str(uuid5(namespace, digest(value)))
 
 
-def recommendation_uuid(value): return _uuid(RECORD_NAMESPACE, value)
-def snapshot_uuid(value): return _uuid(SNAPSHOT_NAMESPACE, value)
-def report_uuid(value): return _uuid(REPORT_NAMESPACE, value)
-def policy_uuid(value): return _uuid(POLICY_NAMESPACE, value)
+def recommendation_uuid(value):
+    return _uuid(RECORD_NAMESPACE, value)
+
+
+def snapshot_uuid(value):
+    return _uuid(SNAPSHOT_NAMESPACE, value)
+
+
+def report_uuid(value):
+    return _uuid(REPORT_NAMESPACE, value)
+
+
+def policy_uuid(value):
+    return _uuid(POLICY_NAMESPACE, value)
