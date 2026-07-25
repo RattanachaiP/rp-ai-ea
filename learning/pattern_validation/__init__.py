@@ -1,8 +1,9 @@
-"""Canonical public API for governed historical pattern validation."""
+"""Canonical PR177 historical-consistency API."""
 from .engine import PatternValidationEngine
 from .exceptions import PatternValidationError
-from .models import PatternValidationReport, ValidationRecord
+from .models import (PatternValidationReport, PatternValidationSnapshot, ValidationConfig,
+                     ValidationRecord)
 from .repository import PatternValidationRepository
 
 __all__ = ["PatternValidationEngine", "PatternValidationRepository", "PatternValidationReport",
-           "PatternValidationError", "ValidationRecord"]
+           "PatternValidationError", "PatternValidationSnapshot", "ValidationConfig", "ValidationRecord"]

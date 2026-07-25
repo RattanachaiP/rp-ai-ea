@@ -110,3 +110,9 @@ Added `learning.outcome_attribution` as an offline deterministic, advisory-only 
 ## PR176 — Pattern Memory Engine
 
 Added `learning.pattern_memory` as the governed offline historical-memory stage after PR175. It retains complete PR175 provenance in independently content-addressed records, validates UUID and full-record digest at the model/replay boundary, persists records append-only, exposes immutable historical indexes, and records chained repository snapshots. The `STORED` state denotes persistence only, never approval or runtime activation. PR176 has no learning, promotion, activation, Registry, Runtime, decision-publication, broker, `OrderSend`, position-management, or execution authority.
+
+## PR177 — Governed Pattern Validation Engine
+
+Added `learning.pattern_validation` after PR176 Pattern Memory as an offline, immutable, fail-closed verification stage. PR177 reconstructs source memory records, retains complete PR176 provenance, binds reports to the exact source artifact and snapshot, and applies a versioned canonical historical-quality policy whose digest participates in domain-separated record and report identities. Replay distinguishes new history from duplicates, while atomic append-only persistence is protected by a chained validation snapshot history.
+
+The neutral state `STATISTICALLY_CONSISTENT` is not pattern approval and never authorizes runtime use. PR177 owns historical validation, validation identity, replay verification, validation history, and repository reporting only. It does not own learning, approval, promotion, activation, Runtime or Registry mutation, decision publication, broker safety, `OrderSend`, position management, or execution.

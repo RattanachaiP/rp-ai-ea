@@ -224,3 +224,12 @@ Participation restoration intentionally comes before scaling. Before increasing 
 - PR176 owns pattern history storage, memory identity, append-only persistence, immutable indexing, replay verification, and repository snapshot reporting.
 - PR176 does not own learning, pattern approval or promotion, activation, knowledge promotion, Registry mutation, Runtime mutation, decision publication, broker safety, `OrderSend`, position management, or execution authority.
 - Repository snapshots retain ordered memory UUID/digest pairs, counts, and previous-snapshot identity, providing an immutable append-only observation chain under `learning_data/pattern_memory/snapshots/`.
+
+## PR177 governed Pattern Validation — ACTIVE
+
+- Architecture: `PR177`; module: `learning.pattern_validation`; component: Governed Pattern Validation Engine.
+- PR177 consumes only immutable PR176 `PatternMemoryReport` and `PatternMemoryRecord` artifacts. It reconstructs every record, verifies complete upstream provenance, source replay and snapshot binding, and applies a versioned, digest-bound historical-quality configuration.
+- Outputs use the neutral states `INVALID`, `INSUFFICIENT_EVIDENCE`, and `STATISTICALLY_CONSISTENT`. Statistical consistency is **not** pattern approval, and PR177 never authorizes runtime usage.
+- Validation records retain complete PR176 provenance and use a domain-separated validation UUID namespace. Reports identify the exact source artifact and distinguish newly appended validation history from duplicate replay.
+- The repository is atomic and append-only and maintains domain-separated, digest-protected snapshot chains. All records, reports, snapshots, policy/config identities, and source bindings are immutable and advisory-only.
+- PR177 owns historical validation, validation identity, replay verification, validation history, and repository reporting. It does not own learning, approval, promotion, activation, runtime mutation, Registry mutation, decision publication, broker safety, `OrderSend`, position management, or execution.
