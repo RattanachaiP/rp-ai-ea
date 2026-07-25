@@ -38,7 +38,7 @@ def build(rows: tuple[dict[str, Any], ...], envelope: ApprovedPatternMiningEvide
                     "config": config.to_dict(), **{x: group[x] for x in ("market_context", "entry_context", "exit_context", "risk_context")}, **stats}
         digest = sha256(canonical(identity).encode()).hexdigest()
         patterns.append(CandidatePattern(str(uuid5(_NAMESPACE, digest)), digest, envelope.policy_uuid, envelope.policy_version,
-                        envelope.source_attribution_uuid, envelope.replay_digest, engine_version, envelope.knowledge_uuid,
+                        envelope.source_attribution_uuid, envelope.source_digest, envelope.replay_digest, engine_version, envelope.knowledge_uuid,
                         envelope.knowledge_version, envelope.outcome_contract, signature, group["market_context"], group["entry_context"],
                         group["exit_context"], group["risk_context"], **stats, created_at=envelope.generated_at, advisory_only=True))
     return tuple(patterns)

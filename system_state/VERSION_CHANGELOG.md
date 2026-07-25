@@ -7,8 +7,9 @@ PR175 OFFLINE PATTERN MINING ENGINE
 Status: ACTIVE
 
 * Added `learning.pattern_mining` as the deterministic offline pattern discovery boundary after PR174.
-* Mining requires immutable sample-level `ApprovedPatternMiningEvidenceEnvelope` evidence; absent, tampered, mixed-lineage, or conflicting evidence fails closed and synthetic outcomes are forbidden.
-* Outputs are immutable, provenance-complete, advisory-only `CandidatePattern` artifacts and atomic append-only reports. PR175 has no learning, promotion, activation, Registry, Runtime, broker, execution, or evidence-generation authority.
+* Mining requires a content-addressed, versioned `ApprovedPatternMiningEvidenceEnvelope` whose deterministic UUID/digest binds canonically ordered unique samples, sample count, policy, attribution, replay, and outcome provenance. Duplicate identities, absent evidence, tampering, and mixed lineage fail closed.
+* Strict feature/context allowlists, normalization rules, and the mining-config digest are part of replay identity. Candidates retain complete source provenance and reports bind the exact envelope and configuration.
+* Outputs are immutable advisory-only `CandidatePattern` artifacts and atomic append-only reports. PR175 never creates, modifies, infers, promotes, activates, or publishes Runtime evidence and has no Registry, broker, or execution authority.
 
 ==================================================
 PR169 GOVERNED KNOWLEDGE ROLLBACK ORCHESTRATION ENGINE

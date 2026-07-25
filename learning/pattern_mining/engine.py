@@ -48,16 +48,23 @@ class PatternMiningEngine:
             raise PatternMiningError(labels[next(i for i, pair in enumerate(zip(actual, expected)) if pair[0] != pair[1])])
         if tuple(summary["outcome_contract"]) != evidence.outcome_contract:
             raise PatternMiningError("MIXED_OUTCOME_CONTRACT")
-        if len(evidence.approved_samples) != policy.sample_count:
+        if evidence.sample_count != policy.sample_count or evidence.sample_count != len(evidence.approved_samples):
             raise PatternMiningError("INVALID_STATISTICS")
         patterns = build(extract(evidence, self.config), evidence, self.config, self.engine_version)
+        config = self.config.to_dict()
+        config_digest = sha256(canonical(config).encode()).hexdigest()
         statistics = {"sample_count": sum(x.sample_count for x in patterns), "win_count": sum(x.win_count for x in patterns),
                       "loss_count": sum(x.loss_count for x in patterns), "neutral_count": sum(x.neutral_count for x in patterns),
-                      "engine_version": self.engine_version}
+                      "pattern_count": len(patterns), "evidence_sample_count": evidence.sample_count,
+                      "engine_version": self.engine_version, "mining_config_digest": config_digest}
         identity = {"engine_version": self.engine_version, "policy_uuid": policy.policy_uuid,
-                    "patterns": [x.to_dict() for x in patterns], "statistics_summary": statistics}
+                    "evidence_envelope_uuid": evidence.envelope_uuid, "evidence_envelope_digest": evidence.envelope_digest,
+                    "candidate_patterns": [x.to_dict() for x in patterns], "statistics_summary": statistics,
+                    "mining_config": config, "mining_config_digest": config_digest}
         report = PatternMiningReport(str(uuid5(_NAMESPACE, sha256(canonical(identity).encode()).hexdigest())), policy.policy_uuid,
-                                     self.engine_version, patterns, len(patterns), statistics, evidence.generated_at, True)
+                                     self.engine_version, evidence.envelope_uuid, evidence.envelope_digest,
+                                     evidence.source_attribution_uuid, evidence.source_digest, evidence.replay_digest,
+                                     config, config_digest, patterns, len(patterns), statistics, evidence.generated_at, True)
         if self._repository: self._repository.save(report)
         return report
 

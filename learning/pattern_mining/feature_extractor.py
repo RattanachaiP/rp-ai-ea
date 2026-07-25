@@ -1,6 +1,7 @@
 """Deterministic normalization of upstream-approved sample evidence."""
 from __future__ import annotations
 
+from math import isfinite
 from typing import Any, Mapping
 
 from .exceptions import PatternMiningError
@@ -15,11 +16,23 @@ def _normalize(mapping: Mapping[str, Any], allowed: tuple[str, ...], config: Pat
     for key, value in sorted(mapping.items()):
         if key.lower() in excluded or (permitted and key not in permitted):
             continue
-        if key.lower() == "rsi" and isinstance(value, (int, float)) and not isinstance(value, bool):
+        if not _safe(value):
+            raise PatternMiningError("INVALID_NORMALIZED_FEATURE_VALUE")
+        if key.lower() == "rsi":
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value):
+                raise PatternMiningError("INVALID_NORMALIZED_FEATURE_VALUE")
             low, high = config.rsi_bucket_boundaries
             value = "OVERSOLD" if value < low else "OVERBOUGHT" if value > high else "NEUTRAL"
         result[key] = value
     return result
+
+
+def _safe(value: Any) -> bool:
+    if value is None or isinstance(value, (str, bool)): return True
+    if isinstance(value, (int, float)): return not isinstance(value, bool) and isfinite(value)
+    if isinstance(value, (tuple, list)): return all(_safe(item) for item in value)
+    if isinstance(value, Mapping): return all(isinstance(key, str) and _safe(item) for key, item in value.items())
+    return False
 
 
 def extract(envelope: ApprovedPatternMiningEvidenceEnvelope, config: PatternMiningConfig) -> tuple[dict[str, Any], ...]:
@@ -29,8 +42,10 @@ def extract(envelope: ApprovedPatternMiningEvidenceEnvelope, config: PatternMini
     rows = []
     for sample in envelope.approved_samples:
         payload = canonical(sample.to_dict())
-        if sample.sample_uuid in identities and identities[sample.sample_uuid] != payload:
-            raise PatternMiningError("DUPLICATE_CONFLICTING_IDENTITY")
+        if sample.sample_uuid in identities:
+            if identities[sample.sample_uuid] != payload:
+                raise PatternMiningError("DUPLICATE_CONFLICTING_IDENTITY")
+            raise PatternMiningError("DUPLICATE_EVIDENCE_IDENTITY")
         identities[sample.sample_uuid] = payload
         features = _normalize(sample.features, config.allowed_feature_fields, config)
         if not features:
