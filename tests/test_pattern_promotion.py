@@ -1,112 +1,198 @@
+"""PR176 -> PR177 -> PR178 governance and corruption tests."""
 from dataclasses import replace
 import json
+from pathlib import Path
+import sys
 from uuid import uuid4
-
 import pytest
 
+sys.path.insert(0, str(Path(__file__).parent / "learning"))
+from test_pr176_pattern_memory import mining_report
+
+from learning.pattern_memory import PatternMemoryEngine, PatternMemoryRepository
 from learning.pattern_promotion import (PatternPromotionEngine, PatternPromotionError,
-    PatternPromotionRepository, PromotionPolicy)
-from learning.pattern_promotion.identity import digest
-from learning.pattern_validation.models import PatternValidationReport, ValidationRecord
+    PatternPromotionRepository, PromotionPolicy, PromotionRecord)
+from learning.pattern_validation import (PatternValidationEngine, PatternValidationRepository,
+                                         ValidationConfig, ValidationRecord)
+from learning.pattern_validation.identity import digest as validation_digest
 
 
-def validation_record(state="STATISTICALLY_CONSISTENT", **statistics):
-    identifier = lambda: str(uuid4())
-    hashes = lambda: "a" * 64
-    stats = {"sample_count": 50, "support": .8, "confidence": .7, "expectancy": .2,
-             "thresholds": {}}
-    stats.update(statistics)
-    return ValidationRecord.create(validator_version="PR177.2.0",
-        validation_policy_version="PR177-POLICY.1.0", validation_config_digest=hashes(),
-        source_memory_uuid=identifier(), source_memory_digest=hashes(),
-        source_pattern_uuid=identifier(), source_pattern_hash=hashes(), source_report_uuid=identifier(),
-        policy_uuid=identifier(), policy_version="PR174", source_attribution_uuid=identifier(),
-        source_digest=hashes(), replay_digest=hashes(), evidence_envelope_uuid=identifier(),
-        evidence_envelope_digest=hashes(), knowledge_uuid=identifier(), knowledge_version="v1",
-        engine_version="PR175", mining_config_digest=hashes(), outcome_contract=("v1", "closed"),
-        memory_version="PR176", memory_state="STORED", validation_state=state,
-        validation_reasons=("VALIDATED",), validation_statistics=stats,
-        validated_at="2026-07-25T00:00:00+00:00", advisory_only=True)
+def pipeline(tmp_path, *, validation_config=None):
+    memory = PatternMemoryEngine(PatternMemoryRepository(tmp_path / "memory")).create(mining_report())
+    validation = PatternValidationEngine(PatternValidationRepository(tmp_path / "validation"),
+                                         config=validation_config).validate(memory)
+    return memory, validation
 
 
-def validation_report(record):
-    values = dict(validator_version="PR177.2.0", validation_policy_version="policy",
-        validation_config_digest="b" * 64, source_artifact_type="PATTERN_MEMORY_RECORD",
-        source_pattern_memory_report_uuid=None, source_pattern_memory_report_digest=None,
-        source_snapshot_uuid=None, source_snapshot_digest=None,
-        source_memory_uuid=record.source_memory_uuid, source_memory_digest=record.source_memory_digest,
-        validation_records=(record,), processed_record_count=1, new_validation_count=1,
-        duplicate_validation_count=0,
-        statistically_consistent_count=int(record.validation_state == "STATISTICALLY_CONSISTENT"),
-        invalid_count=int(record.validation_state == "INVALID"),
-        insufficient_count=int(record.validation_state == "INSUFFICIENT_EVIDENCE"),
-        repository_digest="c" * 64, snapshot_uuid=str(uuid4()), snapshot_digest="d" * 64,
-        generated_at=record.validated_at, advisory_only=True)
-    return PatternValidationReport.create(**values)
+def record_values(record):
+    return {k: v for k, v in record.to_dict().items() if k not in ("validation_uuid", "validation_digest")}
 
 
-def test_accepts_only_canonical_validation_artifacts(tmp_path):
-    engine = PatternPromotionEngine(PatternPromotionRepository(tmp_path))
+def engine(tmp_path, policy=None, version=None):
+    return PatternPromotionEngine(PatternPromotionRepository(tmp_path / "promotion"), policy,
+                                  promotion_engine_version=version)
+
+
+def test_real_pipeline_complete_provenance_and_exact_source_binding(tmp_path):
+    memory, validation = pipeline(tmp_path)
+    result = engine(tmp_path).assess(validation); item = result.promotion_records[0]
+    source = validation.validation_records[0]
+    assert result.source_artifact_type == "PATTERN_VALIDATION_REPORT"
+    assert result.source_validation_report_uuid == validation.report_uuid
+    assert result.source_validation_report_digest == validation_digest(validation.to_dict())
+    assert result.source_validation_snapshot_uuid == validation.snapshot_uuid
+    assert result.source_validation_snapshot_digest == validation.snapshot_digest
+    assert result.source_validation_repository_digest == validation.repository_digest
+    pairs = {
+        "source_validation_uuid": "validation_uuid", "source_validation_digest": "validation_digest",
+        "source_validator_version": "validator_version", "source_memory_uuid": "source_memory_uuid",
+        "source_memory_digest": "source_memory_digest", "source_pattern_hash": "source_pattern_hash",
+        "source_policy_uuid": "policy_uuid", "source_policy_version": "policy_version",
+        "source_engine_version": "engine_version", "source_validation_state": "validation_state",
+        "source_validation_statistics": "validation_statistics"}
+    for target, origin in pairs.items(): assert getattr(item, target) == getattr(source, origin)
+    assert item.source_memory_uuid == memory.memory_records[0].memory_uuid
+    assert item.promotion_policy_uuid == result.promotion_policy_uuid
+    assert item.promotion_policy_digest == result.promotion_policy_digest
+    assert item.promotion_engine_version == result.promotion_engine_version == "PR178.2.0"
+    assert item.threshold_monotonicity_result == "PASSED"
+
+
+def test_neutral_states_and_independent_default_selectivity(tmp_path):
+    _, validation = pipeline(tmp_path)
+    default = engine(tmp_path / "default").assess(validation)
+    assert default.promotion_records[0].promotion_state == "INSUFFICIENT_PROMOTION_EVIDENCE"
+    permissive = PromotionPolicy(minimum_sample_count=30, minimum_support=0,
+        minimum_confidence=0, minimum_expectancy=0)
+    met = engine(tmp_path / "met", permissive).assess(validation)
+    assert met.promotion_records[0].promotion_state == "POLICY_CRITERIA_MET"
+
+
+def test_invalid_and_insufficient_pr177_states_map_neutrally(tmp_path):
+    _, insufficient = pipeline(tmp_path / "insufficient", validation_config=ValidationConfig(minimum_sample_count=31))
+    policy = PromotionPolicy(minimum_sample_count=60, minimum_support=.6,
+                             minimum_confidence=.55, minimum_expectancy=.05)
+    assert engine(tmp_path / "a", policy).assess(insufficient).insufficient_promotion_evidence_count == 1
+    _, invalid = pipeline(tmp_path / "invalid", validation_config=ValidationConfig(minimum_expectancy=99))
+    strict = PromotionPolicy(minimum_sample_count=60, minimum_support=.6,
+                             minimum_confidence=.55, minimum_expectancy=99)
+    assert engine(tmp_path / "b", strict).assess(invalid).rejected_count == 1
+
+
+def test_single_record_binding_replay_counts_and_snapshot_reuse(tmp_path):
+    _, validation = pipeline(tmp_path); source = validation.validation_records[0]
+    promotion = engine(tmp_path)
+    first = promotion.assess(source); replay = promotion.assess(source)
+    assert first.source_artifact_type == "VALIDATION_RECORD"
+    assert first.source_validation_uuid == source.validation_uuid
+    assert first.new_promotion_count == 1 and first.duplicate_promotion_count == 0
+    assert replay.new_promotion_count == 0 and replay.duplicate_promotion_count == 1
+    assert replay.snapshot_uuid == first.snapshot_uuid
+    assert len(promotion.repository.snapshots()) == 1
+
+
+def test_snapshot_chain_progression_and_policy_engine_binding(tmp_path):
+    promotion = engine(tmp_path)
+    promotion.assess(pipeline(tmp_path / "one")[1]); first = promotion.repository.latest_snapshot()
+    promotion.assess(pipeline(tmp_path / "two")[1]); second = promotion.repository.latest_snapshot()
+    assert second.previous_snapshot_uuid == first.snapshot_uuid
+    assert second.record_count == 2
+    assert second.promotion_policy_uuid == promotion.policy.policy_uuid
+    assert second.promotion_policy_digest == promotion.policy.policy_digest
+    assert second.promotion_engine_version == promotion.promotion_engine_version
+
+
+def test_only_exact_canonical_inputs_and_assess_api(tmp_path):
+    promotion = engine(tmp_path)
+    assert not hasattr(promotion, "promote")
     for value in (None, {}, object()):
         with pytest.raises(PatternPromotionError, match="INVALID_VALIDATION_INPUT"):
-            engine.promote(value)
-    assert engine.promote(validation_report(validation_record())).eligible_count == 1
+            promotion.assess(value)
 
 
-def test_policy_states_and_thresholds(tmp_path):
-    policy = PromotionPolicy(minimum_sample_count=40, minimum_support=.5,
-                             minimum_confidence=.6, minimum_expectancy=.1)
-    engine = PatternPromotionEngine(PatternPromotionRepository(tmp_path), policy)
-    assert engine.promote(validation_record()).promotion_records[0].promotion_state == "PROMOTION_ELIGIBLE"
-    assert engine.promote(validation_record("INVALID")).promotion_records[0].promotion_state == "REJECTED"
-    pending = engine.promote(validation_record("INSUFFICIENT_EVIDENCE"))
-    assert pending.promotion_records[0].promotion_state == "NOT_YET_ELIGIBLE"
-    below = engine.promote(validation_record(expectancy=.01))
-    assert below.promotion_records[0].promotion_reasons == ("MINIMUM_EXPECTANCY_NOT_MET",)
+def test_policy_identity_immutability_constraint_and_artifact_identity(tmp_path):
+    _, validation = pipeline(tmp_path)
+    first = PromotionPolicy(); changed = PromotionPolicy(minimum_sample_count=61)
+    with pytest.raises(Exception): first.minimum_sample_count = 1
+    assert first.policy_uuid != changed.policy_uuid and first.policy_digest != changed.policy_digest
+    one = engine(tmp_path / "one", first).assess(validation).promotion_records[0]
+    two = engine(tmp_path / "two", changed).assess(validation).promotion_records[0]
+    assert one.promotion_uuid != two.promotion_uuid
+    with pytest.raises(ValueError, match="INVALID_PROMOTION_POLICY"):
+        PromotionPolicy(required_validation_state="INVALID")
 
 
-def test_policy_configuration_is_immutable_and_changes_identity():
-    first = PromotionPolicy(); second = PromotionPolicy(minimum_sample_count=31)
-    with pytest.raises(Exception):
-        first.minimum_sample_count = 1
-    assert first.policy_uuid != second.policy_uuid
-    assert first.policy_digest != second.policy_digest
+def test_promotion_policy_downgrade_fails_closed(tmp_path):
+    _, validation = pipeline(tmp_path, validation_config=ValidationConfig(minimum_sample_count=70))
+    with pytest.raises(PatternPromotionError, match="PROMOTION_POLICY_DOWNGRADE"):
+        engine(tmp_path, PromotionPolicy()).assess(validation)
 
 
-def test_deterministic_identity_and_duplicate_replay(tmp_path):
-    engine = PatternPromotionEngine(PatternPromotionRepository(tmp_path))
-    source = validation_record()
-    first = engine.promote(source); second = engine.promote(source)
-    assert first.report_uuid == second.report_uuid
-    assert first.promotion_records[0] == second.promotion_records[0]
-    assert len(engine.repository.records()) == len(engine.repository.snapshots()) == 1
+def test_mixed_policy_and_engine_repository_rejected(tmp_path):
+    _, validation = pipeline(tmp_path)
+    repository = PatternPromotionRepository(tmp_path / "promotion")
+    PatternPromotionEngine(repository).assess(validation)
+    with pytest.raises(PatternPromotionError, match="PROMOTION_POLICY_DIGEST_MISMATCH"):
+        PatternPromotionEngine(repository, PromotionPolicy(minimum_sample_count=61)).assess(validation)
+    with pytest.raises(PatternPromotionError, match="PROMOTION_ENGINE_VERSION_MISMATCH"):
+        PatternPromotionEngine(repository, promotion_engine_version="PR178.changed").assess(validation)
 
 
-def test_broken_provenance_fails_closed(tmp_path):
-    source = validation_record()
-    object.__setattr__(source, "validation_digest", "f" * 64)
-    with pytest.raises(PatternPromotionError, match="BROKEN_VALIDATION_PROVENANCE"):
-        PatternPromotionEngine(PatternPromotionRepository(tmp_path)).promote(source)
+def test_random_uuid_digest_and_nested_record_corruption_rejected(tmp_path):
+    _, validation = pipeline(tmp_path); item = engine(tmp_path).assess(validation).promotion_records[0]
+    for field, value in (("promotion_uuid", str(uuid4())), ("promotion_digest", "f" * 64),
+                         ("source_validation_uuid", str(uuid4())),
+                         ("source_validation_digest", "e" * 64)):
+        with pytest.raises(ValueError, match="INVALID_PROMOTION_RECORD"):
+            PromotionRecord(**{**item.to_dict(), field: value})
+    for stats in ({"x": float("nan")}, {"x": float("inf")}, {1: "bad"}):
+        with pytest.raises((ValueError, TypeError)):
+            PromotionRecord(**{**item.to_dict(), "source_validation_statistics": stats})
 
 
-def test_repository_and_snapshot_integrity(tmp_path):
-    repository = PatternPromotionRepository(tmp_path)
-    report = PatternPromotionEngine(repository).promote(validation_record())
-    record_path = repository.path_for(report.promotion_records[0].promotion_uuid)
-    raw = json.loads(record_path.read_text()); raw["promotion_state"] = "REJECTED"
+def test_malformed_missing_and_wrong_digest_thresholds_rejected(tmp_path):
+    _, validation = pipeline(tmp_path); source = validation.validation_records[0]
+    for thresholds, config_digest, error in (({}, validation_digest({}), "MALFORMED_VALIDATION_THRESHOLDS"),
+            ({"minimum_sample_count": 30}, validation_digest({"minimum_sample_count": 30}),
+             "MALFORMED_VALIDATION_THRESHOLDS"),
+            ({"minimum_sample_count": 30, "minimum_support": 0, "minimum_confidence": 0,
+              "minimum_expectancy": 0}, "f" * 64, "VALIDATION_CONFIG_DIGEST_MISMATCH")):
+        stats = {**dict(source.validation_statistics), "thresholds": thresholds}
+        changed = ValidationRecord.create(**{**record_values(source), "validation_statistics": stats,
+                                             "validation_config_digest": config_digest})
+        with pytest.raises(PatternPromotionError, match=error): engine(tmp_path / str(len(thresholds))).assess(changed)
+
+
+def test_tampered_source_report_and_nonadvisory_fail_closed(tmp_path):
+    _, report = pipeline(tmp_path)
+    object.__setattr__(report, "report_uuid", str(uuid4()))
+    with pytest.raises(PatternPromotionError, match="BROKEN_VALIDATION_REPORT"):
+        engine(tmp_path / "uuid").assess(report)
+    _, report = pipeline(tmp_path / "advisory"); object.__setattr__(report, "advisory_only", False)
+    with pytest.raises(PatternPromotionError, match="BROKEN_VALIDATION_REPORT"):
+        engine(tmp_path / "advisory-out").assess(report)
+
+
+def test_repository_record_and_snapshot_tampering_detected(tmp_path):
+    _, validation = pipeline(tmp_path); promotion = engine(tmp_path); result = promotion.assess(validation)
+    record_path = promotion.repository.path_for(result.promotion_records[0].promotion_uuid)
+    raw = json.loads(record_path.read_text()); raw["promotion_digest"] = "f" * 64
     record_path.write_text(json.dumps(raw))
     with pytest.raises(PatternPromotionError, match="CORRUPT_PROMOTION_REPOSITORY"):
-        repository.records()
+        promotion.repository.records()
 
-
-def test_broken_snapshot_chain_is_rejected(tmp_path):
-    repository = PatternPromotionRepository(tmp_path)
-    engine = PatternPromotionEngine(repository)
-    engine.promote(validation_record())
-    engine.promote(validation_record())
-    latest = repository.latest_snapshot()
-    path = repository.snapshot_root / f"{latest.snapshot_uuid}.json"
-    raw = json.loads(path.read_text()); raw["previous_snapshot_digest"] = digest("tampered")
-    path.write_text(json.dumps(raw))
+    clean = engine(tmp_path / "snapshot"); result = clean.assess(validation)
+    path = clean.repository.snapshot_root / f"{result.snapshot_uuid}.json"
+    raw = json.loads(path.read_text()); raw["snapshot_digest"] = "e" * 64; path.write_text(json.dumps(raw))
     with pytest.raises(PatternPromotionError, match="CORRUPT_PROMOTION_SNAPSHOT_REPOSITORY"):
-        repository.latest_snapshot()
+        clean.repository.latest_snapshot()
+
+
+def test_canonical_storage_and_report_identity_are_deterministic(tmp_path):
+    _, validation = pipeline(tmp_path)
+    first = engine(tmp_path / "one").assess(validation); second = engine(tmp_path / "two").assess(validation)
+    assert first == second and first.report_uuid == second.report_uuid
+    repository = PatternPromotionRepository(tmp_path / "one" / "promotion")
+    item = first.promotion_records[0]
+    assert repository.path_for(item.promotion_uuid).read_bytes() == json.dumps(
+        item.to_dict(), sort_keys=True, separators=(",", ":"), allow_nan=False).encode()

@@ -356,3 +356,29 @@ Future separately governed promotion stages
 ```
 
 `STATISTICALLY_CONSISTENT` means only that the versioned PR177 historical checks passed. Statistical consistency is not pattern approval, and PR177 never authorizes runtime usage. PR177 owns historical validation, validation identity, replay verification, validation history, and repository reporting. It has no learning, approval, promotion, activation, Runtime or Registry mutation, decision-publication, broker-safety, `OrderSend`, position-management, or execution authority.
+
+## PR178 governed Promotion Policy Assessment flow
+
+```text
+PR176 Pattern Memory
+        |
+        v
+PR177 Pattern Validation
+        |
+        v
+PR178 Promotion Policy Assessment
+        |-- exact PR177 artifact, snapshot, repository, and configuration binding
+        |-- complete PR176/PR177 provenance retention
+        |-- immutable policy and engine identities
+        |-- anti-downgrade threshold verification
+        |-- neutral criteria assessment
+        |-- append-only replay-verifiable history
+        `-- policy-bound repository snapshot chain
+        |
+        v
+Future separately governed Registry Admission stage
+```
+
+PR178 owns promotion-policy identity, criteria assessment, assessment identity, replay verification, append-only assessment history, repository snapshots, and advisory-only reporting. It does not own Knowledge Registry publication or mutation, pattern approval, registration or activation, Runtime activation or mutation, decision publication, trading bias or direction, broker safety, `OrderSend`, position management, exit authority, or execution authority.
+
+`POLICY_CRITERIA_MET` means only that the immutable PR178 policy criteria were satisfied. It does not mean promoted, published, registered, activated, approved for Runtime use, or tradable.

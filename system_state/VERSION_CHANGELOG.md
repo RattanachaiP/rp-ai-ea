@@ -116,3 +116,9 @@ Added `learning.pattern_memory` as the governed offline historical-memory stage 
 Added `learning.pattern_validation` after PR176 Pattern Memory as an offline, immutable, fail-closed verification stage. PR177 reconstructs source memory records, retains complete PR176 provenance, binds reports to the exact source artifact and snapshot, and applies a versioned canonical historical-quality policy whose digest participates in domain-separated record and report identities. Replay distinguishes new history from duplicates, while atomic append-only persistence is protected by a chained validation snapshot history.
 
 The neutral state `STATISTICALLY_CONSISTENT` is not pattern approval and never authorizes runtime use. PR177 owns historical validation, validation identity, replay verification, validation history, and repository reporting only. It does not own learning, approval, promotion, activation, Runtime or Registry mutation, decision publication, broker safety, `OrderSend`, position management, or execution.
+
+## PR178 — Governed Promotion Policy Assessment Engine
+
+- Added the offline, deterministic, immutable, advisory-only `learning.pattern_promotion` assessment boundary after PR177 and before a future separately governed Registry Admission stage.
+- Added exact source-artifact and snapshot binding, complete PR176/PR177 provenance retention, recursive statistics validation, anti-downgrade enforcement, explicit engine/policy identities, replay counts, append-only history, and policy-bound snapshot chains.
+- Canonical states are `REJECTED`, `INSUFFICIENT_PROMOTION_EVIDENCE`, and `POLICY_CRITERIA_MET`. The latter records criteria satisfaction only; it grants no publication, registration, activation, Runtime, trading, broker, position-management, exit, or execution authority.

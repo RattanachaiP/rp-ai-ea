@@ -1,4 +1,4 @@
-"""Atomic append-only PR178 history with a verified snapshot chain."""
+"""Atomic append-only, single-policy PR178 assessment history."""
 import json
 import os
 from pathlib import Path
@@ -27,25 +27,25 @@ class PatternPromotionRepository:
         finally: temporary.unlink(missing_ok=True)
         return path
 
-    def save(self, record):
-        if not isinstance(record, PromotionRecord): raise PatternPromotionError("INVALID_PROMOTION_RECORD")
-        return self._append(self.path_for(record.promotion_uuid), self._bytes(record),
-                            "PROMOTION_COLLISION", ".pattern-promotion-")
+    @staticmethod
+    def _bytes(value):
+        return json.dumps(value.to_dict(), sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
 
     def path_for(self, identifier):
         if not isinstance(identifier, str) or not _UUID.fullmatch(identifier):
             raise PatternPromotionError("INVALID_PROMOTION_FILENAME")
         return self.root / f"{identifier}.json"
 
+    def save(self, record):
+        if type(record) is not PromotionRecord: raise PatternPromotionError("INVALID_PROMOTION_RECORD")
+        return self._append(self.path_for(record.promotion_uuid), self._bytes(record),
+                            "PROMOTION_COLLISION", ".pattern-promotion-")
+
     def save_snapshot(self, snapshot):
-        if not isinstance(snapshot, PatternPromotionSnapshot):
+        if type(snapshot) is not PatternPromotionSnapshot:
             raise PatternPromotionError("INVALID_PROMOTION_SNAPSHOT")
         return self._append(self.snapshot_root / f"{snapshot.snapshot_uuid}.json", self._bytes(snapshot),
                             "PROMOTION_SNAPSHOT_COLLISION", ".pattern-promotion-snapshot-")
-
-    @staticmethod
-    def _bytes(value):
-        return json.dumps(value.to_dict(), sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
 
     def _load(self, root, model, label, field):
         if not root.exists(): return ()
@@ -66,21 +66,45 @@ class PatternPromotionRepository:
     def identities(self): return tuple((x.promotion_uuid, x.promotion_digest) for x in self.records())
     def digest(self): return digest([list(x) for x in self.identities()])
 
+    def validate_partition(self, engine_version, policy):
+        records = self.records(); snapshot = self.latest_snapshot()
+        for item in (*records, *((snapshot,) if snapshot else ())):
+            if item.promotion_engine_version != engine_version:
+                raise PatternPromotionError("PROMOTION_ENGINE_VERSION_MISMATCH")
+            if item.promotion_policy_version != policy.promotion_policy_version:
+                raise PatternPromotionError("PROMOTION_POLICY_VERSION_MISMATCH")
+            if item.promotion_policy_digest != policy.policy_digest:
+                raise PatternPromotionError("PROMOTION_POLICY_DIGEST_MISMATCH")
+            if item.promotion_policy_uuid != policy.policy_uuid:
+                raise PatternPromotionError("MIXED_PROMOTION_POLICY_REPOSITORY")
+        if snapshot and snapshot.record_identities != self.identities():
+            raise PatternPromotionError("PROMOTION_REPOSITORY_SNAPSHOT_MISMATCH")
+        return records, snapshot
+
     def latest_snapshot(self):
         snapshots = self.snapshots()
         if not snapshots: return None
         by_uuid = {x.snapshot_uuid: x for x in snapshots}
+        if len(by_uuid) != len(snapshots): raise PatternPromotionError("BROKEN_PROMOTION_SNAPSHOT_CHAIN")
         referenced = {x.previous_snapshot_uuid for x in snapshots if x.previous_snapshot_uuid}
         heads = [x for x in snapshots if x.snapshot_uuid not in referenced]
         if len(heads) != 1: raise PatternPromotionError("BROKEN_PROMOTION_SNAPSHOT_CHAIN")
-        current, visited = heads[0], set()
-        while current.previous_snapshot_uuid:
-            if current.snapshot_uuid in visited or current.previous_snapshot_uuid not in by_uuid:
+        head = current = heads[0]; visited = set()
+        identity = (head.promotion_engine_version, head.promotion_policy_uuid,
+                    head.promotion_policy_digest, head.promotion_policy_version)
+        while True:
+            if current.snapshot_uuid in visited:
                 raise PatternPromotionError("BROKEN_PROMOTION_SNAPSHOT_CHAIN")
-            previous = by_uuid[current.previous_snapshot_uuid]
-            if previous.snapshot_digest != current.previous_snapshot_digest:
+            visited.add(current.snapshot_uuid)
+            if (current.promotion_engine_version, current.promotion_policy_uuid,
+                    current.promotion_policy_digest, current.promotion_policy_version) != identity:
+                raise PatternPromotionError("MIXED_PROMOTION_POLICY_REPOSITORY")
+            if not current.previous_snapshot_uuid: break
+            previous = by_uuid.get(current.previous_snapshot_uuid)
+            if previous is None or previous.snapshot_digest != current.previous_snapshot_digest:
                 raise PatternPromotionError("BROKEN_PROMOTION_SNAPSHOT_CHAIN")
-            visited.add(current.snapshot_uuid); current = previous
-        if len(visited) + 1 != len(snapshots):
-            raise PatternPromotionError("BROKEN_PROMOTION_SNAPSHOT_CHAIN")
-        return heads[0]
+            current = previous
+        if len(visited) != len(snapshots): raise PatternPromotionError("BROKEN_PROMOTION_SNAPSHOT_CHAIN")
+        if head.record_identities != self.identities():
+            raise PatternPromotionError("PROMOTION_REPOSITORY_SNAPSHOT_MISMATCH")
+        return head
