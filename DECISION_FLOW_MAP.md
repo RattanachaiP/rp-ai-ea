@@ -437,3 +437,9 @@ PR183 prepares context only. `CONTEXT_PREPARED` has no trading or operational me
 `PR183 Decision Context -> PR184 canonical provenance, repository, snapshot, policy, and engine verification -> immutable advisory Decision Intelligence -> future PR185 Decision Recommendation.`
 
 PR184's quality, reliability, consistency, and recommendation-review fields are advisory evidence only. `DECISION_INTELLIGENCE_READY` is not BUY, SELL, HOLD, trade approval, publication, activation, or execution approval. Only future PR185 may consume Decision Intelligence, and PR185 remains advisory-only.
+
+## PR185 governed advisory Decision Recommendation flow
+
+`PR184 Decision Intelligence -> PR185 canonical provenance, repository, snapshot, policy, and engine verification -> immutable advisory Recommendation.`
+
+PR185 outputs `REJECTED`, `INSUFFICIENT_RECOMMENDATION_EVIDENCE`, or `RECOMMENDATION_READY`, classified as `READY_FOR_DECISION`, `NOT_READY`, `INSUFFICIENT_EVIDENCE`, `MANUAL_REVIEW`, or `REJECTED`. Every result remains advisory: it is not BUY, SELL, HOLD, a trading decision, or execution approval.

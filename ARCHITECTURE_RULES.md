@@ -67,3 +67,18 @@ immutable Decision Intelligence. `DECISION_INTELLIGENCE_READY` means only that t
 advisory artifact was constructed; it grants no strategy, bias, direction, risk,
 publication, activation, broker, position-management, exit, or execution authority.
 Only PR185 may consume PR184 Decision Intelligence.
+
+## PR185 governed advisory Decision Recommendation rule
+
+**Rule #020 — Advisory Decision Recommendation.** PR185 may consume only immutable,
+canonical PR184 Decision Intelligence records, reports, or snapshots. It verifies exact
+repository, snapshot, provenance, policy, and engine partitions before constructing an
+immutable Recommendation. Recommendation states and classifications are advisory evidence
+only: they are not trading decisions and grant no strategy, bias, direction, risk,
+publication, activation, broker, position-management, exit, or execution authority.
+
+PR185 state/classification pairs are unambiguous: `RECOMMENDATION_READY` pairs only
+with `READY_FOR_DECISION`, `RECOMMENDATION_MANUAL_REVIEW` pairs only with
+`MANUAL_REVIEW`, and `RECOMMENDATION_NOT_READY` pairs only with `NOT_READY`.
+No PR185 state or classification means BUY, SELL, HOLD, publication authorization,
+or execution authorization.
