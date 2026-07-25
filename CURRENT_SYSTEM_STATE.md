@@ -3,6 +3,13 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR182.1 governance provenance and partition integrity — REMEDIATED, PENDING MERGE
+
+- The four consolidated PR176–PR182 review findings were **CONFIRMED** from source: PR181 truncated canonical PR180 provenance, PR182 inherited that truncation, PR181/PR182 omitted PR175 mining and PR177 validation partition dimensions, and the authoritative documentation overstated the implemented retention contract.
+- PR181 eligibility artifacts now retain and cryptographically bind the complete immutable PR180 package lineage, including mining/evidence-envelope provenance, memory metadata, validation configuration/statistics/thresholds, promotion thresholds/monotonicity/timestamp, and Registry timestamp. They reconstruct the explicitly bound canonical PR180 package fail-closed.
+- PR182 confidence artifacts now retain the same complete inherited lineage and reconstruct the explicitly bound canonical PR181 eligibility record fail-closed. PR181 and PR182 record, report, snapshot, and repository identities now partition validation and mining engine/policy/configuration dimensions end to end.
+- This is integrity remediation only. No Runtime activation, trading authority, decision influence, confidence-formula change, Runtime behavior change, or Executor behavior change was introduced. PR183 is not implemented and remains blocked until PR182.1 is approved and merged.
+
 ## PR182 governed advisory confidence evaluation — IMPLEMENTED, PENDING ACCEPTANCE
 
 - Architecture: `PR182`; module: `learning.runtime_confidence`; component: Governed Advisory Confidence Evaluation Engine.

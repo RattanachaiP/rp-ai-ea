@@ -92,6 +92,7 @@ def test_selection_retains_complete_policy_partition_lineage_and_evidence(tmp_pa
     assert selection.source_registry_reasons == package.source_registry_reasons
     assert selection.source_validation_reasons == package.source_validation_reasons
     assert selection.source_promotion_reasons == package.source_promotion_reasons
+    assert RuntimeKnowledgePackage(**selection.runtime_package_dict()) == package
     assert all(
         getattr(selection, name) == getattr(report, name) for name in PARTITION_FIELDS
     )
