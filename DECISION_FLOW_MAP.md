@@ -394,3 +394,9 @@ PR179 records offline historical governance metadata only. It owns its admission
 `PR179 canonical Knowledge Registry -> registry/snapshot/repository/replay/governance verification -> immutable advisory RuntimeKnowledgePackage -> future PR181 selector`.
 
 PR180 is a fail-closed verification and advisory packaging boundary only. It owns exact canonical PR179 report/record binding, historical snapshot membership verification, complete governance provenance retention, packaging-policy and package identities, replay verification, append-only history, and package-repository integrity. It reads no raw trades, mining, Pattern Memory, Pattern Validation, or Pattern Promotion repositories. It has no Runtime decision use, selection, ranking, weighting, activation, inference, confidence, bias, scoring, direction, risk, decision-publication, position-management, broker, exit, or execution authority, and the existing Runtime Decision Engine remains unchanged. `ADVISORY_PACKAGE_PREPARED` denotes preparation for a future separately governed stage only.
+
+## PR181 governed advisory knowledge eligibility flow
+
+`PR180 Advisory Runtime Knowledge Packaging -> PR181 canonical source and exact snapshot-membership verification -> immutable advisory eligibility evidence and state -> future PR182 Governed Confidence Evaluation`.
+
+`evaluate_eligibility()` records advisory eligibility only. It does not activate, apply, weight, rank, score, or authorize Runtime knowledge. PR181 owns canonical source verification, exact snapshot membership, eligibility-policy identity, eligibility evidence and state retention, replay protection, append-only history, and repository/snapshot/report integrity. It never owns activation, application, confidence scoring, inference, trading bias, direction, risk, decision publication, broker safety, `OrderSend`, position management, exit authority, or execution.
