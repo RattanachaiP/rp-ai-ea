@@ -382,3 +382,9 @@ Future separately governed Registry Admission stage
 PR178 owns promotion-policy identity, criteria assessment, assessment identity, replay verification, append-only assessment history, repository snapshots, and advisory-only reporting. It does not own Knowledge Registry publication or mutation, pattern approval, registration or activation, Runtime activation or mutation, decision publication, trading bias or direction, broker safety, `OrderSend`, position management, exit authority, or execution authority.
 
 `POLICY_CRITERIA_MET` means only that the immutable PR178 policy criteria were satisfied. It does not mean promoted, published, registered, activated, approved for Runtime use, or tradable.
+
+## PR179 advisory Knowledge Registry flow
+
+`PR176 Pattern Memory -> PR177 Pattern Validation -> PR178 Promotion Policy Assessment -> PR179 Advisory Knowledge Registry Admission -> future Governed Runtime Knowledge Consumption Gate`.
+
+PR179 records offline historical governance metadata only. It owns its admission-policy and record identities, complete PR178 provenance, replay checks, append-only history, snapshots, repository integrity, and advisory reports. It does not own Runtime activation or consumption, inference authority, pattern activation or execution approval, trading bias or direction, decision publication, broker safety, `OrderSend`, position management, exit authority, or execution authority. `ADVISORY_ENTRY_RECORDED` has no operational meaning.
