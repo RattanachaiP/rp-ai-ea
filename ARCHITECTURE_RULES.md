@@ -105,3 +105,14 @@ evidence. `ENVIRONMENT_READY_FOR_FEASIBILITY` means only that the environment
 assessment completed for future PR188 feasibility review. It grants no strategy,
 bias, direction, risk, publication, activation, broker, position-management, exit,
 `OrderSend`, or execution authority.
+
+## PR188 governed advisory Execution Feasibility rule
+
+**Rule #023 — Advisory Execution Feasibility.** PR188 consumes only immutable,
+canonical PR186 Execution Readiness records and PR187 Execution Environment
+records. It verifies repository, snapshot, provenance, policy, engine, replay,
+and historical-lineage continuity before producing immutable feasibility
+evidence. `EXECUTION_FEASIBLE` means only that advisory prerequisites are
+satisfied for future PR189 package assembly. It grants no strategy, bias,
+direction, risk, publication, activation, broker, position-management, exit,
+`OrderSend`, or execution authority.

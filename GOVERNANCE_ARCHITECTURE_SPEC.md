@@ -30,7 +30,6 @@ immutable advisory-only environment evidence. Its states are `REJECTED`,
 The ready state permits only future PR188 feasibility assessment and grants no
 trading or execution authority.
 
-<<<<<<< HEAD
 PR187 evaluates only canonical immutable observations bound to the exact PR186
 artifact and policy partition. It never infers feed, stream, session, spread,
 latency, slippage, liquidity, consistency, freshness, or completeness from a
@@ -38,10 +37,24 @@ readiness state. Missing and partial evidence fail closed as
 `INSUFFICIENT_ENVIRONMENT_INFORMATION`; the configured policy thresholds and
 minimum quality are retained in each result's declared policy artifact.
 
-=======
->>>>>>> origin/codex-dev
 PR187 artifacts reside below `learning_data/execution_environment/` and use
 canonical JSON, deterministic domain-separated UUIDs and SHA-256 digests, atomic
 append-only writes, collision rejection, exact replay, and a digest-linked snapshot
 chain. All provenance, snapshot, repository, policy, engine-version, and replay
 mismatches fail closed.
+
+## PR188 — Governed Advisory Execution Feasibility Engine
+
+PR188 owns only feasibility evaluation, identity, provenance, policy, repository,
+snapshots, and reports. It accepts an exact canonical PR186
+`ExecutionReadinessRecord` and its lineage-matched canonical PR187
+`ExecutionEnvironmentRecord`. All other inputs fail closed. Its states are
+`REJECTED`, `INSUFFICIENT_EXECUTION_FEASIBILITY`, and `EXECUTION_FEASIBLE`.
+The feasible state means solely that advisory prerequisites are complete for
+future PR189 package assembly and grants no trading or execution authority.
+
+PR188 artifacts reside below `learning_data/execution_feasibility/` and use
+canonical JSON, deterministic domain-separated UUIDs and SHA-256 digests,
+atomic append-only writes, collision rejection, exact replay, and a
+digest-linked snapshot chain. Provenance, lineage, repository, snapshot,
+policy, engine-version, and replay mismatches fail closed.

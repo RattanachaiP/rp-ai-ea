@@ -25,3 +25,7 @@ PR187 Execution Environment Intelligence is governance-only and advisory-only.
 Emergency-patch authority may not use an environment state or quality profile to
 alter strategy, bias, direction, risk, decision publication, runtime activation,
 broker communication, position management, exits, or execution.
+
+## PR188 boundary
+
+PR188 Execution Feasibility is governance-only and advisory-only. Emergency-patch authority may not use a feasibility state to alter strategy, bias, direction, risk, decision publication, runtime activation, broker communication, position management, exits, or execution.
