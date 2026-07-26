@@ -3,6 +3,18 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR207 Passive Knowledge Formation Engine — IMPLEMENTED, PENDING ACCEPTANCE
+
+- The passive engine consumes only immutable PR206 patterns and their exact
+  PR205/PR203/PR201 evidence, reconstructing source lineage and failing closed
+  on integrity, completeness, replay, or duplicate failures.
+- Declared deterministic thresholds classify each accepted pattern as
+  `CANDIDATE`, `THRESHOLD_ELIGIBLE`, or `REJECTED` and produce immutable, canonical,
+  replay-identical `CandidateKnowledge` records in an atomic append-only
+  repository.
+- Knowledge Formation performs no prediction, recommendation, optimisation, or
+  operational-evidence modification and has no execution authority.
+
 ## PR206 Pattern Discovery Engine — IMPLEMENTED, PENDING ACCEPTANCE
 
 - The passive engine consumes only immutable PR205 attributions and their exact
