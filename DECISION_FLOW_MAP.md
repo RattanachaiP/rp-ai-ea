@@ -466,8 +466,17 @@ communication, `OrderSend`, or execution approval.
 
 ## PR189 governed advisory Execution Package Assembly flow
 
-`PR186 Execution Readiness + PR187 Execution Environment + PR188 Execution Feasibility -> PR189 exact repository, snapshot, provenance, policy, engine, replay, and lineage verification -> immutable advisory Execution Package -> future PR190 Execution Package Validation Gateway.`
+`PR186 Execution Readiness + PR187 Execution Environment + PR188 Execution Feasibility -> PR189 exact repository, snapshot, provenance, policy, engine, replay, and lineage verification -> immutable advisory Execution Package -> PR190 canonical immutable consumer interface.`
 
 `PACKAGE_READY` records package assembly only. It is not BUY, SELL, execution
 approval, decision publication, runtime activation, broker communication,
 `OrderSend`, or execution authority.
+
+## PR190 governed advisory Execution Package Consumer flow
+
+`PR189 immutable Execution Package + canonical package snapshot -> PR190 fail-closed canonical load, UUID, SHA-256, snapshot, version, and replay verification -> immutable in-memory ExecutionPackage for a downstream consumer.`
+
+PR190 adds no evaluation stage and produces no repository artifact, advisory
+recommendation, or execution authorization. The proposed validation gateway is
+withdrawn. Invalid or missing input fails closed without recovery or repair, and
+execution authority remains exclusively inside the MT5 Executor.

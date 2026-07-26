@@ -324,5 +324,12 @@ PR179 follows PR178 as an offline, immutable governance-recording boundary. It o
 
 - Architecture: `PR189`; module: `learning.execution_package`; component: Governed Advisory Execution Package Assembly Engine.
 - The engine performs no evaluation, scoring, inference, or authorization. It accepts only exact canonical PR186, PR187, and PR188 records and verifies repository, snapshot, provenance, policy, engine, replay, and cross-stage lineage continuity.
-- `PACKAGE_READY` means only that one complete immutable advisory package was assembled for future PR190 validation; it grants no trading or execution authority.
+- `PACKAGE_READY` means only that one complete immutable advisory package was assembled for downstream consumption; it grants no trading or execution authority.
 - Package history is canonical, atomic, append-only, replay-safe, policy-partitioned, and protected by deterministic identities and a digest-linked snapshot chain under `learning_data/execution_package/`.
+
+## PR190 governed advisory Execution Package Consumer Interface — IMPLEMENTED, PENDING ACCEPTANCE
+
+- Architecture: `PR190`; module: `learning.execution_package_consumer`; component: Governed Advisory Execution Package Consumer Interface.
+- The interface is the first downstream consumer of PR189. It loads a requested package and verifies canonical serialization, deterministic UUID and SHA-256 identity, explicit package and engine compatibility, replay identity, and exact membership in the canonical package snapshot.
+- Successful loading returns only the immutable in-memory PR189 `ExecutionPackage`. Missing, malformed, incompatible, tampered, or snapshot-unbound packages fail closed without recovery, repair, persistence, evaluation, recommendation, or authorization.
+- The proposed Execution Package Validation Gateway is withdrawn; PR190 is a consumer interface, not an additional governance or validation stage. It grants no trading, runtime, broker, `OrderSend`, position-management, exit, or execution authority.
