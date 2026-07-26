@@ -7,11 +7,7 @@ Authoritative branch policy: `codex-dev`
 
 - Architecture: `PR187`; module: `learning.execution_environment`; component: Governed Advisory Execution Environment Intelligence Engine.
 - The engine consumes only immutable canonical PR186 readiness records, reports, and snapshots and verifies their repository, snapshot, provenance, policy, engine, and replay partitions.
-<<<<<<< HEAD
 - Canonical immutable environment evidence supplies explicit observations for feed stability, price-stream continuity, session, spread, latency, slippage, liquidity, consistency, freshness, and completeness. Missing or partial evidence remains insufficient; readiness never implies that an environment observation is available. `ENVIRONMENT_READY_FOR_FEASIBILITY` is advisory evidence for future PR188 only and grants no trading or execution authority.
-=======
-- Environment profiles cover feed stability, price-stream continuity, session, spread, latency, slippage, liquidity, consistency, freshness, and completeness. `ENVIRONMENT_READY_FOR_FEASIBILITY` is advisory evidence for future PR188 only and grants no trading or execution authority.
->>>>>>> origin/codex-dev
 - Environment history is canonical, atomic, append-only, replay-safe, policy-partitioned, and protected by deterministic identities and a digest-linked snapshot chain under `learning_data/execution_environment/`.
 
 ## PR185 governed advisory Decision Recommendation — IMPLEMENTED, PENDING ACCEPTANCE
@@ -316,3 +312,10 @@ PR179 follows PR178 as an offline, immutable governance-recording boundary. It o
 - The engine accepts only canonical PR185 Recommendation records, reports, and snapshots and verifies exact provenance, repository, snapshot, policy, replay, and lineage continuity.
 - Output states are `REJECTED`, `INSUFFICIENT_EXECUTION_READINESS`, and `EXECUTION_READY_FOR_ENVIRONMENT_CHECK`. Every state is advisory-only and grants no trading, publication, runtime, broker, or execution authority.
 - Readiness history is canonical, atomic, append-only, replay-safe, policy-partitioned, and protected by deterministic identities and a digest-linked snapshot chain under `learning_data/execution_readiness/`.
+
+## PR188 governed advisory Execution Feasibility — IMPLEMENTED, PENDING ACCEPTANCE
+
+- Architecture: `PR188`; module: `learning.execution_feasibility`; component: Governed Advisory Execution Feasibility Engine.
+- The engine consumes only an immutable canonical PR186 readiness record paired with its immutable canonical PR187 environment record and verifies both repositories, snapshots, provenance, policy, engine, replay, and cross-stage lineage.
+- Output states are `REJECTED`, `INSUFFICIENT_EXECUTION_FEASIBILITY`, and `EXECUTION_FEASIBLE`. Every state is advisory-only; none authorizes execution or broker communication.
+- Feasibility history is canonical, atomic, append-only, replay-safe, policy-partitioned, and protected by deterministic identities and a digest-linked snapshot chain under `learning_data/execution_feasibility/`.

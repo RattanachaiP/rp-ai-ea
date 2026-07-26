@@ -457,3 +457,9 @@ PR185 outputs `REJECTED`, `INSUFFICIENT_RECOMMENDATION_EVIDENCE`, or `RECOMMENDA
 PR187 evaluates environment quality only. `ENVIRONMENT_READY_FOR_FEASIBILITY` is
 not BUY, SELL, trade approval, decision publication, runtime activation, broker
 communication, `OrderSend`, or execution approval.
+
+## PR188 governed advisory Execution Feasibility flow
+
+`PR186 Execution Readiness + PR187 Execution Environment -> PR188 exact record, repository, snapshot, policy, engine, replay, and cross-stage lineage verification -> immutable advisory Execution Feasibility -> future PR189 Execution Package Assembly.`
+
+`EXECUTION_FEASIBLE` records advisory prerequisite completeness only. It is not BUY, SELL, trade approval, decision publication, runtime activation, broker communication, `OrderSend`, or execution approval.
