@@ -520,3 +520,9 @@ This is the only production startup path. Any failure ends the lifecycle without
 `Decision -> ExecutionContext -> optional publication -> consumer acceptance -> activation -> OrderSend timestamp -> broker-confirmed order/deal/position -> position close -> immutable LiveOutcomeRecord`.
 
 PR201 observes only already-completed broker evidence. It validates the complete identity and UTC timestamp sequence and atomically appends one canonical, integrity-bound record. Capture cannot influence any stage it observes and has no analytics, attribution, learning, broker, order, position, exit, or execution authority.
+
+## PR203 completed-trade event flow
+
+`Broker confirms trade closed -> production host creates one CompletedTradeEvent -> passive production outcome integration -> immutable live outcome capture -> operational evidence repository`.
+
+Broker-specific completion objects do not cross the host boundary. Duplicate or invalid events fail closed without affecting execution.

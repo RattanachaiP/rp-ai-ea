@@ -74,3 +74,7 @@ PR196 is production wiring only. Emergency-patch authority may not designate a s
 ## PR201 boundary
 
 PR201 is passive post-completion evidence capture only. Emergency-patch authority may not use it to alter, delay, retry, or authorize a decision, activation, broker request, `OrderSend`, position, stop, target, or exit; nor may it weaken identity, chronology, broker-confirmation, integrity, append-only, or duplicate-rejection checks.
+
+## PR203 boundary
+
+PR203 is a post-completion event contract only. Emergency-patch authority may not bypass its encoding, identity, digest, chronology, or duplicate checks; pass broker-specific objects downstream; or add execution, Runtime, Strategy, Governance, analytics, attribution, or learning behavior.
