@@ -58,3 +58,20 @@ canonical JSON, deterministic domain-separated UUIDs and SHA-256 digests,
 atomic append-only writes, collision rejection, exact replay, and a
 digest-linked snapshot chain. Provenance, lineage, repository, snapshot,
 policy, engine-version, and replay mismatches fail closed.
+
+## PR189 — Governed Advisory Execution Package Assembly Engine
+
+PR189 owns package assembly, identity, provenance, repository, snapshots,
+reports, and integrity verification only. It accepts exact canonical PR186
+`ExecutionReadinessRecord`, PR187 `ExecutionEnvironmentRecord`, and PR188
+`ExecutionFeasibilityRecord` artifacts. It performs no evaluation, scoring,
+inference, upstream override, or authorization. Its states are `REJECTED`,
+`PACKAGE_INCOMPLETE`, and `PACKAGE_READY`; the ready state means solely that an
+immutable advisory package is complete for future PR190 validation.
+
+PR189 artifacts reside below `learning_data/execution_package/` and use
+canonical JSON, deterministic domain-separated UUIDs and SHA-256 digests,
+atomic append-only writes, collision rejection, exact replay, and a
+digest-linked snapshot chain. Provenance, lineage, repository, snapshot,
+policy, engine-version, and replay mismatches fail closed. PR189 has no trading,
+runtime, broker, `OrderSend`, position-management, exit, or execution authority.

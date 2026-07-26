@@ -29,3 +29,10 @@ broker communication, position management, exits, or execution.
 ## PR188 boundary
 
 PR188 Execution Feasibility is governance-only and advisory-only. Emergency-patch authority may not use a feasibility state to alter strategy, bias, direction, risk, decision publication, runtime activation, broker communication, position management, exits, or execution.
+
+## PR189 boundary
+
+PR189 Execution Package Assembly is governance-only and advisory-only.
+Emergency-patch authority may not use a package or package state to alter
+strategy, bias, direction, risk, decision publication, runtime activation,
+broker communication, position management, exits, or execution.

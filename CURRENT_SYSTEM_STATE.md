@@ -319,3 +319,10 @@ PR179 follows PR178 as an offline, immutable governance-recording boundary. It o
 - The engine consumes only an immutable canonical PR186 readiness record paired with its immutable canonical PR187 environment record and verifies both repositories, snapshots, provenance, policy, engine, replay, and cross-stage lineage.
 - Output states are `REJECTED`, `INSUFFICIENT_EXECUTION_FEASIBILITY`, and `EXECUTION_FEASIBLE`. Every state is advisory-only; none authorizes execution or broker communication.
 - Feasibility history is canonical, atomic, append-only, replay-safe, policy-partitioned, and protected by deterministic identities and a digest-linked snapshot chain under `learning_data/execution_feasibility/`.
+
+## PR189 governed advisory Execution Package Assembly — IMPLEMENTED, PENDING ACCEPTANCE
+
+- Architecture: `PR189`; module: `learning.execution_package`; component: Governed Advisory Execution Package Assembly Engine.
+- The engine performs no evaluation, scoring, inference, or authorization. It accepts only exact canonical PR186, PR187, and PR188 records and verifies repository, snapshot, provenance, policy, engine, replay, and cross-stage lineage continuity.
+- `PACKAGE_READY` means only that one complete immutable advisory package was assembled for future PR190 validation; it grants no trading or execution authority.
+- Package history is canonical, atomic, append-only, replay-safe, policy-partitioned, and protected by deterministic identities and a digest-linked snapshot chain under `learning_data/execution_package/`.
