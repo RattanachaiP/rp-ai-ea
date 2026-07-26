@@ -514,3 +514,9 @@ position, stop, target, and exit behavior remains in the existing Executor.
 `Python Runtime values -> PR193 publication in configured MT5 Common Files -> PR194 exact-file consumption -> Runtime READY -> PR195 one-shot activation -> existing installed MT5 Executor`.
 
 This is the only production startup path. Any failure ends the lifecycle without starting MT5 and without a legacy trigger. PR196 only composes the approved boundaries and introduces no governance, Runtime, or execution layer.
+
+## PR201 live outcome capture flow
+
+`Decision -> ExecutionContext -> optional publication -> consumer acceptance -> activation -> OrderSend timestamp -> broker-confirmed order/deal/position -> position close -> immutable LiveOutcomeRecord`.
+
+PR201 observes only already-completed broker evidence. It validates the complete identity and UTC timestamp sequence and atomically appends one canonical, integrity-bound record. Capture cannot influence any stage it observes and has no analytics, attribution, learning, broker, order, position, exit, or execution authority.
