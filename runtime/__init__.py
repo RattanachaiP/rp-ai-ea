@@ -35,6 +35,11 @@ from .completed_trade_event import (
     CompletedTradeEventError,
     CompletedTradeEventPublisher,
 )
+from .mt5_completed_trade_producer import (
+    MT5CompletedTradeEmissionError,
+    MT5CompletedTradeEventProducer,
+    MT5CompletedTradeFacts,
+)
 
 from .decision_knowledge_observation import (
     DecisionKnowledgeObservationError,
@@ -77,4 +82,7 @@ __all__ = [
     "CompletedTradeEvent",
     "CompletedTradeEventError",
     "CompletedTradeEventPublisher",
+    "MT5CompletedTradeEmissionError",
+    "MT5CompletedTradeEventProducer",
+    "MT5CompletedTradeFacts",
 ]
