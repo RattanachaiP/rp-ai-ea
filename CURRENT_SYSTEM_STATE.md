@@ -3,6 +3,19 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR194 Executor-side ExecutionContext consumption — IMPLEMENTED, PENDING ACCEPTANCE
+
+- Architecture: `PR194`; module: `runtime.execution_context_consumer`;
+  component: fail-closed MT5 Executor public-contract consumer.
+- The consumer reads only `execution_context.json` and requires canonical UTF-8
+  JSON, exact fields, valid UUIDs, SHA-256 integrity, compatible contract and
+  engine versions, expected replay identity, a valid timestamp, and the exact
+  advisory marker before exposing an immutable `ExecutionContext`.
+- Invalid publications are rejected completely without fallback, repair, or
+  partial acceptance. The consumer has no dependency on governance artifacts,
+  packages, confidence internals, strategies, Runtime publication
+  implementation, or broker behavior.
+
 ## PR192 governed Execution Contract — IMPLEMENTED, PENDING ACCEPTANCE
 
 - Architecture: `PR192`; module: `runtime.execution_contract`; component:

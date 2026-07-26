@@ -118,3 +118,14 @@ fallback, or repair. The Executor consumes this contract only and may not access
 the PR186–PR191 governance artifacts. PR192 does not calculate confidence,
 publish decisions, communicate with a broker, execute trades, manage positions,
 or control exits.
+
+## PR193 / PR194 — Publication and Executor Consumption
+
+PR193 atomically publishes the complete canonical PR192 contract as
+`execution_context.json`. PR194 is its MT5 Executor-side consumer and reads no
+other artifact. It validates the exact schema, canonical UTF-8 JSON, UUIDs,
+digest, replay identity, contract and engine compatibility, timestamp, and
+advisory marker before returning the immutable in-memory context. Missing or
+invalid input is rejected in full without fallback, repair, or partial access.
+This boundary adds no strategy, decision, confidence, broker, order, position,
+stop, target, or exit behavior.

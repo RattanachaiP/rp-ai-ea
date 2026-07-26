@@ -483,7 +483,7 @@ execution authority remains exclusively inside the MT5 Executor.
 
 ## PR191 / PR192 production integration flow
 
-`PR190 immutable ExecutionPackage -> PR191 immutable ExecutionConfidenceContext -> V26 Runtime -> PR192 canonical immutable ExecutionContext -> MT5 Executor`.
+`PR190 immutable ExecutionPackage -> PR191 immutable ExecutionConfidenceContext -> V26 Runtime -> PR192 canonical immutable ExecutionContext -> PR193 atomic publication -> PR194 MT5 Executor consumer`.
 
 PR192 is the only Runtime-to-Executor payload boundary. Its exact canonical
 schema exposes execution-facing metadata, not an `ExecutionPackage`, confidence
@@ -493,3 +493,9 @@ and payload integrity before accepting the complete context. Any failure rejects
 the whole payload without repair, fallback, or partial loading. Contract
 acceptance itself does not generate BUY or SELL and does not communicate with a
 broker, execute a trade, manage a position, or control an exit.
+
+PR194 reads only `execution_context.json` and returns an immutable context only
+after exact canonical, integrity, identity, version, timestamp, advisory, and
+field-set validation. Any missing or invalid publication fails closed without
+fallback, repair, or partial acceptance. It does not read governance, Runtime,
+confidence, package, or strategy objects and adds no execution behavior.
