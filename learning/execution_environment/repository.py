@@ -8,7 +8,11 @@ from pathlib import Path
 
 from .exceptions import ExecutionEnvironmentError
 from .identity import canonical_bytes, digest
-from .models import ExecutionEnvironment, ExecutionEnvironmentSnapshot
+from .models import (
+    ExecutionEnvironment,
+    ExecutionEnvironmentEvidence,
+    ExecutionEnvironmentSnapshot,
+)
 
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
@@ -42,7 +46,9 @@ class ExecutionEnvironmentRepository:
         if type(value) is not ExecutionEnvironment:
             raise ExecutionEnvironmentError("INVALID_EXECUTION_ENVIRONMENT")
         return self._append(
-            self.root / f"{value.execution_environment_uuid}.json", value, "REPLAY_COLLISION"
+            self.root / f"{value.execution_environment_uuid}.json",
+            value,
+            "REPLAY_COLLISION",
         )
 
     def save_snapshot(self, value):
@@ -70,9 +76,7 @@ class ExecutionEnvironmentRepository:
                 KeyError,
                 json.JSONDecodeError,
             ) as exc:
-                raise ExecutionEnvironmentError(
-                    f"CORRUPT_{label}_REPOSITORY"
-                ) from exc
+                raise ExecutionEnvironmentError(f"CORRUPT_{label}_REPOSITORY") from exc
             if getattr(item, identity_field) != path.stem:
                 raise ExecutionEnvironmentError(f"{label}_FILENAME_IDENTITY_MISMATCH")
             if path.read_bytes() != canonical_bytes(item.to_dict()):
@@ -166,3 +170,38 @@ class ExecutionEnvironmentRepository:
         if head.repository_digest != self.digest():
             raise ExecutionEnvironmentError("REPOSITORY_MISMATCH")
         return head
+
+
+class ExecutionEnvironmentEvidenceRepository:
+    def __init__(self, root="learning_data/execution_environment/evidence"):
+        self.root = Path(root)
+
+    def save(self, value):
+        if type(value) is not ExecutionEnvironmentEvidence:
+            raise ExecutionEnvironmentError("INVALID_EXECUTION_ENVIRONMENT_EVIDENCE")
+        return ExecutionEnvironmentRepository._append(
+            self.root / f"{value.evidence_uuid}.json", value, "REPLAY_COLLISION"
+        )
+
+    def records(self):
+        helper = ExecutionEnvironmentRepository(self.root)
+        return helper._load(
+            self.root,
+            ExecutionEnvironmentEvidence,
+            "EXECUTION_ENVIRONMENT_EVIDENCE",
+            "evidence_uuid",
+        )
+
+    def for_readiness(self, readiness):
+        matches = tuple(
+            x
+            for x in self.records()
+            if (x.execution_readiness_uuid, x.execution_readiness_digest)
+            == (
+                readiness.execution_readiness_uuid,
+                readiness.execution_readiness_digest,
+            )
+        )
+        if len(matches) > 1:
+            raise ExecutionEnvironmentError("REPLAY_COLLISION")
+        return matches[0] if matches else None

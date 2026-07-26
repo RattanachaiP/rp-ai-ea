@@ -8,6 +8,7 @@ RECORD_NAMESPACE = UUID("f1870001-0000-5000-8000-000000000001")
 SNAPSHOT_NAMESPACE = UUID("f1870002-0000-5000-8000-000000000002")
 REPORT_NAMESPACE = UUID("f1870003-0000-5000-8000-000000000003")
 POLICY_NAMESPACE = UUID("f1870004-0000-5000-8000-000000000004")
+EVIDENCE_NAMESPACE = UUID("f1870005-0000-5000-8000-000000000005")
 
 
 def canonical_bytes(value):
@@ -22,6 +23,10 @@ def digest(value):
 
 def _uuid(namespace, value):
     return str(uuid5(namespace, digest(value)))
+
+
+def environment_evidence_uuid(value):
+    return _uuid(EVIDENCE_NAMESPACE, value)
 
 
 def execution_environment_uuid(value):

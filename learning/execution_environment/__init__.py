@@ -7,20 +7,25 @@ from .engine import (
 from .exceptions import ExecutionEnvironmentError
 from .models import (
     ExecutionEnvironment,
+    ExecutionEnvironmentEvidence,
     ExecutionEnvironmentReport,
     ExecutionEnvironmentSnapshot,
 )
 from .policy import ExecutionEnvironmentPolicy
-from .repository import ExecutionEnvironmentRepository
+from .repository import (
+    ExecutionEnvironmentEvidenceRepository,
+    ExecutionEnvironmentRepository,
+)
 
 ExecutionEnvironmentRecord = ExecutionEnvironment
-
 __all__ = [
     "GovernedExecutionEnvironmentEngine",
     "GovernedAdvisoryExecutionEnvironmentEngine",
     "ExecutionEnvironmentError",
     "ExecutionEnvironmentPolicy",
+    "ExecutionEnvironmentEvidenceRepository",
     "ExecutionEnvironmentRepository",
+    "ExecutionEnvironmentEvidence",
     "ExecutionEnvironment",
     "ExecutionEnvironmentRecord",
     "ExecutionEnvironmentReport",

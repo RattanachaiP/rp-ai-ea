@@ -1,13 +1,13 @@
-"""Governed construction of PR187 environment; never a trading decision."""
+"""Governed PR187 evaluation of explicit environment evidence; advisory only."""
 
 from learning.execution_readiness import (
     ExecutionReadiness,
-    ExecutionReadinessSnapshot,
     ExecutionReadinessReport,
+    ExecutionReadinessSnapshot,
     ExecutionReadinessRepository,
 )
 from learning.execution_readiness.identity import (
-    digest as execution_readiness_digest,
+    digest as readiness_digest,
     report_uuid as readiness_report_uuid,
 )
 from learning.execution_readiness.exceptions import ExecutionReadinessError
@@ -19,20 +19,36 @@ from .models import (
     ExecutionEnvironmentReport,
     ExecutionEnvironmentSnapshot,
 )
-from .policy import ExecutionEnvironmentPolicy
-from .repository import ExecutionEnvironmentRepository
+from .policy import ENVIRONMENT_DIMENSIONS, ExecutionEnvironmentPolicy
+from .repository import (
+    ExecutionEnvironmentEvidenceRepository,
+    ExecutionEnvironmentRepository,
+)
 
 
 class GovernedExecutionEnvironmentEngine:
-    def __init__(self, readiness_repository=None, repository=None, policy=None):
+    def __init__(
+        self,
+        readiness_repository=None,
+        repository=None,
+        policy=None,
+        evidence_repository=None,
+    ):
         self.readiness_repository = (
             readiness_repository or ExecutionReadinessRepository()
         )
         self.repository = repository or ExecutionEnvironmentRepository()
         self.policy = policy or ExecutionEnvironmentPolicy()
+        self.evidence_repository = (
+            evidence_repository or ExecutionEnvironmentEvidenceRepository()
+        )
         if type(self.readiness_repository) is not ExecutionReadinessRepository:
             raise ExecutionEnvironmentError("INVALID_EXECUTION_READINESS")
-        if type(self.repository) is not ExecutionEnvironmentRepository:
+        if (
+            type(self.repository) is not ExecutionEnvironmentRepository
+            or type(self.evidence_repository)
+            is not ExecutionEnvironmentEvidenceRepository
+        ):
             raise ExecutionEnvironmentError("REPOSITORY_MISMATCH")
         if type(self.policy) is not ExecutionEnvironmentPolicy:
             raise ExecutionEnvironmentError("POLICY_MISMATCH")
@@ -50,39 +66,36 @@ class GovernedExecutionEnvironmentEngine:
         output = []
         duplicates = 0
         for stored in existing.values():
-            if stored.environment_engine_version != self.policy.environment_engine_version:
-                raise ExecutionEnvironmentError("ENGINE_VERSION_MISMATCH")
-            if (
-                stored.environment_policy_uuid,
-                stored.environment_policy_digest,
-                stored.environment_policy_version,
-                stored.environment_engine_version,
-            ) != (
-                self.policy.environment_policy_uuid,
-                self.policy.environment_policy_digest,
-                self.policy.environment_policy_version,
-                self.policy.environment_engine_version,
-            ):
-                raise ExecutionEnvironmentError("POLICY_MISMATCH")
+            self._verify_stored_partition(stored)
         for readiness in sorted(records, key=lambda x: x.execution_readiness_uuid):
-            state, classification, reason, profile, quality = self._classify(readiness)
+            evidence = self.evidence_repository.for_readiness(readiness)
+            self._verify_evidence_partition(evidence, readiness, snapshot)
+            state, reason, profile, quality = self._evaluate(readiness, evidence)
+            evidence_complete = bool(
+                evidence
+                and tuple(name for name, _ in evidence.observations)
+                == ENVIRONMENT_DIMENSIONS
+            )
             item = ExecutionEnvironment.create(
                 execution_readiness_uuid=readiness.execution_readiness_uuid,
                 execution_readiness_digest=readiness.execution_readiness_digest,
                 readiness_state=readiness.readiness_state,
+                evidence_uuid=evidence.evidence_uuid if evidence else None,
+                evidence_digest=evidence.evidence_digest if evidence else None,
+                environment_evidence_complete=evidence_complete,
                 environment_state=state,
-                environment_classification=classification,
                 environment_reason=reason,
                 environment_profile=profile,
                 environment_quality=quality,
                 readiness_snapshot_uuid=snapshot.snapshot_uuid,
                 readiness_snapshot_digest=snapshot.snapshot_digest,
                 readiness_repository_digest=snapshot.repository_digest,
+                environment_policy=self.policy.to_dict(),
                 environment_policy_uuid=self.policy.environment_policy_uuid,
                 environment_policy_digest=self.policy.environment_policy_digest,
                 environment_policy_version=self.policy.environment_policy_version,
                 environment_engine_version=self.policy.environment_engine_version,
-                created_at=readiness.created_at,
+                created_at=evidence.captured_at if evidence else readiness.created_at,
                 authority_scope=AUTHORITY_SCOPE,
                 advisory_only=True,
             )
@@ -147,30 +160,98 @@ class GovernedExecutionEnvironmentEngine:
     evaluate_environment = construct_environment
     run = construct_environment
 
-    def _classify(self, readiness):
-        available = readiness.readiness_state == "EXECUTION_READY_FOR_ENVIRONMENT_CHECK"
+    def _evaluate(self, readiness, evidence):
+        values = dict(evidence.observations) if evidence else {}
         profile = tuple(
-            (dimension, "AVAILABLE" if available else "UNAVAILABLE")
-            for dimension in self.policy.dimensions
+            (
+                dimension,
+                (
+                    "AVAILABLE"
+                    if dimension in values
+                    and self.policy.available(dimension, values[dimension])
+                    else "UNAVAILABLE"
+                ),
+            )
+            for dimension in ENVIRONMENT_DIMENSIONS
         )
         quality = float(sum(value == "AVAILABLE" for _, value in profile) / len(profile))
+        evidence_complete = bool(
+            evidence
+            and tuple(name for name, _ in evidence.observations)
+            == ENVIRONMENT_DIMENSIONS
+        )
+        critical_ready = self.policy.critical_dimensions_available(profile)
         if readiness.readiness_state == "REJECTED":
-            return "REJECTED", "REJECTED", "READINESS_REJECTED", profile, quality
-        if available:
+            return "REJECTED", "READINESS_REJECTED", profile, quality
+        if (
+            evidence_complete
+            and critical_ready
+            and quality >= self.policy.minimum_quality
+        ):
             return (
                 "ENVIRONMENT_READY_FOR_FEASIBILITY",
-                "READY_FOR_FEASIBILITY",
-                "ENVIRONMENT_QUALITY_VERIFIED",
+                "ENVIRONMENT_QUALITY_SUFFICIENT",
                 profile,
                 quality,
             )
         return (
             "INSUFFICIENT_ENVIRONMENT_INFORMATION",
-            "INSUFFICIENT_ENVIRONMENT_INFORMATION",
-            "READINESS_INFORMATION_INSUFFICIENT",
+            "ENVIRONMENT_EVIDENCE_INSUFFICIENT",
             profile,
             quality,
         )
+
+    def _verify_stored_partition(self, item):
+        if item.environment_engine_version != self.policy.environment_engine_version:
+            raise ExecutionEnvironmentError("ENGINE_VERSION_MISMATCH")
+        if (
+            item.environment_policy_uuid,
+            item.environment_policy_digest,
+            item.environment_policy_version,
+        ) != (
+            self.policy.environment_policy_uuid,
+            self.policy.environment_policy_digest,
+            self.policy.environment_policy_version,
+        ):
+            raise ExecutionEnvironmentError("POLICY_MISMATCH")
+
+    def _verify_evidence_partition(self, evidence, readiness, snapshot):
+        if evidence is None:
+            return
+        if (
+            evidence.execution_readiness_uuid,
+            evidence.execution_readiness_digest,
+        ) != (
+            readiness.execution_readiness_uuid,
+            readiness.execution_readiness_digest,
+        ):
+            raise ExecutionEnvironmentError("BROKEN_PROVENANCE")
+        if (
+            evidence.readiness_snapshot_uuid,
+            evidence.readiness_snapshot_digest,
+            evidence.readiness_repository_digest,
+        ) != (
+            snapshot.snapshot_uuid,
+            snapshot.snapshot_digest,
+            snapshot.repository_digest,
+        ):
+            raise ExecutionEnvironmentError("SNAPSHOT_MISMATCH")
+        expected = (
+            snapshot.readiness_policy_uuid,
+            snapshot.readiness_policy_digest,
+            snapshot.readiness_policy_version,
+            snapshot.readiness_engine_version,
+        )
+        actual = (
+            evidence.readiness_policy_uuid,
+            evidence.readiness_policy_digest,
+            evidence.readiness_policy_version,
+            evidence.readiness_engine_version,
+        )
+        if actual[3] != expected[3]:
+            raise ExecutionEnvironmentError("ENGINE_VERSION_MISMATCH")
+        if actual != expected:
+            raise ExecutionEnvironmentError("POLICY_MISMATCH")
 
     @staticmethod
     def _verify_partition(records, snapshot):
@@ -184,19 +265,17 @@ class GovernedExecutionEnvironmentEngine:
         )
         if not valid_uuid(expected[0]) or not valid_digest(expected[1]):
             raise ExecutionEnvironmentError("POLICY_MISMATCH")
-        if any(x.readiness_engine_version != expected[3] for x in records):
-            raise ExecutionEnvironmentError("ENGINE_VERSION_MISMATCH")
-        if any(
-            (
-                x.readiness_policy_uuid,
-                x.readiness_policy_digest,
-                x.readiness_policy_version,
-                x.readiness_engine_version,
+        for item in records:
+            actual = (
+                item.readiness_policy_uuid,
+                item.readiness_policy_digest,
+                item.readiness_policy_version,
+                item.readiness_engine_version,
             )
-            != expected
-            for x in records
-        ):
-            raise ExecutionEnvironmentError("POLICY_MISMATCH")
+            if actual[3] != expected[3]:
+                raise ExecutionEnvironmentError("ENGINE_VERSION_MISMATCH")
+            if actual != expected:
+                raise ExecutionEnvironmentError("POLICY_MISMATCH")
 
     def _verify(self, source):
         try:
@@ -213,7 +292,7 @@ class GovernedExecutionEnvironmentEngine:
         def verify(item):
             try:
                 valid = (
-                    execution_readiness_digest(item.digest_payload())
+                    readiness_digest(item.digest_payload())
                     == item.execution_readiness_digest
                 )
             except Exception:
@@ -234,9 +313,9 @@ class GovernedExecutionEnvironmentEngine:
             if snapshot != source:
                 raise ExecutionEnvironmentError("SNAPSHOT_MISMATCH")
             selected = []
-            for uid, d in snapshot.readiness_identities:
+            for uid, dgst in snapshot.readiness_identities:
                 item = by_record.get(uid)
-                if item is None or item.execution_readiness_digest != d:
+                if item is None or item.execution_readiness_digest != dgst:
                     raise ExecutionEnvironmentError("SNAPSHOT_MISMATCH")
                 selected.append(item)
             return tuple(selected), snapshot, source.generated_at
@@ -247,9 +326,8 @@ class GovernedExecutionEnvironmentEngine:
             raise ExecutionEnvironmentError("REPOSITORY_MISMATCH")
         try:
             valid = (
-                readiness_report_uuid(source.identity_payload())
-                == source.report_uuid
-                and execution_readiness_digest(source.digest_payload()) == source.report_digest
+                readiness_report_uuid(source.identity_payload()) == source.report_uuid
+                and readiness_digest(source.digest_payload()) == source.report_digest
             )
         except Exception:
             valid = False
@@ -258,7 +336,10 @@ class GovernedExecutionEnvironmentEngine:
         identities = set(snapshot.readiness_identities)
         for item in source.execution_readiness_records:
             verify(item)
-            if (item.execution_readiness_uuid, item.execution_readiness_digest) not in identities:
+            if (
+                item.execution_readiness_uuid,
+                item.execution_readiness_digest,
+            ) not in identities:
                 raise ExecutionEnvironmentError("SNAPSHOT_MISMATCH")
         return source.execution_readiness_records, snapshot, source.generated_at
 
