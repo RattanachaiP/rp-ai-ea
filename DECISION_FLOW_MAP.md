@@ -499,3 +499,12 @@ after exact canonical, integrity, identity, version, timestamp, advisory, and
 field-set validation. Any missing or invalid publication fails closed without
 fallback, repair, or partial acceptance. It does not read governance, Runtime,
 confidence, package, or strategy objects and adds no execution behavior.
+
+## PR195 governed Executor activation flow
+
+`PR194 accepted immutable ExecutionContext + Runtime READY -> PR195 one-shot activation authorization -> existing MT5 Executor lifecycle`.
+
+Any consumer, context, contract, or Runtime-state failure transitions the
+activation lifecycle to `REJECTED`; it cannot fall back to a legacy trigger.
+PR195 starts but does not implement the Executor. All broker safety, `OrderSend`,
+position, stop, target, and exit behavior remains in the existing Executor.
