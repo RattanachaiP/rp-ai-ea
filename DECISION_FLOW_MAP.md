@@ -508,3 +508,9 @@ Any consumer, context, contract, or Runtime-state failure transitions the
 activation lifecycle to `REJECTED`; it cannot fall back to a legacy trigger.
 PR195 starts but does not implement the Executor. All broker safety, `OrderSend`,
 position, stop, target, and exit behavior remains in the existing Executor.
+
+## PR196 production execution wiring flow
+
+`Python Runtime values -> PR193 publication in configured MT5 Common Files -> PR194 exact-file consumption -> Runtime READY -> PR195 one-shot activation -> existing installed MT5 Executor`.
+
+This is the only production startup path. Any failure ends the lifecycle without starting MT5 and without a legacy trigger. PR196 only composes the approved boundaries and introduces no governance, Runtime, or execution layer.
