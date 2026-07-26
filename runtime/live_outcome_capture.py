@@ -287,26 +287,36 @@ class LiveOutcomeCapture:
                 or completed.execution_context_uuid != context.execution_uuid
                 or completed.replay_identity != context.replay_uuid):
             raise LiveOutcomeCaptureError("BROKEN_IDENTITY_CHAIN")
+        if captured_at != completed.capture_time:
+            raise LiveOutcomeCaptureError("CAPTURE_TIMESTAMP_MISMATCH")
         opened = _time(completed.open_time, "INVALID_TIMESTAMP_SEQUENCE")
         closed = _time(completed.close_time, "INVALID_TIMESTAMP_SEQUENCE")
         assert opened is not None and closed is not None
         # PR201 retains its historical record shape; unavailable pre-completion
         # transport facts are explicit rather than read from a broker object.
         record = LiveOutcomeRecord(decision_uuid=completed.decision_uuid,
-            execution_context_uuid=completed.execution_context_uuid, publication_uuid=None,
+            execution_context_uuid=completed.execution_context_uuid,
+            publication_uuid=completed.publication_uuid,
             order_ticket=completed.order_ticket, deal_ticket=completed.deal_ticket,
             position_ticket=completed.position_ticket, runtime_timestamp=context.timestamp,
-            publication_timestamp=None, consumer_acceptance_timestamp=context.timestamp,
-            activation_timestamp=context.timestamp, order_send_timestamp=completed.open_time,
+            publication_timestamp=completed.publication_timestamp,
+            consumer_acceptance_timestamp=completed.consumer_acceptance_timestamp,
+            activation_timestamp=completed.activation_timestamp,
+            order_send_timestamp=completed.order_send_timestamp,
             position_open_timestamp=completed.open_time, position_close_timestamp=completed.close_time,
             symbol=completed.symbol, direction=completed.direction, volume=completed.volume,
-            entry_price=completed.entry_price, exit_price=completed.exit_price, stop_loss=0.0,
-            take_profit=0.0, exit_reason=completed.exit_reason, execution_latency_seconds=0.0,
-            broker_response_code="BROKER_CONFIRMED", broker_execution_status=BROKER_EXECUTION_STATUS,
-            account_number=1, server_name="CANONICAL_EVENT", gross_profit=completed.gross_profit,
+            entry_price=completed.entry_price, exit_price=completed.exit_price,
+            stop_loss=completed.stop_loss, take_profit=completed.take_profit,
+            exit_reason=completed.exit_reason,
+            execution_latency_seconds=(opened - _time(completed.order_send_timestamp, "INVALID_TIMESTAMP_SEQUENCE")).total_seconds(),  # type: ignore[operator]
+            broker_response_code=completed.broker_response_code,
+            broker_execution_status=BROKER_EXECUTION_STATUS,
+            account_number=completed.account_number, server_name=completed.server_name,
+            gross_profit=completed.gross_profit,
             net_profit=completed.net_profit, commission=completed.commission, swap=completed.swap,
             trade_duration_seconds=(closed - opened).total_seconds(),
-            maximum_favorable_excursion=None, maximum_adverse_excursion=None,
+            maximum_favorable_excursion=completed.maximum_favorable_excursion,
+            maximum_adverse_excursion=completed.maximum_adverse_excursion,
             replay_identity_chain=expected, parent_decision_uuid=context.decision_uuid,
             parent_execution_context_uuid=context.execution_uuid, captured_at=captured_at)
         self._repository.append(record)

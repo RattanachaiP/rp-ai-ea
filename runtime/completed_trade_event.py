@@ -63,19 +63,31 @@ class CompletedTradeEvent:
     order_ticket: int
     deal_ticket: int
     position_ticket: int
+    publication_uuid: str | None
     open_time: str
     close_time: str
     capture_time: str
+    publication_timestamp: str | None
+    consumer_acceptance_timestamp: str
+    activation_timestamp: str
+    order_send_timestamp: str
     symbol: str
     direction: str
     volume: float
     entry_price: float
     exit_price: float
     exit_reason: str
+    stop_loss: float
+    take_profit: float
+    broker_response_code: str
+    account_number: int
+    server_name: str
     gross_profit: float
     net_profit: float
     commission: float
     swap: float
+    maximum_favorable_excursion: float | None
+    maximum_adverse_excursion: float | None
     event_uuid: str
     sha256_digest: str
     replay_identity: str
@@ -87,24 +99,50 @@ class CompletedTradeEvent:
         for value in (self.decision_uuid, self.execution_context_uuid,
                       self.event_uuid, self.replay_identity):
             _uuid(value, "INVALID_EVENT_UUID")
+        if self.publication_uuid is not None:
+            _uuid(self.publication_uuid, "INVALID_EVENT_UUID")
+        if (self.publication_uuid is None) != (self.publication_timestamp is None):
+            raise CompletedTradeEventError("BROKEN_EVENT_PUBLICATION_IDENTITY")
         for ticket in (self.order_ticket, self.deal_ticket, self.position_ticket):
             if isinstance(ticket, bool) or not isinstance(ticket, int) or ticket <= 0:
                 raise CompletedTradeEventError("INVALID_EVENT_TICKET")
-        opened, closed, captured = map(_time, (self.open_time, self.close_time, self.capture_time))
-        if opened > closed or closed > captured:
+        runtime_sequence = [
+            _time(value) for value in (
+                self.consumer_acceptance_timestamp, self.activation_timestamp,
+                self.order_send_timestamp, self.open_time, self.close_time, self.capture_time
+            )
+        ]
+        publication = _time(self.publication_timestamp) if self.publication_timestamp is not None else None
+        if publication is not None and publication > runtime_sequence[0]:
+            raise CompletedTradeEventError("INVALID_EVENT_TIMESTAMP_SEQUENCE")
+        if any(left > right for left, right in zip(runtime_sequence, runtime_sequence[1:])):
             raise CompletedTradeEventError("INVALID_EVENT_TIMESTAMP_SEQUENCE")
         if not isinstance(self.symbol, str) or not _SYMBOL.fullmatch(self.symbol):
             raise CompletedTradeEventError("INVALID_EVENT_SYMBOL")
         if self.direction not in {"BUY", "SELL"}:
             raise CompletedTradeEventError("INVALID_EVENT_DIRECTION")
-        for name in ("volume", "entry_price", "exit_price", "gross_profit",
-                     "net_profit", "commission", "swap"):
+        for name in ("volume", "entry_price", "exit_price", "stop_loss", "take_profit",
+                     "gross_profit", "net_profit", "commission", "swap"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value):
                 raise CompletedTradeEventError("INVALID_EVENT_NUMBER")
             if name in {"volume", "entry_price", "exit_price"} and value <= 0:
                 raise CompletedTradeEventError("INVALID_EVENT_NUMBER")
+            if name in {"stop_loss", "take_profit"} and value < 0:
+                raise CompletedTradeEventError("INVALID_EVENT_NUMBER")
             object.__setattr__(self, name, float(value))
+        for name in ("exit_reason", "broker_response_code", "server_name"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value or value.strip() != value:
+                raise CompletedTradeEventError("INVALID_EVENT_BROKER_FACT")
+        if isinstance(self.account_number, bool) or not isinstance(self.account_number, int) or self.account_number <= 0:
+            raise CompletedTradeEventError("INVALID_EVENT_BROKER_FACT")
+        for name in ("maximum_favorable_excursion", "maximum_adverse_excursion"):
+            value = getattr(self, name)
+            if value is not None:
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value) or value < 0:
+                    raise CompletedTradeEventError("INVALID_EVENT_NUMBER")
+                object.__setattr__(self, name, float(value))
         if not isinstance(self.exit_reason, str) or not self.exit_reason or self.exit_reason.strip() != self.exit_reason:
             raise CompletedTradeEventError("INVALID_EVENT_EXIT_REASON")
         expected_uuid = self.identity_uuid(self.replay_identity, self.order_ticket,
@@ -135,8 +173,9 @@ class CompletedTradeEvent:
     @classmethod
     def create(cls, **values: object) -> "CompletedTradeEvent":
         values = dict(values)
-        for name in ("volume", "entry_price", "exit_price", "gross_profit",
-                     "net_profit", "commission", "swap"):
+        for name in ("volume", "entry_price", "exit_price", "stop_loss", "take_profit",
+                     "gross_profit", "net_profit", "commission", "swap",
+                     "maximum_favorable_excursion", "maximum_adverse_excursion"):
             value = values.get(name)
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 values[name] = float(value)

@@ -64,12 +64,23 @@ def completion(source: ExecutionContext, **changes: object) -> CompletedTradeEve
     return CompletedTradeEvent.create(decision_uuid=broker.decision_uuid,
         execution_context_uuid=broker.execution_context_uuid, order_ticket=broker.order_ticket,
         deal_ticket=broker.deal_ticket, position_ticket=broker.position_ticket,
+        publication_uuid=broker.publication_uuid,
         open_time=broker.position_open_timestamp, close_time=broker.position_close_timestamp,
-        capture_time="2026-07-26T10:05:05.000000Z", symbol=broker.symbol,
+        capture_time="2026-07-26T10:05:05.000000Z",
+        publication_timestamp=broker.publication_timestamp,
+        consumer_acceptance_timestamp=broker.consumer_acceptance_timestamp,
+        activation_timestamp=broker.activation_timestamp,
+        order_send_timestamp=broker.order_send_timestamp, symbol=broker.symbol,
         direction=broker.direction, volume=broker.volume, entry_price=broker.entry_price,
         exit_price=broker.exit_price, exit_reason=broker.exit_reason,
+        stop_loss=broker.stop_loss, take_profit=broker.take_profit,
+        broker_response_code=broker.broker_response_code, account_number=broker.account_number,
+        server_name=broker.server_name,
         gross_profit=broker.gross_profit, net_profit=broker.net_profit,
-        commission=broker.commission, swap=broker.swap, replay_identity=broker.replay_uuid)
+        commission=broker.commission, swap=broker.swap,
+        maximum_favorable_excursion=broker.maximum_favorable_excursion,
+        maximum_adverse_excursion=broker.maximum_adverse_excursion,
+        replay_identity=broker.replay_uuid)
 
 
 def integration(tmp_path: Path, lifecycle: ProductionLifecycle, source: ExecutionContext, results: list):
@@ -90,7 +101,7 @@ def test_automatic_capture_occurs_only_after_completed_lifecycle(tmp_path: Path)
     assert results[0].disposition is CaptureDisposition.CAPTURED
     record = results[0].record
     assert record.replay_identity_chain == (source.replay_uuid, source.decision_uuid, source.execution_uuid)
-    assert record.execution_latency_seconds == 0
+    assert record.execution_latency_seconds == .25
     assert len(list((tmp_path / "live_outcomes").glob("*.json"))) == 1
 
 

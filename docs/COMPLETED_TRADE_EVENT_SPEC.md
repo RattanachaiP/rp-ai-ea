@@ -4,7 +4,16 @@
 
 ## Exact schema and encoding
 
-The versioned fields are `decision_uuid`, `execution_context_uuid`, `order_ticket`, `deal_ticket`, `position_ticket`, `open_time`, `close_time`, `capture_time`, `symbol`, `direction`, `volume`, `entry_price`, `exit_price`, `exit_reason`, `gross_profit`, `net_profit`, `commission`, `swap`, `event_uuid`, `sha256_digest`, `replay_identity`, and `contract_version`.
+The versioned fields include the required identity, timing, execution, result,
+and integrity fields plus the broker-confirmed facts required by PR201:
+`publication_uuid`, `publication_timestamp`, `consumer_acceptance_timestamp`,
+`activation_timestamp`, `order_send_timestamp`, `stop_loss`, `take_profit`,
+`broker_response_code`, `account_number`, `server_name`,
+`maximum_favorable_excursion`, and `maximum_adverse_excursion`.
+
+Publication identity and timestamp are jointly optional. Excursion values are
+individually optional. All other broker facts are required; the host must not
+substitute synthetic defaults for unavailable values.
 
 Times are UTC ISO-8601 with six fractional digits and `Z`, ordered `open_time <= close_time <= capture_time`. JSON is UTF-8, compact, and lexicographically key-sorted; NaN and infinity are forbidden.
 
