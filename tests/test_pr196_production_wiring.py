@@ -1,5 +1,6 @@
 """PR196 production startup wiring integration tests."""
 from pathlib import Path
+import stat
 from uuid import uuid4
 
 import pytest
@@ -127,7 +128,10 @@ def test_publication_consumer_failure_never_starts_executor(
 
     def reject(consumer: ExecutionContextConsumer) -> object:
         if failure == "missing":
-            config.execution_context_path.unlink()
+            path = config.execution_context_path
+            path.chmod(stat.S_IREAD | stat.S_IWRITE)
+            path.unlink()
+            assert not path.exists()
         else:
             config.execution_context_path.chmod(0o600)
             config.execution_context_path.write_text("not-json", encoding="utf-8")
