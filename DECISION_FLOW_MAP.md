@@ -537,5 +537,18 @@ Broker-specific completion objects do not cross the host boundary. Duplicate or 
 -> future knowledge qualification.
 
 This is an observation-only post-completion flow and the sole producer of
-candidate operational knowledge. It performs no prediction, recommendation,
+patterns for knowledge qualification. It performs no prediction, recommendation,
 optimisation, governance action, Runtime change, broker action, or execution.
+
+## PR207 passive knowledge formation flow
+
+`PR206 Pattern + exact PR205 OutcomeAttribution + exact PR203 CompletedTradeEvent + exact PR201 LiveOutcomeRecord`
+-> pattern reconstruction, integrity, completeness, replay, and duplicate checks
+-> deterministic declared-threshold qualification
+-> immutable `CANDIDATE`, `QUALIFIED`, or `REJECTED` `CandidateKnowledge`
+-> atomic append-only Knowledge Repository.
+
+This passive post-completion flow is the only producer of knowledge candidates
+for future adaptive systems. It cannot modify its evidence and performs no
+prediction, recommendation, optimisation, governance action, Runtime change,
+broker action, or execution.

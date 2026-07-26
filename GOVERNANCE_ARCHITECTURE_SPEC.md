@@ -168,3 +168,20 @@ duplicate-rejecting, and replay-safe. Insufficient samples and any source or
 replay inconsistency fail closed. It cannot recommend, optimise, modify source
 evidence, or influence Runtime, Strategy, governance, broker, order, position,
 exit, or execution behaviour.
+
+## PR207 — Passive Knowledge Formation
+
+PR207 remains outside the advisory governance and execution pipelines. It
+consumes only one immutable PR206 `Pattern` and the exact immutable PR205,
+PR203, and PR201 evidence from which that pattern was discovered. Complete
+source reconstruction, integrity, replay lineage, and duplicate checks precede
+deterministic evidence qualification; every validation failure fails closed.
+
+PR207 emits immutable `CandidateKnowledge` classified as `CANDIDATE`,
+`QUALIFIED`, or `REJECTED` using only declared thresholds. Its canonical,
+atomic, append-only repository uses deterministic identities, SHA-256 integrity,
+fsync protection, collision rejection, and exact replay. It is the only
+producer of knowledge candidates for future adaptive systems, but cannot
+predict, recommend, optimise, modify operational evidence, or influence
+Runtime, Strategy, governance, broker, order, position, exit, or execution
+behaviour.

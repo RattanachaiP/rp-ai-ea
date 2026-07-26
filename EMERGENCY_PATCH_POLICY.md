@@ -86,3 +86,11 @@ authority may not use a pattern to modify operational evidence or influence
 Runtime, Strategy, governance, broker safety, orders, positions, exits, or
 execution; nor may it weaken source integrity, replay, sample-sufficiency,
 deterministic-identity, digest, append-only, or duplicate-rejection checks.
+
+## PR207 boundary
+
+PR207 is passive evidence qualification only. Emergency-patch authority may
+not use candidate knowledge or qualification state to modify evidence or
+influence Runtime, Strategy, governance, broker safety, orders, positions,
+exits, or execution; nor may it weaken source integrity, completeness, replay,
+deterministic qualification, identity, digest, append-only, or duplicate checks.

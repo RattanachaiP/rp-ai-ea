@@ -22,6 +22,16 @@ from .pattern_discovery import (
     PatternDiscoveryError,
     PatternRepository,
 )
+from .knowledge_formation import (
+    KNOWLEDGE_VERSION,
+    QUALIFICATION_STATUSES,
+    CandidateKnowledge,
+    EvidenceReferences,
+    KnowledgeFormationEngine,
+    KnowledgeFormationError,
+    KnowledgeQualificationPolicy,
+    KnowledgeRepository,
+)
 
 __all__ = [
     "CaptureDisposition",
@@ -40,4 +50,12 @@ __all__ = [
     "PatternDiscoveryEngine",
     "PatternDiscoveryError",
     "PatternRepository",
+    "KNOWLEDGE_VERSION",
+    "QUALIFICATION_STATUSES",
+    "CandidateKnowledge",
+    "EvidenceReferences",
+    "KnowledgeFormationEngine",
+    "KnowledgeFormationError",
+    "KnowledgeQualificationPolicy",
+    "KnowledgeRepository",
 ]
