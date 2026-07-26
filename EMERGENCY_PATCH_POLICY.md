@@ -18,3 +18,10 @@ patch stacks, or runtime layers may be introduced.
 ## PR186 boundary
 
 PR186 Execution Readiness is governance-only and advisory-only. Emergency-patch authority may not use a readiness state to alter strategy, bias, direction, risk, decision publication, runtime activation, broker communication, position management, exits, or execution.
+
+## PR187 boundary
+
+PR187 Execution Environment Intelligence is governance-only and advisory-only.
+Emergency-patch authority may not use an environment state or quality profile to
+alter strategy, bias, direction, risk, decision publication, runtime activation,
+broker communication, position management, exits, or execution.
