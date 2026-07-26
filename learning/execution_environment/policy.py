@@ -1,4 +1,5 @@
 """Immutable, explicitly declared PR187 environment evaluation policy."""
+
 from dataclasses import dataclass
 from math import isfinite
 from .identity import digest, policy_uuid
@@ -6,11 +7,18 @@ from .identity import digest, policy_uuid
 POLICY_VERSION = "PR187-EXECUTION-ENVIRONMENT-POLICY.2.0"
 ENGINE_VERSION = "PR187.2.0"
 ENVIRONMENT_DIMENSIONS = (
-    "feed_stability", "price_stream_continuity", "market_session_quality",
-    "spread_quality", "latency_quality", "slippage_expectation",
-    "market_liquidity_quality", "environment_consistency", "data_freshness",
+    "feed_stability",
+    "price_stream_continuity",
+    "market_session_quality",
+    "spread_quality",
+    "latency_quality",
+    "slippage_expectation",
+    "market_liquidity_quality",
+    "environment_consistency",
+    "data_freshness",
     "environment_completeness",
 )
+
 
 @dataclass(frozen=True)
 class ExecutionEnvironmentPolicy:
@@ -29,18 +37,31 @@ class ExecutionEnvironmentPolicy:
     minimum_environment_completeness: float = 0.9
 
     def __post_init__(self):
-        values = tuple(getattr(self, n) for n in self.__dataclass_fields__ if n not in {"environment_policy_version", "environment_engine_version"})
-        if (not isinstance(self.environment_policy_version, str) or not self.environment_policy_version.strip()
-            or not isinstance(self.environment_engine_version, str) or not self.environment_engine_version.strip()
+        values = tuple(
+            getattr(self, n)
+            for n in self.__dataclass_fields__
+            if n not in {"environment_policy_version", "environment_engine_version"}
+        )
+        if (
+            not isinstance(self.environment_policy_version, str)
+            or not self.environment_policy_version.strip()
+            or not isinstance(self.environment_engine_version, str)
+            or not self.environment_engine_version.strip()
             or any(type(v) is not float or not isfinite(v) or v < 0 for v in values)
-            or not 0.0 <= self.minimum_quality <= 1.0):
+            or not 0.0 <= self.minimum_quality <= 1.0
+        ):
             raise ValueError("INVALID_EXECUTION_ENVIRONMENT_POLICY")
 
-    def to_dict(self): return {n: getattr(self, n) for n in self.__dataclass_fields__}
+    def to_dict(self):
+        return {n: getattr(self, n) for n in self.__dataclass_fields__}
+
     @property
-    def environment_policy_digest(self): return digest(self.to_dict())
+    def environment_policy_digest(self):
+        return digest(self.to_dict())
+
     @property
-    def environment_policy_uuid(self): return policy_uuid(self.to_dict())
+    def environment_policy_uuid(self):
+        return policy_uuid(self.to_dict())
 
     def available(self, dimension, value):
         tests = {
