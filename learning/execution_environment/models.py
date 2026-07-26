@@ -36,6 +36,16 @@ def _partition_valid(uuid, dgst, version, engine):
     )
 
 
+def _canonical_observation_subset(observations):
+    if any(len(item) != 2 for item in observations):
+        return False
+    names = tuple(item[0] for item in observations)
+    if len(names) != len(set(names)) or any(name not in ENVIRONMENT_DIMENSIONS for name in names):
+        return False
+    expected_order = tuple(name for name in ENVIRONMENT_DIMENSIONS if name in set(names))
+    return names == expected_order
+
+
 @dataclass(frozen=True)
 class ExecutionEnvironmentEvidence:
     evidence_uuid: str
@@ -54,21 +64,17 @@ class ExecutionEnvironmentEvidence:
     advisory_only: bool = True
 
     def __post_init__(self):
-        observations = tuple(tuple(x) for x in self.observations)
+        observations = tuple(tuple(item) for item in self.observations)
         object.__setattr__(self, "observations", observations)
-        names = tuple(x[0] for x in observations if len(x) == 2)
-        canonical = ENVIRONMENT_DIMENSIONS
         if (
             not valid_uuid(self.evidence_uuid)
             or not valid_digest(self.evidence_digest)
             or not valid_uuid(self.execution_readiness_uuid)
             or not valid_digest(self.execution_readiness_digest)
-            or any(len(x) != 2 for x in observations)
-            or len(names) != len(set(names))
-            or names != canonical
+            or not _canonical_observation_subset(observations)
             or any(
-                type(v) is not float or not isfinite(v) or v < 0
-                for _, v in observations
+                type(value) is not float or not isfinite(value) or value < 0
+                for _, value in observations
             )
             or not valid_timestamp(self.captured_at)
             or not valid_uuid(self.readiness_snapshot_uuid)
@@ -88,13 +94,13 @@ class ExecutionEnvironmentEvidence:
 
     def identity_payload(self):
         return {
-            n: (
-                [list(x) for x in self.observations]
-                if n == "observations"
-                else getattr(self, n)
+            name: (
+                [list(item) for item in self.observations]
+                if name == "observations"
+                else getattr(self, name)
             )
-            for n in self.__dataclass_fields__
-            if n not in {"evidence_uuid", "evidence_digest"}
+            for name in self.__dataclass_fields__
+            if name not in {"evidence_uuid", "evidence_digest"}
         }
 
     def digest_payload(self):
@@ -108,23 +114,20 @@ class ExecutionEnvironmentEvidence:
         values = dict(values)
         values["observations"] = tuple(values["observations"])
         observations = values["observations"]
-        names = tuple(x[0] for x in observations if len(x) == 2)
         if (
-            any(len(x) != 2 for x in observations)
-            or len(names) != len(set(names))
-            or names != ENVIRONMENT_DIMENSIONS
+            not _canonical_observation_subset(observations)
             or any(
-                type(v) is not float or not isfinite(v) or v < 0
-                for _, v in observations
+                type(value) is not float or not isfinite(value) or value < 0
+                for _, value in observations
             )
         ):
             raise ValueError("INVALID_EXECUTION_ENVIRONMENT_EVIDENCE")
-        payload = {**values, "observations": [list(x) for x in values["observations"]]}
+        payload = {**values, "observations": [list(item) for item in observations]}
         uid = environment_evidence_uuid(payload)
         return cls(
             evidence_uuid=uid,
             evidence_digest=digest({"evidence_uuid": uid, **payload}),
-            **values
+            **values,
         )
 
 
@@ -155,7 +158,7 @@ class ExecutionEnvironment:
     advisory_only: bool = True
 
     def __post_init__(self):
-        profile = tuple(tuple(x) for x in self.environment_profile)
+        profile = tuple(tuple(item) for item in self.environment_profile)
         object.__setattr__(self, "environment_profile", profile)
         policy_data = dict(self.environment_policy)
         object.__setattr__(self, "environment_policy", MappingProxyType(policy_data))
@@ -163,10 +166,11 @@ class ExecutionEnvironment:
             policy = ExecutionEnvironmentPolicy(**policy_data)
         except (TypeError, ValueError):
             policy = None
-        names = tuple(x[0] for x in profile if len(x) == 2)
+        names = tuple(item[0] for item in profile if len(item) == 2)
         evidence_pair = (
             self.evidence_uuid is None and self.evidence_digest is None
         ) or (valid_uuid(self.evidence_uuid) and valid_digest(self.evidence_digest))
+        critical_ready = bool(policy and policy.critical_dimensions_available(profile))
         expected_state = (
             "REJECTED"
             if self.readiness_state == "REJECTED"
@@ -174,8 +178,8 @@ class ExecutionEnvironment:
                 "ENVIRONMENT_READY_FOR_FEASIBILITY"
                 if self.evidence_uuid is not None
                 and self.environment_evidence_complete is True
-                and self.environment_quality
-                >= (policy.minimum_quality if policy else 2)
+                and critical_ready
+                and self.environment_quality >= (policy.minimum_quality if policy else 2)
                 else "INSUFFICIENT_ENVIRONMENT_INFORMATION"
             )
         )
@@ -194,12 +198,12 @@ class ExecutionEnvironment:
             or type(self.environment_evidence_complete) is not bool
             or len(profile) != len(ENVIRONMENT_DIMENSIONS)
             or names != ENVIRONMENT_DIMENSIONS
-            or any(v not in {"AVAILABLE", "UNAVAILABLE"} for _, v in profile)
+            or any(value not in {"AVAILABLE", "UNAVAILABLE"} for _, value in profile)
             or type(self.environment_quality) is not float
             or not isfinite(self.environment_quality)
             or not 0 <= self.environment_quality <= 1
             or self.environment_quality
-            != sum(v == "AVAILABLE" for _, v in profile) / len(profile)
+            != sum(value == "AVAILABLE" for _, value in profile) / len(profile)
             or self.environment_state != expected_state
             or self.environment_reason != expected_reason
             or policy is None
@@ -221,17 +225,17 @@ class ExecutionEnvironment:
 
     def identity_payload(self):
         return {
-            n: (
-                [list(x) for x in self.environment_profile]
-                if n == "environment_profile"
+            name: (
+                [list(item) for item in self.environment_profile]
+                if name == "environment_profile"
                 else (
                     dict(self.environment_policy)
-                    if n == "environment_policy"
-                    else getattr(self, n)
+                    if name == "environment_policy"
+                    else getattr(self, name)
                 )
             )
-            for n in self.__dataclass_fields__
-            if n not in {"execution_environment_uuid", "execution_environment_digest"}
+            for name in self.__dataclass_fields__
+            if name not in {"execution_environment_uuid", "execution_environment_digest"}
         }
 
     def digest_payload(self):
@@ -254,7 +258,7 @@ class ExecutionEnvironment:
             execution_environment_digest=digest(
                 {"execution_environment_uuid": uid, **values}
             ),
-            **values
+            **values,
         )
 
 
@@ -280,9 +284,9 @@ class ExecutionEnvironmentSnapshot:
     advisory_only: bool = True
 
     def __post_init__(self):
-        ids = tuple(tuple(x) for x in self.environment_identities)
-        object.__setattr__(self, "environment_identities", ids)
-        prev = (
+        identities = tuple(tuple(item) for item in self.environment_identities)
+        object.__setattr__(self, "environment_identities", identities)
+        previous_valid = (
             self.previous_snapshot_uuid is None
             and self.previous_snapshot_digest is None
         ) or (
@@ -293,11 +297,14 @@ class ExecutionEnvironmentSnapshot:
             not valid_uuid(self.snapshot_uuid)
             or not valid_digest(self.snapshot_digest)
             or not valid_digest(self.repository_digest)
-            or ids != tuple(sorted(ids))
-            or self.record_count != len(ids)
-            or len({x[0] for x in ids}) != len(ids)
-            or any(not valid_uuid(x[0]) or not valid_digest(x[1]) for x in ids)
-            or not prev
+            or identities != tuple(sorted(identities))
+            or self.record_count != len(identities)
+            or len({item[0] for item in identities}) != len(identities)
+            or any(
+                not valid_uuid(item[0]) or not valid_digest(item[1])
+                for item in identities
+            )
+            or not previous_valid
             or not _partition_valid(
                 self.environment_policy_uuid,
                 self.environment_policy_digest,
@@ -320,13 +327,13 @@ class ExecutionEnvironmentSnapshot:
 
     def identity_payload(self):
         return {
-            n: (
-                [list(x) for x in self.environment_identities]
-                if n == "environment_identities"
-                else getattr(self, n)
+            name: (
+                [list(item) for item in self.environment_identities]
+                if name == "environment_identities"
+                else getattr(self, name)
             )
-            for n in self.__dataclass_fields__
-            if n not in {"snapshot_uuid", "snapshot_digest"}
+            for name in self.__dataclass_fields__
+            if name not in {"snapshot_uuid", "snapshot_digest"}
         }
 
     def to_dict(self):
@@ -343,7 +350,7 @@ class ExecutionEnvironmentSnapshot:
         payload = {
             **values,
             "environment_identities": [
-                list(x) for x in values["environment_identities"]
+                list(item) for item in values["environment_identities"]
             ],
         }
         uid = snapshot_uuid(payload)
@@ -368,26 +375,26 @@ class ExecutionEnvironmentReport:
 
     def __post_init__(self):
         items = tuple(
-            ExecutionEnvironment(**x) if isinstance(x, Mapping) else x
-            for x in self.execution_environment_records
+            ExecutionEnvironment(**item) if isinstance(item, Mapping) else item
+            for item in self.execution_environment_records
         )
         object.__setattr__(self, "execution_environment_records", items)
         if (
-            any(type(x) is not ExecutionEnvironment for x in items)
+            any(type(item) is not ExecutionEnvironment for item in items)
             or self.processed_count != len(items)
             or self.ready_count
             != sum(
-                x.environment_state == "ENVIRONMENT_READY_FOR_FEASIBILITY"
-                for x in items
+                item.environment_state == "ENVIRONMENT_READY_FOR_FEASIBILITY"
+                for item in items
             )
             or self.insufficient_count
             != sum(
-                x.environment_state == "INSUFFICIENT_ENVIRONMENT_INFORMATION"
-                for x in items
+                item.environment_state == "INSUFFICIENT_ENVIRONMENT_INFORMATION"
+                for item in items
             )
             or self.rejected_count
-            != sum(x.environment_state == "REJECTED" for x in items)
-            or len({x.execution_environment_uuid for x in items}) != len(items)
+            != sum(item.environment_state == "REJECTED" for item in items)
+            or len({item.execution_environment_uuid for item in items}) != len(items)
             or type(self.duplicate_count) is not int
             or not 0 <= self.duplicate_count <= len(items)
             or not valid_uuid(self.report_uuid)
@@ -404,13 +411,13 @@ class ExecutionEnvironmentReport:
 
     def identity_payload(self):
         return {
-            n: (
-                [x.to_dict() for x in self.execution_environment_records]
-                if n == "execution_environment_records"
-                else getattr(self, n)
+            name: (
+                [item.to_dict() for item in self.execution_environment_records]
+                if name == "execution_environment_records"
+                else getattr(self, name)
             )
-            for n in self.__dataclass_fields__
-            if n not in {"report_uuid", "report_digest"}
+            for name in self.__dataclass_fields__
+            if name not in {"report_uuid", "report_digest"}
         }
 
     def digest_payload(self):
@@ -432,12 +439,12 @@ class ExecutionEnvironmentReport:
         payload = {
             **values,
             "execution_environment_records": [
-                x.to_dict() for x in values["execution_environment_records"]
+                item.to_dict() for item in values["execution_environment_records"]
             ],
         }
         uid = report_uuid(payload)
         return cls(
             report_uuid=uid,
             report_digest=digest({"report_uuid": uid, **payload}),
-            **values
+            **values,
         )
