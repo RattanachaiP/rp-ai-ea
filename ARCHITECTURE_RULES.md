@@ -192,3 +192,14 @@ targets, and exits remain unchanged and exclusively Executor-owned.
 ## PR203 completed-trade event rule
 
 **Rule #032 — Canonical Completed Trade Event.** After broker-confirmed trade completion, the production host emits exactly one immutable, canonical `CompletedTradeEvent`. The passive production outcome integration accepts this event only; broker-specific objects terminate at the host boundary. Invalid identity, integrity, replay, chronology, or duplicate events fail closed. Event publication has no execution or decision authority.
+
+## PR206 passive pattern discovery rule
+
+**Rule #033 — Evidence-only Pattern Discovery.** PR206 consumes only immutable
+PR205 `OutcomeAttribution` records and their exact PR203 `CompletedTradeEvent`
+and PR201 `LiveOutcomeRecord` sources. It verifies integrity, lineage, replay,
+sample sufficiency, and duplicate identity before emitting immutable,
+deterministic, SHA-256-bound operational `Pattern` records. Patterns are
+descriptive candidate knowledge only: they make no recommendation, perform no
+optimisation, and grant no Runtime, Strategy, governance, broker, order,
+position, exit, or execution authority.

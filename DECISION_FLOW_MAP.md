@@ -526,3 +526,16 @@ PR201 observes only already-completed broker evidence. It validates the complete
 `Broker confirms trade closed -> production host creates one CompletedTradeEvent -> passive production outcome integration -> immutable live outcome capture -> operational evidence repository`.
 
 Broker-specific completion objects do not cross the host boundary. Duplicate or invalid events fail closed without affecting execution.
+
+## PR206 pattern discovery flow
+
+`PR205 OutcomeAttribution + exact PR203 CompletedTradeEvent + exact PR201 LiveOutcomeRecord`
+-> source integrity, lineage, replay, duplicate, and sample-sufficiency checks
+-> deterministic descriptive aggregation
+-> immutable SHA-256-bound `Pattern`
+-> atomic append-only Pattern Repository
+-> future knowledge qualification.
+
+This is an observation-only post-completion flow and the sole producer of
+candidate operational knowledge. It performs no prediction, recommendation,
+optimisation, governance action, Runtime change, broker action, or execution.

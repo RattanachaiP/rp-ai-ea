@@ -3,6 +3,17 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR206 Pattern Discovery Engine — IMPLEMENTED, PENDING ACCEPTANCE
+
+- The passive engine consumes only immutable PR205 attributions and their exact
+  PR203/PR201 source records, revalidating integrity, lineage, replay identity,
+  uniqueness, and configured sample sufficiency before discovery.
+- Reproducible immutable patterns describe operational outcome characteristics
+  and retain source UUIDs, confidence, observation window, evidence,
+  deterministic timestamp and UUID, and SHA-256 integrity.
+- The append-only repository rejects duplicate identities. PR206 makes no
+  recommendations, performs no optimisation, and has no execution authority.
+
 ## PR203 Completed Trade Event Standardization — IMPLEMENTED, PENDING ACCEPTANCE
 
 - The production host publishes exactly one immutable, canonical `CompletedTradeEvent` after broker-confirmed completion.
