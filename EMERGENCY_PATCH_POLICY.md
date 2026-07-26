@@ -78,3 +78,11 @@ PR201 is passive post-completion evidence capture only. Emergency-patch authorit
 ## PR203 boundary
 
 PR203 is a post-completion event contract only. Emergency-patch authority may not bypass its encoding, identity, digest, chronology, or duplicate checks; pass broker-specific objects downstream; or add execution, Runtime, Strategy, Governance, analytics, attribution, or learning behavior.
+
+## PR206 boundary
+
+PR206 is passive post-completion pattern discovery only. Emergency-patch
+authority may not use a pattern to modify operational evidence or influence
+Runtime, Strategy, governance, broker safety, orders, positions, exits, or
+execution; nor may it weaken source integrity, replay, sample-sufficiency,
+deterministic-identity, digest, append-only, or duplicate-rejection checks.

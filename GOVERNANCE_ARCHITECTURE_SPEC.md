@@ -157,3 +157,14 @@ Records reside below the configured `operational_evidence/live_outcomes/` root a
 ## PR203 — Completed Trade Event Standardization
 
 The production host converts final broker-confirmed completion facts into one immutable `CompletedTradeEvent`. It has canonical UTF-8 JSON, deterministic ordering, strict UTC chronology, deterministic identity, SHA-256 integrity, replay identity, and duplicate rejection. Passive outcome integration and live outcome capture consume only this event, never broker-specific objects. This changes no execution authority, broker safety, Runtime, Strategy, Governance, ExecutionContext, `OrderSend`, analytics, attribution, or learning.
+
+## PR206 — Pattern Discovery
+
+PR206 is outside the advisory governance and execution pipelines. It consumes
+only exact immutable PR205 attribution and PR203/PR201 parent evidence and
+produces descriptive candidate operational knowledge. Its repository is
+canonical, atomic, append-only, deterministic, SHA-256 integrity-bound,
+duplicate-rejecting, and replay-safe. Insufficient samples and any source or
+replay inconsistency fail closed. It cannot recommend, optimise, modify source
+evidence, or influence Runtime, Strategy, governance, broker, order, position,
+exit, or execution behaviour.

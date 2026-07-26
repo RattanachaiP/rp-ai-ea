@@ -13,6 +13,15 @@ from .production_outcome_capture import (
     ProductionCaptureResult,
     ProductionOutcomeCaptureIntegration,
 )
+from .pattern_discovery import (
+    PATTERN_VERSION,
+    ObservationWindow,
+    Pattern,
+    PatternDiscoveryConfig,
+    PatternDiscoveryEngine,
+    PatternDiscoveryError,
+    PatternRepository,
+)
 
 __all__ = [
     "CaptureDisposition",
@@ -24,4 +33,11 @@ __all__ = [
     "OutcomeAttributionError",
     "OutcomeAttributionRepository",
     "SupportingEvidence",
+    "PATTERN_VERSION",
+    "ObservationWindow",
+    "Pattern",
+    "PatternDiscoveryConfig",
+    "PatternDiscoveryEngine",
+    "PatternDiscoveryError",
+    "PatternRepository",
 ]
