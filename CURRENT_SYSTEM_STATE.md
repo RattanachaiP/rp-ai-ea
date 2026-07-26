@@ -9,8 +9,8 @@ Authoritative branch policy: `codex-dev`
   PR203/PR201 source records, revalidating integrity, lineage, replay identity,
   uniqueness, and configured sample sufficiency before discovery.
 - Reproducible immutable patterns describe operational outcome characteristics
-  and retain source UUIDs, confidence, observation window, evidence,
-  deterministic timestamp and UUID, and SHA-256 integrity.
+  and retain source UUIDs, configured confidence target metadata, observation
+  window, evidence, deterministic timestamp and UUID, and SHA-256 integrity.
 - The append-only repository rejects duplicate identities. PR206 makes no
   recommendations, performs no optimisation, and has no execution authority.
 

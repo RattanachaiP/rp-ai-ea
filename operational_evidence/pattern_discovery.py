@@ -75,7 +75,7 @@ class Pattern:
     pattern_type: str
     source_attribution_uuids: tuple[str, ...]
     sample_count: int
-    statistical_confidence: float
+    configured_confidence_level: float
     observation_window: ObservationWindow
     supporting_evidence: tuple[tuple[str, object], ...]
     discovery_timestamp: str
@@ -94,8 +94,8 @@ class Pattern:
                 or not all(_uuid(value) for value in self.source_attribution_uuids)
                 or self.sample_count != len(self.source_attribution_uuids)):
             raise PatternDiscoveryError("INVALID_PATTERN_SOURCES")
-        if not 0.5 < self.statistical_confidence < 1:
-            raise PatternDiscoveryError("INVALID_STATISTICAL_CONFIDENCE")
+        if not 0.5 < self.configured_confidence_level < 1:
+            raise PatternDiscoveryError("INVALID_CONFIGURED_CONFIDENCE_LEVEL")
         if not self.pattern_type or not isinstance(self.supporting_evidence, tuple):
             raise PatternDiscoveryError("INVALID_SUPPORTING_EVIDENCE")
         if tuple(key for key, _ in self.supporting_evidence) != tuple(sorted(key for key, _ in self.supporting_evidence)):
@@ -112,7 +112,7 @@ class Pattern:
             "pattern_type": self.pattern_type,
             "source_attribution_uuids": list(self.source_attribution_uuids),
             "sample_count": self.sample_count,
-            "statistical_confidence": self.statistical_confidence,
+            "configured_confidence_level": self.configured_confidence_level,
             "observation_window": self.observation_window.to_dict(),
             "supporting_evidence": dict(self.supporting_evidence),
             "discovery_timestamp": self.discovery_timestamp,
@@ -129,7 +129,8 @@ class Pattern:
 
     @classmethod
     def create(cls, pattern_type: str, rows: list[tuple[OutcomeAttribution,
-                     CompletedTradeEvent, LiveOutcomeRecord]], confidence: float,
+                     CompletedTradeEvent, LiveOutcomeRecord]],
+               configured_confidence_level: float,
                evidence: dict[str, object]) -> "Pattern":
         sources = tuple(sorted(row[0].attribution_uuid for row in rows))
         starts = [row[1].open_time for row in rows]
@@ -141,7 +142,8 @@ class Pattern:
             raise PatternDiscoveryError("REPLAY_IDENTITY_INCONSISTENT")
         values = dict(
             pattern_type=pattern_type, source_attribution_uuids=sources,
-            sample_count=len(rows), statistical_confidence=confidence,
+            sample_count=len(rows),
+            configured_confidence_level=configured_confidence_level,
             observation_window=ObservationWindow(min(starts), max(ends)),
             supporting_evidence=tuple(sorted(evidence.items())),
             discovery_timestamp=max(timestamps), replay_identity=next(iter(replays)),
@@ -196,11 +198,12 @@ class PatternDiscoveryEngine:
         if len({row[0].replay_identity for row in rows}) != 1:
             raise PatternDiscoveryError("REPLAY_IDENTITY_INCONSISTENT")
 
-        confidence = float(self.config.confidence_level)
+        configured_confidence_level = float(self.config.confidence_level)
         patterns: list[Pattern] = []
         def add(kind: str, selected: list, evidence: dict[str, object]) -> None:
             if len(selected) >= self.config.minimum_sample_count:
-                patterns.append(Pattern.create(kind, selected, confidence, evidence))
+                patterns.append(Pattern.create(
+                    kind, selected, configured_confidence_level, evidence))
 
         winners = [row for row in rows if row[0].classification == "PROFITABLE"]
         losers = [row for row in rows if row[0].classification == "LOSS"]
