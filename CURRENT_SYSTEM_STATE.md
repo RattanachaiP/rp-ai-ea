@@ -6,8 +6,8 @@ Authoritative branch policy: `codex-dev`
 ## PR196 Production Execution Wiring — IMPLEMENTED, PENDING ACCEPTANCE
 
 - Architecture: `PR196`; module: `runtime.production_wiring`; component: the sole production composition of PR193 publication, PR194 consumption, and PR195 activation for the installed MT5 Executor.
-- Production MT5 Common Files and terminal paths are explicit operator configuration. MT5 is detected before publication, and the existing terminal starts only after the published context is consumed and Runtime is `READY`.
-- The obsolete standalone `bridge/main.py` loop was removed. All failures are terminal for the one-shot lifecycle and have no legacy fallback.
+- The MT5 Common Files root and symbol are explicit operator configuration. The existing Executor startup callback is invoked only after the published context is consumed and Runtime is `READY`.
+- Repository discovery found no tracked production MT5 process/EA launcher; PR196 therefore does not invent one. The existing production host supplies its Executor startup callback, and all wiring failures are terminal with no fallback.
 - PR196 changes no strategy, confidence calculation, broker logic, `OrderSend`, position management, or exit authority.
 
 ## PR195 Governed Executor Activation — IMPLEMENTED, PENDING ACCEPTANCE

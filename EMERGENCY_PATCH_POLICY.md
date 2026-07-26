@@ -69,4 +69,4 @@ exits, strategy, confidence, or risk into the activation boundary.
 
 ## PR196 boundary
 
-PR196 is production wiring only. Emergency-patch authority may not restore the removed standalone startup loop, add an alternate or fallback MT5 trigger, or bypass configured-path detection, PR193 publication, PR194 consumption, or PR195 Runtime-ready activation.
+PR196 is production wiring only. Emergency-patch authority may not designate a standalone decision loop as an Executor trigger, add an alternate or fallback MT5 trigger, or bypass configured-path detection, PR193 publication, PR194 consumption, or PR195 Runtime-ready activation.
