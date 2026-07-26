@@ -71,16 +71,18 @@ class GovernedExecutionEnvironmentEngine:
             evidence = self.evidence_repository.for_readiness(readiness)
             self._verify_evidence_partition(evidence, readiness, snapshot)
             state, reason, profile, quality = self._evaluate(readiness, evidence)
+            evidence_complete = bool(
+                evidence
+                and tuple(name for name, _ in evidence.observations)
+                == ENVIRONMENT_DIMENSIONS
+            )
             item = ExecutionEnvironment.create(
                 execution_readiness_uuid=readiness.execution_readiness_uuid,
                 execution_readiness_digest=readiness.execution_readiness_digest,
                 readiness_state=readiness.readiness_state,
                 evidence_uuid=evidence.evidence_uuid if evidence else None,
                 evidence_digest=evidence.evidence_digest if evidence else None,
-                environment_evidence_complete=bool(
-                    evidence
-                    and len(evidence.observations) == len(ENVIRONMENT_DIMENSIONS)
-                ),
+                environment_evidence_complete=evidence_complete,
                 environment_state=state,
                 environment_reason=reason,
                 environment_profile=profile,
@@ -132,7 +134,7 @@ class GovernedExecutionEnvironmentEngine:
                 **values,
                 previous_snapshot_uuid=previous.snapshot_uuid if previous else None,
                 previous_snapshot_digest=previous.snapshot_digest if previous else None,
-                generated_at=generated_at
+                generated_at=generated_at,
             )
             self.repository.save_snapshot(out_snapshot)
         return ExecutionEnvironmentReport.create(
@@ -162,21 +164,28 @@ class GovernedExecutionEnvironmentEngine:
         values = dict(evidence.observations) if evidence else {}
         profile = tuple(
             (
-                d,
+                dimension,
                 (
                     "AVAILABLE"
-                    if d in values and self.policy.available(d, values[d])
+                    if dimension in values
+                    and self.policy.available(dimension, values[dimension])
                     else "UNAVAILABLE"
                 ),
             )
-            for d in ENVIRONMENT_DIMENSIONS
+            for dimension in ENVIRONMENT_DIMENSIONS
         )
-        quality = float(sum(v == "AVAILABLE" for _, v in profile) / len(profile))
+        quality = float(sum(value == "AVAILABLE" for _, value in profile) / len(profile))
+        evidence_complete = bool(
+            evidence
+            and tuple(name for name, _ in evidence.observations)
+            == ENVIRONMENT_DIMENSIONS
+        )
+        critical_ready = self.policy.critical_dimensions_available(profile)
         if readiness.readiness_state == "REJECTED":
             return "REJECTED", "READINESS_REJECTED", profile, quality
         if (
-            evidence is not None
-            and len(evidence.observations) == len(ENVIRONMENT_DIMENSIONS)
+            evidence_complete
+            and critical_ready
             and quality >= self.policy.minimum_quality
         ):
             return (
@@ -209,6 +218,14 @@ class GovernedExecutionEnvironmentEngine:
     def _verify_evidence_partition(self, evidence, readiness, snapshot):
         if evidence is None:
             return
+        if (
+            evidence.execution_readiness_uuid,
+            evidence.execution_readiness_digest,
+        ) != (
+            readiness.execution_readiness_uuid,
+            readiness.execution_readiness_digest,
+        ):
+            raise ExecutionEnvironmentError("BROKEN_PROVENANCE")
         if (
             evidence.readiness_snapshot_uuid,
             evidence.readiness_snapshot_digest,
@@ -248,12 +265,12 @@ class GovernedExecutionEnvironmentEngine:
         )
         if not valid_uuid(expected[0]) or not valid_digest(expected[1]):
             raise ExecutionEnvironmentError("POLICY_MISMATCH")
-        for x in records:
+        for item in records:
             actual = (
-                x.readiness_policy_uuid,
-                x.readiness_policy_digest,
-                x.readiness_policy_version,
-                x.readiness_engine_version,
+                item.readiness_policy_uuid,
+                item.readiness_policy_digest,
+                item.readiness_policy_version,
+                item.readiness_engine_version,
             )
             if actual[3] != expected[3]:
                 raise ExecutionEnvironmentError("ENGINE_VERSION_MISMATCH")
