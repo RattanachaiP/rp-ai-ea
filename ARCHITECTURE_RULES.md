@@ -159,3 +159,14 @@ non-canonical, corrupted, UUID-invalid, version-incompatible, engine-incompatibl
 or replay-mismatched payloads fail closed without repair, fallback, or partial
 loading. PR192 creates no trading intent and has no broker, order, position, or
 exit authority.
+
+## PR194 executor-side Execution Context consumption rule
+
+**Rule #028 — Fail-closed Execution Context Consumption.** The MT5 Executor may
+load only the immutable canonical PR192 `ExecutionContext` published as
+`execution_context.json` by PR193. It verifies canonical UTF-8 JSON, the exact
+field set, UUIDs, SHA-256, contract and engine versions, replay identity,
+timestamp, and advisory marker. Failure permits no fallback, repair, or partial
+acceptance. The consumer may not access Runtime internals, strategy objects,
+`ExecutionPackage`, `ExecutionConfidenceContext`, or governance artifacts and
+creates no trading intent or execution authority.

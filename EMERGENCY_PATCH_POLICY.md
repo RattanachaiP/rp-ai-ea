@@ -51,3 +51,11 @@ Emergency-patch authority may not bypass its canonical codec, weaken its
 compatibility or integrity checks, add fallback or repair, expose governance
 artifacts to the Executor, or add trading and position-management behavior to
 the contract.
+
+## PR194 boundary
+
+PR194 is the fail-closed Executor consumer of `execution_context.json` only.
+Emergency-patch authority may not weaken its canonical, integrity, identity,
+compatibility, timestamp, advisory-marker, or exact-schema checks; add fallback,
+repair, or partial loading; or connect it to governance, package, confidence,
+strategy, or Runtime implementation artifacts.
