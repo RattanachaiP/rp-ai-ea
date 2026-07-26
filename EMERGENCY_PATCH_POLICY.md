@@ -66,3 +66,7 @@ PR195 is an activation layer only. Emergency-patch authority may not add a
 legacy or fallback activation trigger, weaken ExecutionContext or Runtime-state
 gating, or move broker safety, orders, position management, stops, targets,
 exits, strategy, confidence, or risk into the activation boundary.
+
+## PR196 boundary
+
+PR196 is production wiring only. Emergency-patch authority may not designate a standalone decision loop as an Executor trigger, add an alternate or fallback MT5 trigger, or bypass configured-path detection, PR193 publication, PR194 consumption, or PR195 Runtime-ready activation.

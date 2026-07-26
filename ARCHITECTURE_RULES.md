@@ -180,3 +180,7 @@ consumer, contract, or Runtime state rejects activation permanently for that
 activation lifecycle. There is no fallback or legacy activation trigger. PR195
 owns activation only; broker safety, order submission, positions, stops,
 targets, and exits remain unchanged and exclusively Executor-owned.
+
+## PR196 production execution wiring rule
+
+**Rule #030 — Sole Production Startup Path.** Production startup composes the existing PR193 publisher, PR194 consumer, and PR195 one-shot activator. The configured MT5 Common Files root must be verified before publication; the terminal may start only after the exact published `ExecutionContext` is consumed and the Runtime reports `READY`. Every failure fails closed without a legacy startup or alternate trigger. PR196 adds no strategy, confidence, broker, order, position, or exit behaviour.

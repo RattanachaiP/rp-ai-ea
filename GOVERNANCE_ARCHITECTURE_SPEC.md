@@ -141,3 +141,9 @@ The activation callback starts the existing MT5 Executor without supplying new
 execution behavior. PR195 does not own broker safety, `OrderSend`, positions,
 stop loss, take profit, exit authority, strategy, confidence, or risk; all
 Executor execution responsibilities remain unchanged.
+
+## PR196 — Production Execution Wiring
+
+PR196 composes the existing PR193, PR194, and PR195 boundaries. The Runtime publishes `execution_context.json` into the configured MT5 Common Files path; PR194 consumes that exact file and PR195 invokes the existing production host's MT5 Executor startup callback only while Runtime is explicitly `READY`.
+
+The production lifecycle is one-shot and fail-closed, has no legacy startup, and introduces no new layer. It does not calculate confidence or own strategy, broker safety, `OrderSend`, positions, stops, targets, or exits.
