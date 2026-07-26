@@ -59,3 +59,10 @@ Emergency-patch authority may not weaken its canonical, integrity, identity,
 compatibility, timestamp, advisory-marker, or exact-schema checks; add fallback,
 repair, or partial loading; or connect it to governance, package, confidence,
 strategy, or Runtime implementation artifacts.
+
+## PR195 boundary
+
+PR195 is an activation layer only. Emergency-patch authority may not add a
+legacy or fallback activation trigger, weaken ExecutionContext or Runtime-state
+gating, or move broker safety, orders, position management, stops, targets,
+exits, strategy, confidence, or risk into the activation boundary.

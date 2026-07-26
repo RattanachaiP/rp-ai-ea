@@ -129,3 +129,15 @@ advisory marker before returning the immutable in-memory context. Missing or
 invalid input is rejected in full without fallback, repair, or partial access.
 This boundary adds no strategy, decision, confidence, broker, order, position,
 stop, target, or exit behavior.
+
+## PR195 — Governed Executor Activation
+
+PR195 replaces the legacy activation trigger with the immutable
+`ExecutionContext` accepted by PR194. A one-shot activation requires successful
+consumer and contract verification and an explicit ready Runtime state. Every
+failure rejects activation without fallback or partial acceptance.
+
+The activation callback starts the existing MT5 Executor without supplying new
+execution behavior. PR195 does not own broker safety, `OrderSend`, positions,
+stop loss, take profit, exit authority, strategy, confidence, or risk; all
+Executor execution responsibilities remain unchanged.

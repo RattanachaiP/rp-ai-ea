@@ -170,3 +170,13 @@ timestamp, and advisory marker. Failure permits no fallback, repair, or partial
 acceptance. The consumer may not access Runtime internals, strategy objects,
 `ExecutionPackage`, `ExecutionConfidenceContext`, or governance artifacts and
 creates no trading intent or execution authority.
+
+## PR195 governed Executor activation rule
+
+**Rule #029 — ExecutionContext-gated Activation.** The existing MT5 Executor may
+be activated only after the PR194 consumer returns a validated immutable PR192
+`ExecutionContext` and the Runtime is explicitly ready. Invalid context,
+consumer, contract, or Runtime state rejects activation permanently for that
+activation lifecycle. There is no fallback or legacy activation trigger. PR195
+owns activation only; broker safety, order submission, positions, stops,
+targets, and exits remain unchanged and exclusively Executor-owned.

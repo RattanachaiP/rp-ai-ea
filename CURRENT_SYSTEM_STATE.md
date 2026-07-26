@@ -3,6 +3,16 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR195 Governed Executor Activation — IMPLEMENTED, PENDING ACCEPTANCE
+
+- Architecture: `PR195`; module: `runtime.executor_activation`; component:
+  fail-closed, one-shot activation lifecycle for the unchanged MT5 Executor.
+- Activation requires the immutable `ExecutionContext` accepted by PR194 plus
+  an explicit ready Runtime state. Consumer, contract, Runtime, and Executor
+  start failures reject the lifecycle without fallback or legacy activation.
+- PR195 does not alter broker safety, order submission, position management,
+  stop loss, take profit, exit authority, strategy, confidence, or risk.
+
 ## PR194 Executor-side ExecutionContext consumption — IMPLEMENTED, PENDING ACCEPTANCE
 
 - Architecture: `PR194`; module: `runtime.execution_context_consumer`;
