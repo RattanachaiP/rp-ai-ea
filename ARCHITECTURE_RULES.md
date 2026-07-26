@@ -124,6 +124,16 @@ immutable canonical PR186 Execution Readiness, PR187 Execution Environment, and
 PR188 Execution Feasibility records. It verifies their repository, snapshot,
 provenance, policy, engine, replay, and cross-stage lineage partitions and only
 assembles them into an immutable `ExecutionPackage`. `PACKAGE_READY` means solely
-that a complete advisory package was assembled for future PR190 validation. It
+that a complete advisory package was assembled for downstream consumption. It
 grants no strategy, bias, direction, risk, publication, activation, broker,
 position-management, exit, `OrderSend`, or execution authority.
+
+## PR190 governed advisory Execution Package Consumer Interface rule
+
+**Rule #025 — Immutable Execution Package Consumption.** PR190 is the first
+downstream consumer of PR189 and owns only fail-closed loading, canonical
+deserialization, UUID, SHA-256, snapshot, version, and replay-identity checks,
+and immutable package access. It produces no new artifact and never evaluates,
+scores, infers, recommends, modifies, repairs, persists, publishes, activates,
+or authorizes an `ExecutionPackage`. The withdrawn validation gateway is not an
+architecture stage. Execution authority remains exclusively in the MT5 Executor.

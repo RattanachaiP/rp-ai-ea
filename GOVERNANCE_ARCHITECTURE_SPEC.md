@@ -67,7 +67,7 @@ reports, and integrity verification only. It accepts exact canonical PR186
 `ExecutionFeasibilityRecord` artifacts. It performs no evaluation, scoring,
 inference, upstream override, or authorization. Its states are `REJECTED`,
 `PACKAGE_INCOMPLETE`, and `PACKAGE_READY`; the ready state means solely that an
-immutable advisory package is complete for future PR190 validation.
+immutable advisory package is complete for downstream consumption.
 
 PR189 artifacts reside below `learning_data/execution_package/` and use
 canonical JSON, deterministic domain-separated UUIDs and SHA-256 digests,
@@ -75,3 +75,19 @@ atomic append-only writes, collision rejection, exact replay, and a
 digest-linked snapshot chain. Provenance, lineage, repository, snapshot,
 policy, engine-version, and replay mismatches fail closed. PR189 has no trading,
 runtime, broker, `OrderSend`, position-management, exit, or execution authority.
+
+## PR190 — Governed Advisory Execution Package Consumer Interface
+
+PR190 is the first downstream consumer of the immutable PR189 package and owns
+only fail-closed package loading, canonical deserialization, UUID and SHA-256
+verification, snapshot membership, supported package and engine version checks,
+replay identity, and immutable in-memory access. The proposed Execution Package
+Validation Gateway is withdrawn because PR186 through PR189 already own their
+respective validation responsibilities.
+
+PR190 creates and persists no repository artifact, performs no evaluation,
+scoring, inference, recommendation, readiness, environment, or feasibility
+calculation, and never modifies or repairs a package. Failure has no recovery or
+implicit repair. PR190 has no trading, runtime, broker, `OrderSend`,
+position-management, exit, or execution authority; execution authority remains
+exclusively inside the MT5 Executor.

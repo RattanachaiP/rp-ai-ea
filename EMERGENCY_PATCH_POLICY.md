@@ -36,3 +36,10 @@ PR189 Execution Package Assembly is governance-only and advisory-only.
 Emergency-patch authority may not use a package or package state to alter
 strategy, bias, direction, risk, decision publication, runtime activation,
 broker communication, position management, exits, or execution.
+
+## PR190 boundary
+
+PR190 is an immutable, fail-closed Execution Package consumer interface, not a
+validation gateway or authority stage. Emergency-patch authority may not add
+recovery, repair, evaluation, recommendation, publication, broker, position,
+exit, or execution behavior to package loading.
