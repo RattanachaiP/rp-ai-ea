@@ -1,5 +1,6 @@
 from dataclasses import replace
 import runpy
+from uuid import uuid4
 
 import pytest
 
@@ -30,20 +31,23 @@ def test_qualification_and_replay_are_deterministic():
     first = engine.form(*source)
     replayed = engine.form(*source)
     assert first == replayed
-    assert first.qualification_status == "QUALIFIED"
+    assert first.qualification_status == "THRESHOLD_ELIGIBLE"
     assert first.parent_pattern_uuid == source[0].pattern_uuid
     assert first.evidence_references.pattern_uuid == source[0].pattern_uuid
     assert len(first.evidence_references.attribution_uuids) == 10
     assert len(first.canonical_bytes()) > 0
     assert len(first.sha256_digest) == 64
     assert first.passive_evidence_only
+    assert first.qualification_policy_version == "PR207-QUALIFICATION-POLICY.1"
+    assert first.minimum_qualified_sample_count == 10
+    assert first.minimum_configured_confidence_level == 0.95
+    assert first.minimum_candidate_confidence_level == 0.8
 
 
 def test_declared_rules_produce_candidate_and_rejected_without_inference():
     candidate = KnowledgeFormationEngine().form(*inputs(count=2))
     assert candidate.qualification_status == "CANDIDATE"
-    assert "SAMPLE_COUNT_BELOW_QUALIFIED_THRESHOLD" in candidate.qualification_rationale
-    assert "MINIMUM_QUALIFIED_SAMPLE_COUNT=10" in candidate.qualification_rationale
+    assert "SAMPLE_COUNT_BELOW_THRESHOLD_ELIGIBILITY" in candidate.qualification_rationale
 
     rejected = KnowledgeFormationEngine(KnowledgeQualificationPolicy(
         minimum_qualified_sample_count=10,
@@ -52,6 +56,19 @@ def test_declared_rules_produce_candidate_and_rejected_without_inference():
     )).form(*inputs(count=2, confidence=0.75))
     assert rejected.qualification_status == "REJECTED"
     assert "CONFIGURED_CONFIDENCE_BELOW_CANDIDATE_THRESHOLD" in rejected.qualification_rationale
+
+
+def test_structured_policy_metadata_is_canonical_identity_evidence():
+    source = inputs(count=10)
+    baseline = KnowledgeFormationEngine().form(*source)
+    changed = KnowledgeFormationEngine(KnowledgeQualificationPolicy(
+        minimum_qualified_sample_count=9,
+    )).form(*source)
+    assert changed.qualification_status == "THRESHOLD_ELIGIBLE"
+    assert changed.minimum_qualified_sample_count == 9
+    assert changed.knowledge_uuid != baseline.knowledge_uuid
+    assert changed.sha256_digest != baseline.sha256_digest
+    assert b'"minimum_qualified_sample_count":9' in changed.canonical_bytes()
 
 
 def test_integrity_completeness_replay_and_duplicates_fail_closed():
@@ -64,6 +81,13 @@ def test_integrity_completeness_replay_and_duplicates_fail_closed():
     object.__setattr__(pattern, "sha256_digest", "0" * 64)
     with pytest.raises(KnowledgeFormationError, match="PATTERN_INTEGRITY_FAILURE"):
         engine.form(pattern, attributions, events, outcomes)
+
+
+def test_replay_identity_chain_mismatch_fails_with_specific_error():
+    pattern, attributions, events, outcomes = inputs(count=2)
+    object.__setattr__(attributions[0], "replay_identity", str(uuid4()))
+    with pytest.raises(KnowledgeFormationError, match="REPLAY_IDENTITY_CHAIN_FAILURE"):
+        KnowledgeFormationEngine().form(pattern, attributions, events, outcomes)
 
 
 def test_repository_is_atomic_append_only_and_duplicate_rejecting(tmp_path):

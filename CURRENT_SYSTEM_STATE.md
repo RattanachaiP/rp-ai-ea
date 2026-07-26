@@ -9,7 +9,7 @@ Authoritative branch policy: `codex-dev`
   PR205/PR203/PR201 evidence, reconstructing source lineage and failing closed
   on integrity, completeness, replay, or duplicate failures.
 - Declared deterministic thresholds classify each accepted pattern as
-  `CANDIDATE`, `QUALIFIED`, or `REJECTED` and produce immutable, canonical,
+  `CANDIDATE`, `THRESHOLD_ELIGIBLE`, or `REJECTED` and produce immutable, canonical,
   replay-identical `CandidateKnowledge` records in an atomic append-only
   repository.
 - Knowledge Formation performs no prediction, recommendation, optimisation, or

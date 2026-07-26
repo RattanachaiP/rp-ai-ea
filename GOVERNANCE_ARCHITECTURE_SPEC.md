@@ -178,7 +178,8 @@ source reconstruction, integrity, replay lineage, and duplicate checks precede
 deterministic evidence qualification; every validation failure fails closed.
 
 PR207 emits immutable `CandidateKnowledge` classified as `CANDIDATE`,
-`QUALIFIED`, or `REJECTED` using only declared thresholds. Its canonical,
+`THRESHOLD_ELIGIBLE`, or `REJECTED` using only declared thresholds. Threshold
+eligibility records policy satisfaction only, not statistical validity. Its canonical,
 atomic, append-only repository uses deterministic identities, SHA-256 integrity,
 fsync protection, collision rejection, and exact replay. It is the only
 producer of knowledge candidates for future adaptive systems, but cannot

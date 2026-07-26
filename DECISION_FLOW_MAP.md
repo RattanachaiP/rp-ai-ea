@@ -545,7 +545,7 @@ optimisation, governance action, Runtime change, broker action, or execution.
 `PR206 Pattern + exact PR205 OutcomeAttribution + exact PR203 CompletedTradeEvent + exact PR201 LiveOutcomeRecord`
 -> pattern reconstruction, integrity, completeness, replay, and duplicate checks
 -> deterministic declared-threshold qualification
--> immutable `CANDIDATE`, `QUALIFIED`, or `REJECTED` `CandidateKnowledge`
+-> immutable `CANDIDATE`, `THRESHOLD_ELIGIBLE`, or `REJECTED` `CandidateKnowledge`
 -> atomic append-only Knowledge Repository.
 
 This passive post-completion flow is the only producer of knowledge candidates

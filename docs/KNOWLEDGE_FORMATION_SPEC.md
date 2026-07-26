@@ -8,16 +8,22 @@ pattern from those sources before qualification. Missing, corrupt, duplicate,
 incomplete, mismatched, or mixed-replay input fails closed.
 
 Qualification uses only declared deterministic thresholds. A supported pattern
-meeting the qualified sample-count and configured-confidence thresholds is
-`QUALIFIED`; one that remains above the candidate confidence floor is
+meeting the sample-count and configured-confidence policy thresholds is
+`THRESHOLD_ELIGIBLE`; one that remains above the candidate confidence floor is
 `CANDIDATE`; an unsupported pattern type or one below that floor is `REJECTED`.
 Configured confidence is PR206 configuration metadata, not a calculated
 probability. PR207 performs no predictive inference, scoring, optimisation, or
 subjective assessment.
 
+`THRESHOLD_ELIGIBLE` means deterministic policy-threshold satisfaction only.
+It does not establish statistical validity, predictive value, optimisation
+merit, strategy approval, execution authority, or production activation
+authority.
+
 Every immutable `CandidateKnowledge` contains its deterministic knowledge UUID,
 parent pattern UUID, status, sorted rationale codes, exact evidence references,
-deterministic qualification timestamp, replay identity, contract version,
+deterministic qualification timestamp, replay identity, structured policy
+version and threshold metadata, contract version,
 canonical serialization, and SHA-256 integrity digest. Replaying identical
 evidence and policy produces the identical object, UUID, serialization, and
 digest.

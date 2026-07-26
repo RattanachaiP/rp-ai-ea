@@ -24,6 +24,7 @@ from .pattern_discovery import (
 )
 from .knowledge_formation import (
     KNOWLEDGE_VERSION,
+    QUALIFICATION_POLICY_VERSION,
     QUALIFICATION_STATUSES,
     CandidateKnowledge,
     EvidenceReferences,
@@ -51,6 +52,7 @@ __all__ = [
     "PatternDiscoveryError",
     "PatternRepository",
     "KNOWLEDGE_VERSION",
+    "QUALIFICATION_POLICY_VERSION",
     "QUALIFICATION_STATUSES",
     "CandidateKnowledge",
     "EvidenceReferences",

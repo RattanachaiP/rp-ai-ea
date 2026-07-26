@@ -21,8 +21,9 @@ from runtime.completed_trade_event import CompletedTradeEvent
 from runtime.live_outcome_capture import LiveOutcomeRecord
 
 
-KNOWLEDGE_VERSION = "PR207-CANDIDATE-KNOWLEDGE.1"
-QUALIFICATION_STATUSES = frozenset({"CANDIDATE", "QUALIFIED", "REJECTED"})
+KNOWLEDGE_VERSION = "PR207-CANDIDATE-KNOWLEDGE.2"
+QUALIFICATION_POLICY_VERSION = "PR207-QUALIFICATION-POLICY.1"
+QUALIFICATION_STATUSES = frozenset({"CANDIDATE", "THRESHOLD_ELIGIBLE", "REJECTED"})
 _KNOWN_PATTERN_TYPES = frozenset({
     "WINNING_TRADE_CHARACTERISTICS", "LOSING_TRADE_CHARACTERISTICS",
     "ENTRY_TIMING_CLUSTER", "EXIT_TIMING_CLUSTER", "STOP_LOSS_DISTRIBUTION",
@@ -55,11 +56,14 @@ def _valid_uuid(value: object) -> bool:
 class KnowledgeQualificationPolicy:
     """Explicit deterministic thresholds; no score or prediction is derived."""
 
+    qualification_policy_version: str = QUALIFICATION_POLICY_VERSION
     minimum_qualified_sample_count: int = 10
     minimum_configured_confidence_level: float = 0.95
     minimum_candidate_confidence_level: float = 0.80
 
     def __post_init__(self) -> None:
+        if self.qualification_policy_version != QUALIFICATION_POLICY_VERSION:
+            raise KnowledgeFormationError("INVALID_QUALIFICATION_POLICY_VERSION")
         if (not isinstance(self.minimum_qualified_sample_count, int)
                 or isinstance(self.minimum_qualified_sample_count, bool)
                 or self.minimum_qualified_sample_count < 2):
@@ -97,6 +101,10 @@ class CandidateKnowledge:
     parent_pattern_uuid: str
     qualification_status: str
     qualification_rationale: tuple[str, ...]
+    qualification_policy_version: str
+    minimum_qualified_sample_count: int
+    minimum_configured_confidence_level: float
+    minimum_candidate_confidence_level: float
     evidence_references: EvidenceReferences
     qualification_timestamp: str
     replay_identity: str
@@ -113,6 +121,12 @@ class CandidateKnowledge:
             raise KnowledgeFormationError("INVALID_REPLAY_IDENTITY")
         if self.qualification_status not in QUALIFICATION_STATUSES:
             raise KnowledgeFormationError("INVALID_QUALIFICATION_STATUS")
+        KnowledgeQualificationPolicy(
+            qualification_policy_version=self.qualification_policy_version,
+            minimum_qualified_sample_count=self.minimum_qualified_sample_count,
+            minimum_configured_confidence_level=self.minimum_configured_confidence_level,
+            minimum_candidate_confidence_level=self.minimum_candidate_confidence_level,
+        )
         if (not self.qualification_rationale
                 or tuple(sorted(set(self.qualification_rationale))) != self.qualification_rationale):
             raise KnowledgeFormationError("INVALID_QUALIFICATION_RATIONALE")
@@ -138,6 +152,10 @@ class CandidateKnowledge:
             "parent_pattern_uuid": self.parent_pattern_uuid,
             "qualification_status": self.qualification_status,
             "qualification_rationale": list(self.qualification_rationale),
+            "qualification_policy_version": self.qualification_policy_version,
+            "minimum_qualified_sample_count": self.minimum_qualified_sample_count,
+            "minimum_configured_confidence_level": self.minimum_configured_confidence_level,
+            "minimum_candidate_confidence_level": self.minimum_candidate_confidence_level,
             "evidence_references": self.evidence_references.to_dict(),
             "qualification_timestamp": self.qualification_timestamp,
             "replay_identity": self.replay_identity,
@@ -184,6 +202,8 @@ class KnowledgeFormationEngine:
         if (tuple(sorted(item.event_uuid for item in events)) != expected_events
                 or tuple(sorted(item.record_uuid for item in outcomes)) != expected_outcomes):
             raise KnowledgeFormationError("SOURCE_COMPLETENESS_FAILURE")
+        if any(item.replay_identity != pattern.replay_identity for item in attrs):
+            raise KnowledgeFormationError("REPLAY_IDENTITY_CHAIN_FAILURE")
         try:
             recreated = PatternDiscoveryEngine(PatternDiscoveryConfig(
                 minimum_sample_count=2,
@@ -193,9 +213,6 @@ class KnowledgeFormationEngine:
             raise KnowledgeFormationError("SOURCE_INTEGRITY_FAILURE") from exc
         if pattern not in recreated:
             raise KnowledgeFormationError("PATTERN_SOURCE_LINEAGE_FAILURE")
-        if any(item.replay_identity != pattern.replay_identity for item in attrs):
-            raise KnowledgeFormationError("REPLAY_IDENTITY_CHAIN_FAILURE")
-
         status, reasons = self._qualify(pattern)
         references = EvidenceReferences(
             pattern.pattern_uuid,
@@ -207,6 +224,10 @@ class KnowledgeFormationEngine:
             "parent_pattern_uuid": pattern.pattern_uuid,
             "qualification_status": status,
             "qualification_rationale": tuple(sorted(reasons)),
+            "qualification_policy_version": self.policy.qualification_policy_version,
+            "minimum_qualified_sample_count": self.policy.minimum_qualified_sample_count,
+            "minimum_configured_confidence_level": self.policy.minimum_configured_confidence_level,
+            "minimum_candidate_confidence_level": self.policy.minimum_candidate_confidence_level,
             "evidence_references": references,
             "qualification_timestamp": pattern.discovery_timestamp,
             "replay_identity": pattern.replay_identity,
@@ -222,25 +243,21 @@ class KnowledgeFormationEngine:
                                   sha256_digest=sha256(_canonical(body)).hexdigest(), **values)
 
     def _qualify(self, pattern: Pattern) -> tuple[str, tuple[str, ...]]:
-        policy_facts = (
-            f"MINIMUM_CANDIDATE_CONFIDENCE={self.policy.minimum_candidate_confidence_level}",
-            f"MINIMUM_QUALIFIED_CONFIDENCE={self.policy.minimum_configured_confidence_level}",
-            f"MINIMUM_QUALIFIED_SAMPLE_COUNT={self.policy.minimum_qualified_sample_count}",
-        )
         if pattern.pattern_type not in _KNOWN_PATTERN_TYPES:
-            return "REJECTED", (*policy_facts, "UNSUPPORTED_PATTERN_TYPE")
+            return "REJECTED", ("UNSUPPORTED_PATTERN_TYPE",)
         if pattern.configured_confidence_level < self.policy.minimum_candidate_confidence_level:
-            return "REJECTED", (*policy_facts,
-                                "CONFIGURED_CONFIDENCE_BELOW_CANDIDATE_THRESHOLD")
+            return "REJECTED", ("CONFIGURED_CONFIDENCE_BELOW_CANDIDATE_THRESHOLD",)
         reasons = []
         if pattern.sample_count < self.policy.minimum_qualified_sample_count:
-            reasons.append("SAMPLE_COUNT_BELOW_QUALIFIED_THRESHOLD")
+            reasons.append("SAMPLE_COUNT_BELOW_THRESHOLD_ELIGIBILITY")
         if pattern.configured_confidence_level < self.policy.minimum_configured_confidence_level:
-            reasons.append("CONFIGURED_CONFIDENCE_BELOW_QUALIFIED_THRESHOLD")
+            reasons.append("CONFIGURED_CONFIDENCE_BELOW_THRESHOLD_ELIGIBILITY")
         if reasons:
-            return "CANDIDATE", (*policy_facts, *reasons)
-        return "QUALIFIED", (*policy_facts,
-                             "DECLARED_QUALIFICATION_THRESHOLDS_SATISFIED")
+            return "CANDIDATE", tuple(reasons)
+        return "THRESHOLD_ELIGIBLE", (
+            "DECLARED_POLICY_THRESHOLDS_SATISFIED",
+            "CONFIGURED_CONFIDENCE_IS_METADATA_NOT_STATISTICAL_CONFIDENCE",
+        )
 
 
 class KnowledgeRepository:
@@ -277,6 +294,7 @@ class KnowledgeRepository:
         return path
 
 
-__all__ = ["KNOWLEDGE_VERSION", "QUALIFICATION_STATUSES", "CandidateKnowledge",
+__all__ = ["KNOWLEDGE_VERSION", "QUALIFICATION_POLICY_VERSION",
+           "QUALIFICATION_STATUSES", "CandidateKnowledge",
            "EvidenceReferences", "KnowledgeFormationEngine", "KnowledgeFormationError",
            "KnowledgeQualificationPolicy", "KnowledgeRepository"]
