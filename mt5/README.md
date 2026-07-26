@@ -22,6 +22,15 @@ If either file is missing or malformed enough that a value cannot be found, the 
 
 When `InpManageOpenTrades=true`, the EA consumes the loaded runtime values for hard-loss close, breakeven SL movement, and trailing SL movement on open positions for the attached symbol.
 
+## Completed-trade event boundary
+
+The production host invokes `MT5CompletedTradeEventProducer.emit_after_completion`
+only after MT5 has reported the closing deal, the broker-confirmed final values
+are available, and the position lifecycle is complete. The producer passes the
+host facts unchanged into the PR203 canonical contract. Its publisher rejects a
+second emission for the same replay identity and broker tickets before notifying
+the existing passive operational-evidence subscribers.
+
 ## V27.2 Interactive Editor
 
 V27.2 expands the chart panel from a profile loader into a post-entry interactive editor. The panel keeps the AI boundary intact: it does not expose direction, bias, signal, entry timing, market classification, or AI decision controls.
