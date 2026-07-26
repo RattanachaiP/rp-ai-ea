@@ -22,6 +22,13 @@ from .decision_outcome_observation import (
     DecisionOutcomeObserver,
     TradeResult,
 )
+from .live_outcome_capture import (
+    BrokerCompletedTrade,
+    LiveOutcomeCapture,
+    LiveOutcomeCaptureError,
+    LiveOutcomeRecord,
+    LiveOutcomeRepository,
+)
 
 from .decision_knowledge_observation import (
     DecisionKnowledgeObservationError,
@@ -55,4 +62,9 @@ __all__ = [
     "DecisionOutcomeObservationRepository",
     "DecisionOutcomeObserver",
     "TradeResult",
+    "BrokerCompletedTrade",
+    "LiveOutcomeCapture",
+    "LiveOutcomeCaptureError",
+    "LiveOutcomeRecord",
+    "LiveOutcomeRepository",
 ]

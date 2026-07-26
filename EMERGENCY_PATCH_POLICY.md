@@ -70,3 +70,7 @@ exits, strategy, confidence, or risk into the activation boundary.
 ## PR196 boundary
 
 PR196 is production wiring only. Emergency-patch authority may not designate a standalone decision loop as an Executor trigger, add an alternate or fallback MT5 trigger, or bypass configured-path detection, PR193 publication, PR194 consumption, or PR195 Runtime-ready activation.
+
+## PR201 boundary
+
+PR201 is passive post-completion evidence capture only. Emergency-patch authority may not use it to alter, delay, retry, or authorize a decision, activation, broker request, `OrderSend`, position, stop, target, or exit; nor may it weaken identity, chronology, broker-confirmation, integrity, append-only, or duplicate-rejection checks.

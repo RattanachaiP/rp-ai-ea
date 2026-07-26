@@ -147,3 +147,9 @@ Executor execution responsibilities remain unchanged.
 PR196 composes the existing PR193, PR194, and PR195 boundaries. The Runtime publishes `execution_context.json` into the configured MT5 Common Files path; PR194 consumes that exact file and PR195 invokes the existing production host's MT5 Executor startup callback only while Runtime is explicitly `READY`.
 
 The production lifecycle is one-shot and fail-closed, has no legacy startup, and introduces no new layer. It does not calculate confidence or own strategy, broker safety, `OrderSend`, positions, stops, targets, or exits.
+
+## PR201 — Live Outcome Capture
+
+PR201 is an operational evidence boundary, not a governance or execution stage. It accepts only a complete broker-confirmed closed-trade fact set and the exact immutable PR192 `ExecutionContext`. It verifies UUID lineage, required tickets, broker completion, canonical UTC chronology, replay identity, and all required execution and result values before producing a deterministic immutable `LiveOutcomeRecord`.
+
+Records reside below the configured `operational_evidence/live_outcomes/` root as canonical JSON and use deterministic UUIDs, SHA-256 integrity, atomic append-only creation, and strict duplicate rejection. Optional publication identity/timestamp and optional broker-provided MFE/MAE are represented explicitly as unavailable, never inferred. PR201 performs no analytics, scoring, learning, attribution, recommendation, governance decision, broker communication, `OrderSend`, position management, exit control, or execution.

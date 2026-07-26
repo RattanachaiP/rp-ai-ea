@@ -377,3 +377,9 @@ PR179 follows PR178 as an offline, immutable governance-recording boundary. It o
 - The interface is the first downstream consumer of PR189. It loads a requested package and verifies canonical serialization, deterministic UUID and SHA-256 identity, explicit package and engine compatibility, replay identity, and exact membership in the canonical package snapshot.
 - Successful loading returns only the immutable in-memory PR189 `ExecutionPackage`. Missing, malformed, incompatible, tampered, or snapshot-unbound packages fail closed without recovery, repair, persistence, evaluation, recommendation, or authorization.
 - The proposed Execution Package Validation Gateway is withdrawn; PR190 is a consumer interface, not an additional governance or validation stage. It grants no trading, runtime, broker, `OrderSend`, position-management, exit, or execution authority.
+
+## PR201 Live Outcome Capture — IMPLEMENTED, PENDING ACCEPTANCE
+
+- Architecture: `PR201`; module: `runtime.live_outcome_capture`; component: passive capture of canonical broker-confirmed completed-trade evidence.
+- Each record binds the full Decision-to-result identity and timestamp chain, broker tickets and confirmation, execution values, result values, replay lineage, deterministic identity, and SHA-256 integrity in atomic append-only storage. Missing evidence, invalid chronology, broken lineage, and duplicates fail closed.
+- PR201 performs no analytics, scoring, learning, attribution, AI decision, execution, broker operation, order submission, or position management and changes no production execution path.
