@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from math import isfinite
 from .identity import digest, policy_uuid
 
-POLICY_VERSION = "PR187-EXECUTION-ENVIRONMENT-POLICY.2.0"
-ENGINE_VERSION = "PR187.2.0"
+POLICY_VERSION = "PR187-EXECUTION-ENVIRONMENT-POLICY.2.1"
+ENGINE_VERSION = "PR187.2.1"
 ENVIRONMENT_DIMENSIONS = (
     "feed_stability",
     "price_stream_continuity",
@@ -15,6 +15,18 @@ ENVIRONMENT_DIMENSIONS = (
     "slippage_expectation",
     "market_liquidity_quality",
     "environment_consistency",
+    "data_freshness",
+    "environment_completeness",
+)
+
+# These observations are execution-safety prerequisites. A scalar average may not
+# compensate for any one of them being unavailable.
+CRITICAL_ENVIRONMENT_DIMENSIONS = (
+    "feed_stability",
+    "price_stream_continuity",
+    "spread_quality",
+    "latency_quality",
+    "slippage_expectation",
     "data_freshness",
     "environment_completeness",
 )
@@ -77,3 +89,11 @@ class ExecutionEnvironmentPolicy:
             "environment_completeness": value >= self.minimum_environment_completeness,
         }
         return tests[dimension]
+
+    @staticmethod
+    def critical_dimensions_available(profile):
+        values = dict(profile)
+        return all(
+            values.get(dimension) == "AVAILABLE"
+            for dimension in CRITICAL_ENVIRONMENT_DIMENSIONS
+        )
