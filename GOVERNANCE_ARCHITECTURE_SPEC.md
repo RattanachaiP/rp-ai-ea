@@ -91,3 +91,14 @@ calculation, and never modifies or repairs a package. Failure has no recovery or
 implicit repair. PR190 has no trading, runtime, broker, `OrderSend`,
 position-management, exit, or execution authority; execution authority remains
 exclusively inside the MT5 Executor.
+
+## PR191 — Governed Execution Confidence Integration
+
+PR191 accepts only the immutable in-memory `ExecutionPackage` delivered by the
+PR190 consumer and produces one immutable, advisory-only
+`ExecutionConfidenceContext` for V26. The context is a read-only projection of
+package-bound readiness, environment, feasibility, version, metadata, and replay
+identity. It performs no repository access, governance calculation, recovery,
+repair, persistence, scoring, decision publication, or execution. A consumer
+failure or invalid, missing, incompatible, corrupted, or replay-mismatched
+package is rejected fail closed.
