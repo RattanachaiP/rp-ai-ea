@@ -66,6 +66,8 @@ def test_atomic_replacement_exposes_only_complete_payload(tmp_path, monkeypatch)
     original_replace = __import__("runtime.execution_context_publication", fromlist=["os"]).os.replace
 
     def replace(source, destination):
+        # Model Windows: replacing a read-only destination raises WinError 5.
+        assert Path(destination).stat().st_mode & stat.S_IWRITE
         observed.append((Path(source).read_bytes(), Path(destination).read_bytes()))
         return original_replace(source, destination)
 
@@ -74,16 +76,47 @@ def test_atomic_replacement_exposes_only_complete_payload(tmp_path, monkeypatch)
     assert observed == [(json.dumps(second.to_dict(), sort_keys=True, separators=(",", ":")).encode(), previous)]
     assert json.loads(owner.output_path.read_bytes()) == second.to_dict()
     assert first != second
+    assert stat.S_IMODE(owner.output_path.stat().st_mode) == 0o444
+
+
+def test_three_consecutive_publications_are_windows_safe_and_canonical(tmp_path, monkeypatch):
+    owner = publisher(tmp_path)
+    original_replace = __import__("runtime.execution_context_publication", fromlist=["os"]).os.replace
+    replacements = 0
+
+    def windows_replace(source, destination):
+        nonlocal replacements
+        if Path(destination).exists():
+            assert Path(destination).stat().st_mode & stat.S_IWRITE
+        replacements += 1
+        return original_replace(source, destination)
+
+    monkeypatch.setattr("runtime.execution_context_publication.os.replace", windows_replace)
+    for confidence in (0.7, 0.8, 0.9):
+        context = owner.create_and_publish({**FIELDS, "execution_confidence": confidence})
+        expected = json.dumps(
+            context.to_dict(), sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        ).encode("utf-8")
+        assert owner.output_path.read_bytes() == expected
+        assert stat.S_IMODE(owner.output_path.stat().st_mode) == 0o444
+    assert replacements == 3
+    assert not list(tmp_path.glob("*.tmp"))
 
 
 def test_atomic_write_failure_preserves_previous_publication(tmp_path, monkeypatch):
     owner = publisher(tmp_path)
     owner.create_and_publish(FIELDS)
     previous = owner.output_path.read_bytes()
-    monkeypatch.setattr("runtime.execution_context_publication.os.replace", lambda *_: (_ for _ in ()).throw(OSError("disk")))
+    def failed_replace(source, _destination):
+        # Cleanup must also tolerate a temporary artifact that became read-only.
+        Path(source).chmod(0o444)
+        raise OSError("disk")
+
+    monkeypatch.setattr("runtime.execution_context_publication.os.replace", failed_replace)
     with pytest.raises(ExecutionContextPublicationError, match="ATOMIC_PUBLICATION_FAILED"):
         owner.create_and_publish({**FIELDS, "execution_confidence": 0.8})
     assert owner.output_path.read_bytes() == previous
+    assert stat.S_IMODE(owner.output_path.stat().st_mode) == 0o444
     assert not list(tmp_path.glob("*.tmp"))
 
 

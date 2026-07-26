@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import os
 from pathlib import Path
+import stat
 from typing import Any, Callable, Mapping
 from uuid import uuid4
 
@@ -95,6 +96,8 @@ class ExecutionContextPublisher:
 
     def _atomic_write(self, serialized: bytes) -> None:
         temporary_path: Path | None = None
+        destination_made_writable = False
+        replacement_completed = False
         try:
             self.output_path.parent.mkdir(parents=True, exist_ok=True)
             temporary_path = self.output_path.with_name(
@@ -104,15 +107,47 @@ class ExecutionContextPublisher:
                 handle.write(serialized)
                 handle.flush()
                 os.fsync(handle.fileno())
-            temporary_path.chmod(0o444)
+            if self.output_path.exists():
+                self._make_writable(self.output_path)
+                destination_made_writable = True
             os.replace(temporary_path, self.output_path)
+            replacement_completed = True
+            self._make_read_only(self.output_path)
         except Exception as exc:
+            # Before replacement the destination is still the previous valid
+            # publication.  Restore its immutable state if we relaxed it for
+            # Windows replacement semantics.
+            if destination_made_writable and not replacement_completed:
+                try:
+                    self._make_read_only(self.output_path)
+                except OSError:
+                    pass
+            elif replacement_completed:
+                # A post-replacement permission error cannot resurrect the old
+                # directory entry, but retry the immutable final state before
+                # reporting the fail-closed publication error.
+                try:
+                    self._make_read_only(self.output_path)
+                except OSError:
+                    pass
             if temporary_path is not None:
                 try:
+                    if temporary_path.exists():
+                        self._make_writable(temporary_path)
                     temporary_path.unlink(missing_ok=True)
                 except OSError:
                     pass
             raise ExecutionContextPublicationError("ATOMIC_PUBLICATION_FAILED") from exc
+
+    @staticmethod
+    def _make_writable(path: Path) -> None:
+        """Clear Windows' read-only attribute while retaining other mode bits."""
+        path.chmod(path.stat().st_mode | stat.S_IWRITE)
+
+    @staticmethod
+    def _make_read_only(path: Path) -> None:
+        """Remove every write bit; on Windows this sets the read-only attribute."""
+        path.chmod(path.stat().st_mode & ~(stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH))
 
 
 def publish_execution_context(
