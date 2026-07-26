@@ -463,3 +463,11 @@ communication, `OrderSend`, or execution approval.
 `PR186 Execution Readiness + PR187 Execution Environment -> PR188 exact record, repository, snapshot, policy, engine, replay, and cross-stage lineage verification -> immutable advisory Execution Feasibility -> future PR189 Execution Package Assembly.`
 
 `EXECUTION_FEASIBLE` records advisory prerequisite completeness only. It is not BUY, SELL, trade approval, decision publication, runtime activation, broker communication, `OrderSend`, or execution approval.
+
+## PR189 governed advisory Execution Package Assembly flow
+
+`PR186 Execution Readiness + PR187 Execution Environment + PR188 Execution Feasibility -> PR189 exact repository, snapshot, provenance, policy, engine, replay, and lineage verification -> immutable advisory Execution Package -> future PR190 Execution Package Validation Gateway.`
+
+`PACKAGE_READY` records package assembly only. It is not BUY, SELL, execution
+approval, decision publication, runtime activation, broker communication,
+`OrderSend`, or execution authority.

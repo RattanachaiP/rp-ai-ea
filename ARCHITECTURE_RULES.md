@@ -116,3 +116,14 @@ evidence. `EXECUTION_FEASIBLE` means only that advisory prerequisites are
 satisfied for future PR189 package assembly. It grants no strategy, bias,
 direction, risk, publication, activation, broker, position-management, exit,
 `OrderSend`, or execution authority.
+
+## PR189 governed advisory Execution Package Assembly rule
+
+**Rule #024 — Advisory Execution Package Assembly.** PR189 consumes only exact,
+immutable canonical PR186 Execution Readiness, PR187 Execution Environment, and
+PR188 Execution Feasibility records. It verifies their repository, snapshot,
+provenance, policy, engine, replay, and cross-stage lineage partitions and only
+assembles them into an immutable `ExecutionPackage`. `PACKAGE_READY` means solely
+that a complete advisory package was assembled for future PR190 validation. It
+grants no strategy, bias, direction, risk, publication, activation, broker,
+position-management, exit, `OrderSend`, or execution authority.
