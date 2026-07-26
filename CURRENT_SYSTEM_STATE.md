@@ -3,6 +3,20 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR192 governed Execution Contract — IMPLEMENTED, PENDING ACCEPTANCE
+
+- Architecture: `PR192`; module: `runtime.execution_contract`; component:
+  canonical immutable Runtime-to-MT5 Execution Context.
+- The exact execution-facing schema is serialized as deterministic canonical
+  UTF-8 JSON and integrity-bound by SHA-256. Deserialization rejects missing or
+  unknown fields, non-canonical or corrupt content, invalid UUIDs, incompatible
+  contract or engine versions, and replay mismatches without fallback, repair,
+  or partial loading.
+- The Executor contract contains no strategy or governance object. It creates no
+  trading intent and grants no broker, order, position-management, or exit
+  authority. The MT5 Executor may consume only this public contract and may not
+  read governance artifacts directly.
+
 ## PR187 governed advisory Execution Environment Intelligence — IMPLEMENTED, PENDING ACCEPTANCE
 
 - Architecture: `PR187`; module: `learning.execution_environment`; component: Governed Advisory Execution Environment Intelligence Engine.

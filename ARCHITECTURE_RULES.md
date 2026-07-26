@@ -147,3 +147,15 @@ immutable, advisory-only `ExecutionConfidenceContext`. Invalid, missing,
 incompatible, corrupted, or replay-mismatched packages fail closed without
 repair. PR191 cannot alter confidence scoring, strategy, bias, risk, decisions,
 publication, broker communication, orders, positions, exits, or execution.
+
+## PR192 governed Execution Contract rule
+
+**Rule #027 — Canonical Immutable Execution Context.** The V26 Runtime and MT5
+Executor communicate only through the versioned, canonical, immutable PR192
+`ExecutionContext`. The contract contains execution-facing metadata only and is
+integrity-bound by canonical serialization and SHA-256. The Executor may not
+read an `ExecutionPackage` or any other governance artifact. Missing, unknown,
+non-canonical, corrupted, UUID-invalid, version-incompatible, engine-incompatible,
+or replay-mismatched payloads fail closed without repair, fallback, or partial
+loading. PR192 creates no trading intent and has no broker, order, position, or
+exit authority.

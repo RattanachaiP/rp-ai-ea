@@ -102,3 +102,19 @@ identity. It performs no repository access, governance calculation, recovery,
 repair, persistence, scoring, decision publication, or execution. A consumer
 failure or invalid, missing, incompatible, corrupted, or replay-mismatched
 package is rejected fail closed.
+
+## PR192 — Governed Execution Contract
+
+PR192 defines the sole public interface between the V26 Runtime and MT5
+Executor: one immutable `ExecutionContext` containing execution UUID, decision
+UUID, package UUID, replay UUID, execution confidence, readiness, environment,
+feasibility, policy and engine versions, advisory marker, timestamp, contract
+version, and integrity digest. It contains no strategy or governance object.
+
+The canonical UTF-8 JSON codec requires the exact schema and verifies canonical
+encoding, UUIDs, SHA-256 integrity, contract compatibility, engine compatibility,
+and replay identity. Every mismatch fails closed without partial loading,
+fallback, or repair. The Executor consumes this contract only and may not access
+the PR186–PR191 governance artifacts. PR192 does not calculate confidence,
+publish decisions, communicate with a broker, execute trades, manage positions,
+or control exits.

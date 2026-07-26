@@ -43,3 +43,11 @@ PR190 is an immutable, fail-closed Execution Package consumer interface, not a
 validation gateway or authority stage. Emergency-patch authority may not add
 recovery, repair, evaluation, recommendation, publication, broker, position,
 exit, or execution behavior to package loading.
+
+## PR192 boundary
+
+PR192 is the permanent immutable Runtime-to-Executor public interface.
+Emergency-patch authority may not bypass its canonical codec, weaken its
+compatibility or integrity checks, add fallback or repair, expose governance
+artifacts to the Executor, or add trading and position-management behavior to
+the contract.
