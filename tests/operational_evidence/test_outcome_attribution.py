@@ -82,6 +82,26 @@ def test_manual_intervention_is_only_reported_when_exit_evidence_says_manual():
     assert manual.to_dict()["facts"]["exit_reason_indicates_manual"] is True
 
 
+def test_mt5_deal_reason_tp_is_attributed_as_take_profit():
+    event, record = sources(exit_reason="DEAL_REASON_TP")
+    take_profit = OutcomeAttributionEngine().attribute(event, record).supporting_evidence[4]
+    assert take_profit.to_dict()["facts"] == {
+        "configured_take_profit": event.take_profit,
+        "exit_reason": "DEAL_REASON_TP",
+        "exit_reason_indicates_take_profit": True,
+    }
+
+
+def test_mt5_deal_reason_sl_is_attributed_as_stop_loss():
+    event, record = sources(exit_reason="DEAL_REASON_SL")
+    stop_loss = OutcomeAttributionEngine().attribute(event, record).supporting_evidence[3]
+    assert stop_loss.to_dict()["facts"] == {
+        "configured_stop_loss": event.stop_loss,
+        "exit_reason": "DEAL_REASON_SL",
+        "exit_reason_indicates_stop_loss": True,
+    }
+
+
 def test_mismatched_operational_evidence_and_replay_fail_closed():
     event, record = sources()
     other_event, _ = sources()

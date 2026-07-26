@@ -226,6 +226,8 @@ class OutcomeAttributionEngine:
             raise OutcomeAttributionError("REPLAY_IDENTITY_MISMATCH")
 
         reason = completed.exit_reason.upper().replace("-", "_").replace(" ", "_")
+        stop_loss_reason = reason in {"SL", "STOP", "STOP_LOSS", "DEAL_REASON_SL"}
+        take_profit_reason = reason in {"TP", "TAKE_PROFIT", "DEAL_REASON_TP"}
         manual = "MANUAL" in reason
         evidence = (
             SupportingEvidence("STRATEGY_ALIGNMENT", "UNAVAILABLE", ()),
@@ -236,10 +238,12 @@ class OutcomeAttributionEngine:
                 position_close_timestamp=completed.close_time)),
             SupportingEvidence("STOP_LOSS_OUTCOME", "OBSERVED", _facts(
                 configured_stop_loss=completed.stop_loss,
-                exit_reason_indicates_stop_loss=reason in {"SL", "STOP", "STOP_LOSS"})),
+                exit_reason=completed.exit_reason,
+                exit_reason_indicates_stop_loss=stop_loss_reason)),
             SupportingEvidence("TAKE_PROFIT_OUTCOME", "OBSERVED", _facts(
                 configured_take_profit=completed.take_profit,
-                exit_reason_indicates_take_profit=reason in {"TP", "TAKE_PROFIT"})),
+                exit_reason=completed.exit_reason,
+                exit_reason_indicates_take_profit=take_profit_reason)),
             SupportingEvidence("MANUAL_INTERVENTION", "OBSERVED" if manual else "NOT_PRESENT_IN_EVIDENCE",
                                _facts(exit_reason=completed.exit_reason,
                                       exit_reason_indicates_manual=manual)),
