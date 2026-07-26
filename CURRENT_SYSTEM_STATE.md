@@ -8,6 +8,7 @@ Authoritative branch policy: `codex-dev`
 - `runtime.execution_package_bootstrap` is the tracked V26 entrypoint that composes the existing PR189 and PR190 authorities before invoking the AI Runtime.
 - Operators provide the exact canonical PR186 readiness, PR187 environment, and PR188 feasibility UUIDs. PR189 alone assembles and persists the deterministic package; PR190 re-consumes it before the bootstrap exports `RP_EXECUTION_PACKAGE_UUID` and starts V26.
 - Missing, corrupt, incompatible, snapshot-unbound, or lineage-mismatched artifacts fail closed before Runtime invocation. The bootstrap does not select a latest record, hardcode an identity, repair an artifact, or create trading or execution authority.
+- Restarting with the same exact upstream identities reuses PR189's canonical deterministic package and snapshot without overwrite or duplicate append. A Runtime startup failure restores the exact prior `RP_EXECUTION_PACKAGE_UUID` environment state before propagating the original exception.
 
 ## PR206 Pattern Discovery Engine — IMPLEMENTED, PENDING ACCEPTANCE
 

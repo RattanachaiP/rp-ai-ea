@@ -5,6 +5,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional, Sequence
+from uuid import UUID
 
 from learning.execution_environment import ExecutionEnvironmentRepository
 from learning.execution_feasibility import ExecutionFeasibilityRepository
@@ -31,6 +32,28 @@ class ExecutionPackageBootstrapConfiguration:
     environment_root: Path = Path("learning_data/execution_environment")
     feasibility_root: Path = Path("learning_data/execution_feasibility")
     package_root: Path = Path("learning_data/execution_package")
+
+    def __post_init__(self):
+        uuid_fields = (
+            ("readiness_uuid", self.readiness_uuid, "INVALID_READINESS_UUID"),
+            ("environment_uuid", self.environment_uuid, "INVALID_ENVIRONMENT_UUID"),
+            ("feasibility_uuid", self.feasibility_uuid, "INVALID_FEASIBILITY_UUID"),
+        )
+        for _, value, reason in uuid_fields:
+            try:
+                canonical = str(UUID(value)) if type(value) is str else None
+            except (ValueError, AttributeError, TypeError):
+                canonical = None
+            if canonical != value:
+                raise ExecutionPackageBootstrapError(reason)
+        for value in (
+            self.readiness_root,
+            self.environment_root,
+            self.feasibility_root,
+            self.package_root,
+        ):
+            if not isinstance(value, Path):
+                raise ExecutionPackageBootstrapError("INVALID_REPOSITORY_ROOT")
 
 
 class ExecutionPackageRuntimeBootstrap:
@@ -82,11 +105,21 @@ class ExecutionPackageRuntimeBootstrap:
         except Exception as exc:
             raise ExecutionPackageBootstrapError("PACKAGE_BOOTSTRAP_REJECTED") from exc
 
-        os.environ["RP_EXECUTION_PACKAGE_UUID"] = consumed.execution_package_uuid
-        if runtime is None:
-            from bridge.ai_decision_engine_xauusd_v26_execution_confidence_engine import run
-            runtime = run
-        return runtime()
+        variable = "RP_EXECUTION_PACKAGE_UUID"
+        previous = os.environ.get(variable)
+        existed = variable in os.environ
+        os.environ[variable] = consumed.execution_package_uuid
+        try:
+            if runtime is None:
+                from bridge.ai_decision_engine_xauusd_v26_execution_confidence_engine import run
+                runtime = run
+            return runtime()
+        except BaseException:
+            if existed:
+                os.environ[variable] = previous
+            else:
+                os.environ.pop(variable, None)
+            raise
 
 
 def _parser() -> argparse.ArgumentParser:

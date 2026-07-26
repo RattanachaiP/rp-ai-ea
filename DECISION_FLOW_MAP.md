@@ -492,6 +492,9 @@ as `RP_EXECUTION_PACKAGE_UUID`, and only then invokes the V26 Runtime. PR189
 retains package creation and persistence authority; the bootstrap owns only
 composition, environment handoff, and Runtime invocation. It performs no
 latest-record selection, recovery, repair, scoring, or execution authorization.
+Exact-input restarts retain the same canonical package UUID and bytes. If
+Runtime invocation fails after environment handoff, the bootstrap restores the
+previous `RP_EXECUTION_PACKAGE_UUID` state and re-raises the original failure.
 
 PR192 is the only Runtime-to-Executor payload boundary. Its exact canonical
 schema exposes execution-facing metadata, not an `ExecutionPackage`, confidence
