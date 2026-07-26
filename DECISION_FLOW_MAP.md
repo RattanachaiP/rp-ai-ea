@@ -480,3 +480,16 @@ PR190 adds no evaluation stage and produces no repository artifact, advisory
 recommendation, or execution authorization. The proposed validation gateway is
 withdrawn. Invalid or missing input fails closed without recovery or repair, and
 execution authority remains exclusively inside the MT5 Executor.
+
+## PR191 / PR192 production integration flow
+
+`PR190 immutable ExecutionPackage -> PR191 immutable ExecutionConfidenceContext -> V26 Runtime -> PR192 canonical immutable ExecutionContext -> MT5 Executor`.
+
+PR192 is the only Runtime-to-Executor payload boundary. Its exact canonical
+schema exposes execution-facing metadata, not an `ExecutionPackage`, confidence
+implementation, strategy object, or governance artifact. The Executor validates
+contract version, engine version, replay identity, UUIDs, canonical encoding,
+and payload integrity before accepting the complete context. Any failure rejects
+the whole payload without repair, fallback, or partial loading. Contract
+acceptance itself does not generate BUY or SELL and does not communicate with a
+broker, execute a trade, manage a position, or control an exit.
