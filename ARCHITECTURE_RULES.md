@@ -137,3 +137,13 @@ and immutable package access. It produces no new artifact and never evaluates,
 scores, infers, recommends, modifies, repairs, persists, publishes, activates,
 or authorizes an `ExecutionPackage`. The withdrawn validation gateway is not an
 architecture stage. Execution authority remains exclusively in the MT5 Executor.
+
+## PR191 governed Execution Confidence Integration rule
+
+**Rule #026 — Immutable Execution Confidence Context.** PR191 consumes only the
+immutable `ExecutionPackage` returned by PR190 and projects its readiness,
+environment, feasibility, replay, version, and package metadata into an
+immutable, advisory-only `ExecutionConfidenceContext`. Invalid, missing,
+incompatible, corrupted, or replay-mismatched packages fail closed without
+repair. PR191 cannot alter confidence scoring, strategy, bias, risk, decisions,
+publication, broker communication, orders, positions, exits, or execution.

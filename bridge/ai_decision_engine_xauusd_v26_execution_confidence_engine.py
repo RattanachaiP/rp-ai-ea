@@ -7,17 +7,21 @@ from datetime import datetime
 from pathlib import Path
 import sys
 
-from trade_management_dashboard import load_trade_management_dashboard
-
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
+from bridge.trade_management_dashboard import load_trade_management_dashboard
 from brain.market_perception import MarketPerception, extract_market_perception
 from brain.market_understanding import MarketUnderstanding, interpret_market_understanding
 from brain.market_reasoning import MarketReasoning, reason_about_market
 from brain.probability_engine import ProbabilityAssessment, estimate_market_probabilities
 from bridge.knowledge_observer import KnowledgeObserver, VerifiedKnowledgeReader
 from bridge.knowledge_observation_audit import KnowledgeObservationAuditSink
+from bridge.execution_confidence_integration import (
+    ExecutionConfidenceContext, ExecutionConfidenceIntegration,
+    ExecutionConfidenceIntegrationError,
+)
+from learning.execution_package_consumer import ExecutionPackageConsumer
 
 # V25 Pullback Fallback Mode
 # V25 RP TIME SYNC STANDARD V1
@@ -3980,7 +3984,7 @@ def apply_execution_timing_layer_v26_6_5(decision):
     return decision
 
 
-def apply_v26_execution_confidence_engine(decision):
+def apply_v26_execution_confidence_engine(decision, execution_context=None):
     """
     V26 Execution Confidence Engine.
 
@@ -3991,6 +3995,10 @@ def apply_v26_execution_confidence_engine(decision):
     """
     if not V26_EXECUTION_CONFIDENCE_ENABLED or not isinstance(decision, dict):
         return decision
+    if execution_context is not None:
+        if type(execution_context) is not ExecutionConfidenceContext:
+            raise ValueError("INVALID_EXECUTION_CONFIDENCE_CONTEXT")
+        decision.update(execution_context.to_v26_inputs())
 
     hard_block, hard_reason = _v26_has_hard_block(decision)
 
@@ -5663,7 +5671,7 @@ def attach_final_write_metadata(data, write_start):
     return data
 
 
-def write_decision(data):
+def write_decision(data, execution_context=None):
     """
     Safe atomic write for decision.json.
 
@@ -5687,7 +5695,7 @@ def write_decision(data):
                 data = apply_execution_quality_core_v26_5(data)
                 data = align_management_with_trend_context(data)
                 data = enforce_trend_management_v26_6(data)
-                data = apply_v26_execution_confidence_engine(data)
+                data = apply_v26_execution_confidence_engine(data, execution_context)
                 data = apply_execution_timing_layer_v26_6_5(data)
                 data = apply_execution_quality_core_v26_5(data)
                 data = align_management_with_trend_context(data)
@@ -10016,6 +10024,12 @@ def run():
     print("Entry Quality Gate: dual mode safe/aggressive / selective range reversal / balanced transition / adaptive score / M15-M3 alignment / BB middle block / momentum confirmation / learning")
     print(f"MAX_SIGNALS_PER_BAR = {MAX_SIGNALS_PER_BAR} | COOLDOWN_SECONDS = {COOLDOWN_SECONDS}")
 
+    package_uuid = os.environ.get("RP_EXECUTION_PACKAGE_UUID", "").strip()
+    if not package_uuid:
+        raise ExecutionConfidenceIntegrationError("PACKAGE_MISSING")
+    execution_context = ExecutionConfidenceIntegration(
+        ExecutionPackageConsumer()).consume(package_uuid)
+
     while True:
         cycle_start = time.time()
         data = read_market()
@@ -10027,7 +10041,7 @@ def run():
             fallback["file_write_latency"] = 0.0
             fallback["total_cycle_time"] = fallback["loop_duration_sec"]
             observe_knowledge(fallback, {})
-            write_decision(brain_decision_publication(fallback))
+            write_decision(brain_decision_publication(fallback), execution_context)
             time.sleep(1)
             continue
         try:
@@ -10055,13 +10069,13 @@ def run():
             if fire_ok:
                 decision["final_decision_build_sec"] = round(time.time() - cycle_start, 6)
                 observe_knowledge(decision, data)
-                write_decision(brain_decision_publication(decision))
+                write_decision(brain_decision_publication(decision), execution_context)
             else:
                 print("COOLDOWN / MAX SIGNAL BLOCK:", key, "|", fire_reason)
                 blocked_decision = build_cooldown_wait_decision(decision, data, fire_reason, cycle_start)
                 blocked_decision["final_decision_build_sec"] = round(time.time() - cycle_start, 6)
                 observe_knowledge(blocked_decision, data)
-                write_decision(brain_decision_publication(blocked_decision))
+                write_decision(brain_decision_publication(blocked_decision), execution_context)
         except Exception as e:
             print("LOGIC ERROR:", e)
             err_decision = no_trade(f"logic error: {e}")
@@ -10071,7 +10085,7 @@ def run():
             err_decision["file_write_latency"] = 0.0
             err_decision["total_cycle_time"] = err_decision["loop_duration_sec"]
             observe_knowledge(err_decision, data if isinstance(data, dict) else {})
-            write_decision(brain_decision_publication(err_decision))
+            write_decision(brain_decision_publication(err_decision), execution_context)
         time.sleep(1)
 
 
