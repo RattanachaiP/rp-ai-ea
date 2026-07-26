@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Callable
 
 from runtime.execution_context_consumer import ExecutionContextConsumer, ExecutionContextConsumptionError
-from runtime.execution_contract import ExecutionContext, ExecutionContractError, serialize_execution_context
+from runtime.execution_contract import ExecutionContext
 
 
 class RuntimeActivationState(str, Enum):
@@ -58,25 +58,20 @@ class GovernedExecutorActivator:
 
     def activate_from(self, consumer: ExecutionContextConsumer) -> ActivationResult:
         """Use the PR194 consumer as the sole production activation trigger."""
+        if self._state is not ExecutorActivationState.INACTIVE:
+            return ActivationResult(self._state, False, self._execution_uuid(), "ACTIVATION_ALREADY_DECIDED")
         if type(consumer) is not ExecutionContextConsumer:
             return self._reject("CONSUMER_VERIFICATION_FAILED")
         try:
             context = consumer.load()
         except ExecutionContextConsumptionError:
             return self._reject("CONSUMER_VERIFICATION_FAILED")
-        return self.activate(context)
+        return self._activate_verified_context(context)
 
-    def activate(self, context: ExecutionContext) -> ActivationResult:
-        """Authorize activation only for a valid immutable accepted context."""
+    def _activate_verified_context(self, context: ExecutionContext) -> ActivationResult:
+        """Activate only with the context returned by ``consumer.load()``."""
         if self._state is not ExecutorActivationState.INACTIVE:
             return ActivationResult(self._state, False, self._execution_uuid(), "ACTIVATION_ALREADY_DECIDED")
-        if type(context) is not ExecutionContext:
-            return self._reject("INVALID_EXECUTION_CONTEXT")
-        try:
-            # Revalidation prevents forged or mutated objects from becoming authority.
-            serialize_execution_context(context)
-        except ExecutionContractError:
-            return self._reject("CONTRACT_VALIDATION_FAILED")
         try:
             runtime_state = self._runtime_state()
         except Exception:
