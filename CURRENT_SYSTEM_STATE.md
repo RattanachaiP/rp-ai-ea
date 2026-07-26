@@ -7,7 +7,11 @@ Authoritative branch policy: `codex-dev`
 
 - Architecture: `PR187`; module: `learning.execution_environment`; component: Governed Advisory Execution Environment Intelligence Engine.
 - The engine consumes only immutable canonical PR186 readiness records, reports, and snapshots and verifies their repository, snapshot, provenance, policy, engine, and replay partitions.
+<<<<<<< HEAD
 - Canonical immutable environment evidence supplies explicit observations for feed stability, price-stream continuity, session, spread, latency, slippage, liquidity, consistency, freshness, and completeness. Missing or partial evidence remains insufficient; readiness never implies that an environment observation is available. `ENVIRONMENT_READY_FOR_FEASIBILITY` is advisory evidence for future PR188 only and grants no trading or execution authority.
+=======
+- Environment profiles cover feed stability, price-stream continuity, session, spread, latency, slippage, liquidity, consistency, freshness, and completeness. `ENVIRONMENT_READY_FOR_FEASIBILITY` is advisory evidence for future PR188 only and grants no trading or execution authority.
+>>>>>>> origin/codex-dev
 - Environment history is canonical, atomic, append-only, replay-safe, policy-partitioned, and protected by deterministic identities and a digest-linked snapshot chain under `learning_data/execution_environment/`.
 
 ## PR185 governed advisory Decision Recommendation — IMPLEMENTED, PENDING ACCEPTANCE
