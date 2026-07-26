@@ -1,7 +1,6 @@
 """Comprehensive PR187 explicit environment-evidence tests."""
 
-import json
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 import sys
 import pytest
@@ -15,7 +14,10 @@ from learning.execution_environment.identity import (
     execution_environment_uuid,
 )
 from learning.execution_environment.models import ExecutionEnvironmentSnapshot
-from learning.execution_environment.policy import ENVIRONMENT_DIMENSIONS
+from learning.execution_environment.policy import (
+    CRITICAL_ENVIRONMENT_DIMENSIONS,
+    ENVIRONMENT_DIMENSIONS,
+)
 from test_pr186_execution_readiness import setup_engine as setup_readiness_engine
 
 GOOD = (0.99, 0.999, 0.9, 20.0, 100.0, 10.0, 0.9, 0.9, 2.0, 0.95)
@@ -70,7 +72,7 @@ def test_missing_evidence_is_insufficient_and_only_readiness_inputs_allowed(tmp_
             record.environment_state == "INSUFFICIENT_ENVIRONMENT_INFORMATION"
             and record.environment_quality == 0.0
         )
-        assert all(v == "UNAVAILABLE" for _, v in record.environment_profile)
+        assert all(value == "UNAVAILABLE" for _, value in record.environment_profile)
         assert (
             record.advisory_only
             and record.authority_scope == "ADVISORY_EXECUTION_ENVIRONMENT_ONLY"
@@ -81,7 +83,7 @@ def test_missing_evidence_is_insufficient_and_only_readiness_inputs_allowed(tmp_
         ):
             engine.run(invalid)
     assert not any(
-        hasattr(engine, n) for n in ("trade", "execute", "activate", "order_send")
+        hasattr(engine, name) for name in ("trade", "execute", "activate", "order_send")
     )
 
 
@@ -90,26 +92,52 @@ def test_explicit_complete_evidence_evaluates_each_dimension(tmp_path):
     evidence_for(report, engine)
     record = engine.run(report).execution_environment_records[0]
     assert record.environment_state == "ENVIRONMENT_READY_FOR_FEASIBILITY"
+    assert record.environment_evidence_complete is True
     assert record.environment_quality == 1.0 and all(
-        v == "AVAILABLE" for _, v in record.environment_profile
+        value == "AVAILABLE" for _, value in record.environment_profile
     )
 
 
-def test_partial_evidence_and_mixed_profile_are_not_inferred(tmp_path):
+def test_canonical_partial_evidence_is_accepted_but_remains_insufficient(tmp_path):
+    report, _, engine = setup_engine(tmp_path)
+    dimensions = ENVIRONMENT_DIMENSIONS[:3]
+    evidence_for(report, engine, GOOD[:3], dimensions)
+    record = engine.run(report).execution_environment_records[0]
+    assert record.environment_evidence_complete is False
+    assert record.environment_state == "INSUFFICIENT_ENVIRONMENT_INFORMATION"
+    assert record.environment_quality == 0.3
+    assert [value for _, value in record.environment_profile] == [
+        "AVAILABLE",
+        "AVAILABLE",
+        "AVAILABLE",
+        "UNAVAILABLE",
+        "UNAVAILABLE",
+        "UNAVAILABLE",
+        "UNAVAILABLE",
+        "UNAVAILABLE",
+        "UNAVAILABLE",
+        "UNAVAILABLE",
+    ]
+
+
+def test_complete_mixed_profile_is_not_inferred(tmp_path):
     report, _, engine = setup_engine(tmp_path)
     values = list(GOOD)
     values[3:] = [99.0, 999.0, 99.0, 0.1, 0.1, 99.0, 0.1]
     evidence_for(report, engine, tuple(values))
     record = engine.run(report).execution_environment_records[0]
+    assert record.environment_evidence_complete is True
     assert record.environment_state == "INSUFFICIENT_ENVIRONMENT_INFORMATION"
     assert record.environment_quality == 0.3
-    assert [v for _, v in record.environment_profile] == ["AVAILABLE"] * 3 + [
+    assert [value for _, value in record.environment_profile] == ["AVAILABLE"] * 3 + [
         "UNAVAILABLE"
     ] * 7
 
 
 @pytest.mark.parametrize("index,bad", [(3, 51.0), (4, 251.0), (5, 31.0), (8, 6.0)])
-def test_stale_spread_latency_and_slippage_apply_policy(tmp_path, index, bad):
+def test_critical_spread_latency_slippage_and_freshness_fail_closed(
+    tmp_path, index, bad
+):
     report, _, engine = setup_engine(tmp_path)
     values = list(GOOD)
     values[index] = bad
@@ -119,19 +147,39 @@ def test_stale_spread_latency_and_slippage_apply_policy(tmp_path, index, bad):
         record.environment_profile[index][1] == "UNAVAILABLE"
         and record.environment_quality == 0.9
     )
-    assert record.environment_state == "ENVIRONMENT_READY_FOR_FEASIBILITY"
+    assert record.environment_state == "INSUFFICIENT_ENVIRONMENT_INFORMATION"
 
 
-def test_minimum_quality_is_applied(tmp_path):
+def test_every_declared_critical_dimension_is_mandatory(tmp_path):
+    for dimension in CRITICAL_ENVIRONMENT_DIMENSIONS:
+        root = tmp_path / dimension
+        report, _, engine = setup_engine(root)
+        values = list(GOOD)
+        index = ENVIRONMENT_DIMENSIONS.index(dimension)
+        values[index] = {
+            "feed_stability": 0.0,
+            "price_stream_continuity": 0.0,
+            "spread_quality": 51.0,
+            "latency_quality": 251.0,
+            "slippage_expectation": 31.0,
+            "data_freshness": 6.0,
+            "environment_completeness": 0.0,
+        }[dimension]
+        evidence_for(report, engine, tuple(values))
+        record = engine.run(report).execution_environment_records[0]
+        assert record.environment_state == "INSUFFICIENT_ENVIRONMENT_INFORMATION"
+
+
+def test_minimum_quality_is_applied_after_critical_dimensions_pass(tmp_path):
     policy = ExecutionEnvironmentPolicy(minimum_quality=1.0)
     report, _, engine = setup_engine(tmp_path, policy)
     values = list(GOOD)
-    values[3] = 51.0
+    values[2] = 0.0
     evidence_for(report, engine, tuple(values))
-    assert (
-        engine.run(report).execution_environment_records[0].environment_state
-        == "INSUFFICIENT_ENVIRONMENT_INFORMATION"
-    )
+    record = engine.run(report).execution_environment_records[0]
+    assert record.environment_profile[2][1] == "UNAVAILABLE"
+    assert record.environment_quality == 0.9
+    assert record.environment_state == "INSUFFICIENT_ENVIRONMENT_INFORMATION"
 
 
 def test_evidence_rejects_nan_infinity_duplicates_unknown_and_reordering(tmp_path):
@@ -152,11 +200,14 @@ def test_evidence_rejects_nan_infinity_duplicates_unknown_and_reordering(tmp_pat
         advisory_only=True,
     )
     cases = [
-        tuple(zip(ENVIRONMENT_DIMENSIONS[:3], GOOD[:3])),
         ((ENVIRONMENT_DIMENSIONS[0], float("nan")),),
         ((ENVIRONMENT_DIMENSIONS[0], float("inf")),),
         ((ENVIRONMENT_DIMENSIONS[0], 0.9), (ENVIRONMENT_DIMENSIONS[0], 0.8)),
         (("unknown", 0.9),),
+        (
+            (ENVIRONMENT_DIMENSIONS[1], GOOD[1]),
+            (ENVIRONMENT_DIMENSIONS[0], GOOD[0]),
+        ),
         tuple(zip(reversed(ENVIRONMENT_DIMENSIONS), GOOD)),
     ]
     for observations in cases:
@@ -242,8 +293,8 @@ def test_replay_canonical_append_only_collision_and_snapshot_lineage(tmp_path):
         engine.repository.records()
     path.write_bytes(canonical_bytes(record.to_dict()))
     snapshot = engine.repository.latest_snapshot()
-    sp = engine.repository.snapshot_root / f"{snapshot.snapshot_uuid}.json"
-    sp.write_text("{}")
+    snapshot_path = engine.repository.snapshot_root / f"{snapshot.snapshot_uuid}.json"
+    snapshot_path.write_text("{}")
     with pytest.raises(
         ExecutionEnvironmentError,
         match="CORRUPT_EXECUTION_ENVIRONMENT_SNAPSHOT_REPOSITORY",
