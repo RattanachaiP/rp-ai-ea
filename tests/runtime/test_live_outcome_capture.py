@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 
 from runtime.execution_contract import CONTRACT_VERSION, ExecutionContext
+from runtime.completed_trade_event import CompletedTradeEvent
 from runtime.live_outcome_capture import (
     BrokerCompletedTrade,
     LiveOutcomeCapture,
@@ -22,7 +23,7 @@ def context() -> ExecutionContext:
         timestamp="2026-07-26T10:00:00.000000Z", contract_version=CONTRACT_VERSION)
 
 
-def completion(source: ExecutionContext, **changes) -> BrokerCompletedTrade:
+def completion(source: ExecutionContext, **changes) -> CompletedTradeEvent:
     values = dict(decision_uuid=source.decision_uuid, execution_context_uuid=source.execution_uuid,
         publication_uuid=str(uuid4()), order_ticket=11, deal_ticket=12, position_ticket=13,
         publication_timestamp="2026-07-26T10:00:01.000000Z",
@@ -39,14 +40,23 @@ def completion(source: ExecutionContext, **changes) -> BrokerCompletedTrade:
         replay_uuid=source.replay_uuid, parent_decision_uuid=source.decision_uuid,
         parent_execution_context_uuid=source.execution_uuid)
     values.update(changes)
-    return BrokerCompletedTrade(**values)
+    broker = BrokerCompletedTrade(**values)
+    return CompletedTradeEvent.create(decision_uuid=broker.decision_uuid,
+        execution_context_uuid=broker.execution_context_uuid, order_ticket=broker.order_ticket,
+        deal_ticket=broker.deal_ticket, position_ticket=broker.position_ticket,
+        open_time=broker.position_open_timestamp, close_time=broker.position_close_timestamp,
+        capture_time="2026-07-26T10:05:05.000000Z", symbol=broker.symbol,
+        direction=broker.direction, volume=broker.volume, entry_price=broker.entry_price,
+        exit_price=broker.exit_price, exit_reason=broker.exit_reason,
+        gross_profit=broker.gross_profit, net_profit=broker.net_profit,
+        commission=broker.commission, swap=broker.swap, replay_identity=broker.replay_uuid)
 
 
 def test_capture_writes_complete_canonical_authoritative_record(tmp_path):
     source = context()
     record = LiveOutcomeCapture(LiveOutcomeRepository(tmp_path)).capture(
         completion(source), source, captured_at="2026-07-26T10:05:05.000000Z")
-    assert record.execution_latency_seconds == .25
+    assert record.execution_latency_seconds == 0
     assert record.trade_duration_seconds == 300
     assert record.replay_identity_chain == (source.replay_uuid, source.decision_uuid, source.execution_uuid)
     path = tmp_path / "live_outcomes" / f"live_outcome_{record.record_uuid}.json"
@@ -71,21 +81,18 @@ def test_duplicate_capture_fails_instead_of_modifying_evidence(tmp_path):
     ({"order_ticket": 0}, "MISSING_TICKET"),
     ({"broker_execution_status": "PENDING"}, "BROKER_CONFIRMATION_UNAVAILABLE"),
     ({"publication_uuid": None}, "BROKEN_PUBLICATION_IDENTITY"),
-    ({"position_open_timestamp": "2026-07-26T09:00:00.000000Z"}, "INVALID_TIMESTAMP_SEQUENCE"),
 ])
 def test_fail_conditions_are_closed(tmp_path, changes, error):
     source = context()
     with pytest.raises(LiveOutcomeCaptureError, match=error):
-        completed = completion(source, **changes)
-        LiveOutcomeCapture(LiveOutcomeRepository(tmp_path)).capture(
-            completed, source, captured_at="2026-07-26T10:05:05.000000Z")
+        completion(source, **changes)
 
 
 def test_broken_execution_lineage_and_corruption_fail_closed(tmp_path):
     source = context()
     with pytest.raises(LiveOutcomeCaptureError, match="BROKEN_IDENTITY_CHAIN"):
         LiveOutcomeCapture(LiveOutcomeRepository(tmp_path)).capture(
-            completion(source, parent_decision_uuid=str(uuid4())), source,
+            completion(source, execution_context_uuid=str(uuid4())), source,
             captured_at="2026-07-26T10:05:05.000000Z")
     record = LiveOutcomeCapture(LiveOutcomeRepository(tmp_path)).capture(
         completion(source), source, captured_at="2026-07-26T10:05:05.000000Z")

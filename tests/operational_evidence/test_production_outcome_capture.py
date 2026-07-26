@@ -10,19 +10,20 @@ from operational_evidence.production_outcome_capture import (
     ProductionOutcomeCaptureIntegration,
 )
 from runtime.execution_contract import CONTRACT_VERSION, ExecutionContext
+from runtime.completed_trade_event import CompletedTradeEvent
 from runtime.live_outcome_capture import BrokerCompletedTrade, LiveOutcomeCapture, LiveOutcomeRepository
 
 
 class ProductionLifecycle:
     def __init__(self) -> None:
-        self.observer: Callable[[BrokerCompletedTrade], None] | None = None
+        self.observer: Callable[[CompletedTradeEvent], None] | None = None
         self.events: list[str] = []
 
-    def subscribe_completed_trade(self, observer: Callable[[BrokerCompletedTrade], None]) -> None:
+    def subscribe_completed_trade(self, observer: Callable[[CompletedTradeEvent], None]) -> None:
         assert self.observer is None
         self.observer = observer
 
-    def broker_closes_and_executor_finishes(self, trade: BrokerCompletedTrade) -> None:
+    def broker_closes_and_executor_finishes(self, trade: CompletedTradeEvent) -> None:
         self.events.extend(["BROKER_CONFIRMED", "RESULT_FINALIZED", "AUTHORITY_COMPLETED"])
         assert self.observer is not None
         self.observer(trade)
@@ -39,7 +40,7 @@ def context() -> ExecutionContext:
     )
 
 
-def completion(source: ExecutionContext, **changes: object) -> BrokerCompletedTrade:
+def completion(source: ExecutionContext, **changes: object) -> CompletedTradeEvent:
     values: dict[str, object] = {
         "decision_uuid": source.decision_uuid, "execution_context_uuid": source.execution_uuid,
         "publication_uuid": str(uuid4()), "order_ticket": 11, "deal_ticket": 12,
@@ -59,7 +60,16 @@ def completion(source: ExecutionContext, **changes: object) -> BrokerCompletedTr
         "parent_execution_context_uuid": source.execution_uuid,
     }
     values.update(changes)
-    return BrokerCompletedTrade(**values)  # type: ignore[arg-type]
+    broker = BrokerCompletedTrade(**values)  # type: ignore[arg-type]
+    return CompletedTradeEvent.create(decision_uuid=broker.decision_uuid,
+        execution_context_uuid=broker.execution_context_uuid, order_ticket=broker.order_ticket,
+        deal_ticket=broker.deal_ticket, position_ticket=broker.position_ticket,
+        open_time=broker.position_open_timestamp, close_time=broker.position_close_timestamp,
+        capture_time="2026-07-26T10:05:05.000000Z", symbol=broker.symbol,
+        direction=broker.direction, volume=broker.volume, entry_price=broker.entry_price,
+        exit_price=broker.exit_price, exit_reason=broker.exit_reason,
+        gross_profit=broker.gross_profit, net_profit=broker.net_profit,
+        commission=broker.commission, swap=broker.swap, replay_identity=broker.replay_uuid)
 
 
 def integration(tmp_path: Path, lifecycle: ProductionLifecycle, source: ExecutionContext, results: list):
@@ -80,7 +90,7 @@ def test_automatic_capture_occurs_only_after_completed_lifecycle(tmp_path: Path)
     assert results[0].disposition is CaptureDisposition.CAPTURED
     record = results[0].record
     assert record.replay_identity_chain == (source.replay_uuid, source.decision_uuid, source.execution_uuid)
-    assert record.execution_latency_seconds == .25
+    assert record.execution_latency_seconds == 0
     assert len(list((tmp_path / "live_outcomes").glob("*.json"))) == 1
 
 
@@ -110,7 +120,7 @@ def test_capture_failure_and_diagnostic_failure_never_escape_to_lifecycle(tmp_pa
         clock=lambda: "2026-07-26T10:05:05.000000Z", result_observer=failing_diagnostic,
     )
     lifecycle.broker_closes_and_executor_finishes(
-        completion(source, parent_decision_uuid=str(uuid4()))
+        completion(source, execution_context_uuid=str(uuid4()))
     )
     assert lifecycle.events[-1] == "PRODUCER_RETURNED"
     assert results[0].disposition is CaptureDisposition.CAPTURE_FAILED

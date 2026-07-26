@@ -12,8 +12,8 @@ from enum import Enum
 from typing import Callable, Protocol
 
 from runtime.execution_contract import ExecutionContext
+from runtime.completed_trade_event import CompletedTradeEvent
 from runtime.live_outcome_capture import (
-    BrokerCompletedTrade,
     LiveOutcomeCapture,
     LiveOutcomeCaptureError,
     LiveOutcomeRecord,
@@ -24,7 +24,7 @@ class CompletedTradeSource(Protocol):
     """Production host boundary exposed only after its lifecycle is complete."""
 
     def subscribe_completed_trade(
-        self, observer: Callable[[BrokerCompletedTrade], None]
+        self, observer: Callable[[CompletedTradeEvent], None]
     ) -> None: ...
 
 
@@ -81,7 +81,7 @@ class ProductionOutcomeCaptureIntegration:
         # broker, order, position, exit, or Executor method is available here.
         source.subscribe_completed_trade(self._after_completed_trade)
 
-    def _after_completed_trade(self, completed: BrokerCompletedTrade) -> None:
+    def _after_completed_trade(self, completed: CompletedTradeEvent) -> None:
         try:
             record = self._capture.capture(
                 completed, self._context, captured_at=self._clock()

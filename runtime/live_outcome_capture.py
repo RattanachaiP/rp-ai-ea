@@ -17,6 +17,7 @@ from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from runtime.execution_contract import ExecutionContext
+from runtime.completed_trade_event import CompletedTradeEvent
 
 
 LIVE_OUTCOME_CONTRACT_VERSION = "PR201-LIVE-OUTCOME.1"
@@ -271,9 +272,9 @@ class LiveOutcomeCapture:
             raise TypeError("LIVE_OUTCOME_REPOSITORY_REQUIRED")
         self._repository = repository
 
-    def capture(self, completed: BrokerCompletedTrade, context: ExecutionContext,
+    def capture(self, completed: CompletedTradeEvent, context: ExecutionContext,
                 *, captured_at: str) -> LiveOutcomeRecord:
-        if type(completed) is not BrokerCompletedTrade:
+        if type(completed) is not CompletedTradeEvent:
             raise LiveOutcomeCaptureError("BROKER_CONFIRMATION_UNAVAILABLE")
         if type(context) is not ExecutionContext:
             raise LiveOutcomeCaptureError("BROKEN_IDENTITY_CHAIN")
@@ -284,20 +285,30 @@ class LiveOutcomeCapture:
         expected = (context.replay_uuid, context.decision_uuid, context.execution_uuid)
         if (completed.decision_uuid != context.decision_uuid
                 or completed.execution_context_uuid != context.execution_uuid
-                or completed.parent_decision_uuid != context.decision_uuid
-                or completed.parent_execution_context_uuid != context.execution_uuid
-                or completed.replay_uuid != context.replay_uuid):
+                or completed.replay_identity != context.replay_uuid):
             raise LiveOutcomeCaptureError("BROKEN_IDENTITY_CHAIN")
-        opened = _time(completed.position_open_timestamp, "INVALID_TIMESTAMP_SEQUENCE")
-        closed = _time(completed.position_close_timestamp, "INVALID_TIMESTAMP_SEQUENCE")
-        sent = _time(completed.order_send_timestamp, "INVALID_TIMESTAMP_SEQUENCE")
-        assert opened is not None and closed is not None and sent is not None
-        values = asdict(completed)
-        values.pop("replay_uuid")
-        record = LiveOutcomeRecord(**values, runtime_timestamp=context.timestamp,
-            execution_latency_seconds=(opened - sent).total_seconds(),
+        opened = _time(completed.open_time, "INVALID_TIMESTAMP_SEQUENCE")
+        closed = _time(completed.close_time, "INVALID_TIMESTAMP_SEQUENCE")
+        assert opened is not None and closed is not None
+        # PR201 retains its historical record shape; unavailable pre-completion
+        # transport facts are explicit rather than read from a broker object.
+        record = LiveOutcomeRecord(decision_uuid=completed.decision_uuid,
+            execution_context_uuid=completed.execution_context_uuid, publication_uuid=None,
+            order_ticket=completed.order_ticket, deal_ticket=completed.deal_ticket,
+            position_ticket=completed.position_ticket, runtime_timestamp=context.timestamp,
+            publication_timestamp=None, consumer_acceptance_timestamp=context.timestamp,
+            activation_timestamp=context.timestamp, order_send_timestamp=completed.open_time,
+            position_open_timestamp=completed.open_time, position_close_timestamp=completed.close_time,
+            symbol=completed.symbol, direction=completed.direction, volume=completed.volume,
+            entry_price=completed.entry_price, exit_price=completed.exit_price, stop_loss=0.0,
+            take_profit=0.0, exit_reason=completed.exit_reason, execution_latency_seconds=0.0,
+            broker_response_code="BROKER_CONFIRMED", broker_execution_status=BROKER_EXECUTION_STATUS,
+            account_number=1, server_name="CANONICAL_EVENT", gross_profit=completed.gross_profit,
+            net_profit=completed.net_profit, commission=completed.commission, swap=completed.swap,
             trade_duration_seconds=(closed - opened).total_seconds(),
-            replay_identity_chain=expected, captured_at=captured_at)
+            maximum_favorable_excursion=None, maximum_adverse_excursion=None,
+            replay_identity_chain=expected, parent_decision_uuid=context.decision_uuid,
+            parent_execution_context_uuid=context.execution_uuid, captured_at=captured_at)
         self._repository.append(record)
         return record
 

@@ -3,6 +3,12 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR203 Completed Trade Event Standardization — IMPLEMENTED, PENDING ACCEPTANCE
+
+- The production host publishes exactly one immutable, canonical `CompletedTradeEvent` after broker-confirmed completion.
+- The event validates tickets, UTC chronology, execution and result facts, replay identity, deterministic UUID, and SHA-256 digest.
+- Passive outcome integration accepts only this broker-neutral event; no execution behavior or authority changes.
+
 ## PR196 Production Execution Wiring — IMPLEMENTED, PENDING ACCEPTANCE
 
 - Architecture: `PR196`; module: `runtime.production_wiring`; component: the sole production composition of PR193 publication, PR194 consumption, and PR195 activation for the installed MT5 Executor.

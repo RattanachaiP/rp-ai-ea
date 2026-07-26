@@ -188,3 +188,7 @@ targets, and exits remain unchanged and exclusively Executor-owned.
 ## PR201 live outcome capture rule
 
 **Rule #031 — Immutable Broker-confirmed Outcome Evidence.** PR201 passively captures one canonical `LiveOutcomeRecord` only after a broker-confirmed trade completion. Records are integrity-bound, append-only, duplicate-rejecting, and trace the Decision, ExecutionContext, publication (when applicable), activation, order, broker, position, exit, and final result identities. Capture has no strategy, scoring, learning, attribution, governance, broker, `OrderSend`, position-management, exit, or execution authority.
+
+## PR203 completed-trade event rule
+
+**Rule #032 — Canonical Completed Trade Event.** After broker-confirmed trade completion, the production host emits exactly one immutable, canonical `CompletedTradeEvent`. The passive production outcome integration accepts this event only; broker-specific objects terminate at the host boundary. Invalid identity, integrity, replay, chronology, or duplicate events fail closed. Event publication has no execution or decision authority.

@@ -29,6 +29,12 @@ from .live_outcome_capture import (
     LiveOutcomeRecord,
     LiveOutcomeRepository,
 )
+from .completed_trade_event import (
+    COMPLETED_TRADE_EVENT_VERSION,
+    CompletedTradeEvent,
+    CompletedTradeEventError,
+    CompletedTradeEventPublisher,
+)
 
 from .decision_knowledge_observation import (
     DecisionKnowledgeObservationError,
@@ -67,4 +73,8 @@ __all__ = [
     "LiveOutcomeCaptureError",
     "LiveOutcomeRecord",
     "LiveOutcomeRepository",
+    "COMPLETED_TRADE_EVENT_VERSION",
+    "CompletedTradeEvent",
+    "CompletedTradeEventError",
+    "CompletedTradeEventPublisher",
 ]
