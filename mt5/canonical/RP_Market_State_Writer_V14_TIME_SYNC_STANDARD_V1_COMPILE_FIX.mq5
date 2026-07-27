@@ -3,7 +3,7 @@
 //|              Writes MA/RSI/MACD/BB + simple scores to JSON       |
 //+------------------------------------------------------------------+
 #property strict
-#property version "1.19"
+#property version "1.20"
 
 // Governed producer identity is owned by this source and cannot be configured.
 #define MARKET_STATE_PRODUCER         "RP_AI_MT5_MARKET_STATE"
@@ -239,7 +239,7 @@ string SequenceStateFile()
 
 string WriterOwnerGlobalName()
 {
-   return "RP_AI.market_state.writer." + MARKET_STATE_SOURCE_UUID + "." + _Symbol;
+   return "RP_AI.msw." + MARKET_STATE_SOURCE_UUID + "." + _Symbol;
 }
 
 bool ParseUnsignedLong(const string value, long &parsed)
@@ -454,7 +454,16 @@ bool LoadSequence()
    g_sequence_load_failure = SEQUENCE_LOAD_NONE;
    g_writer_owner_acquired = false;
    g_sequence_global_name = WriterOwnerGlobalName();
-   g_writer_heartbeat_global_name = g_sequence_global_name + ".heartbeat";
+   g_writer_heartbeat_global_name = g_sequence_global_name + ".hb";
+   if(StringLen(g_sequence_global_name) > 63 ||
+      StringLen(g_writer_heartbeat_global_name) > 63)
+   {
+      g_sequence_load_failure = SEQUENCE_LOAD_MUTEX_CREATION;
+      Print("MUTEX CREATION FAILURE | owner_name_length=", StringLen(g_sequence_global_name),
+            " heartbeat_name_length=", StringLen(g_writer_heartbeat_global_name),
+            " | MT5 terminal global-variable names must not exceed 63 characters");
+      return false;
+   }
    // Set-on-condition is the terminal-wide mutex: a second Writer for this
    // governed producer and symbol cannot initialize concurrently.
    // A temporary terminal global is automatically discarded on terminal exit,
