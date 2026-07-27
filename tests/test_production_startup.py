@@ -28,6 +28,7 @@ def configured(root: Path):
     report = engine.run(context_report)
     intelligence = report.decision_intelligences[0]
     snapshot = engine.repository.snapshots()[0]
+    engine.repository.activate(intelligence, snapshot)
     return ProductionStartupConfiguration(
         decision_intelligence_uuid=intelligence.intelligence_uuid,
         decision_intelligence_digest=intelligence.intelligence_digest,
@@ -89,12 +90,145 @@ def test_operator_configuration_resolves_identity_without_manual_bundle(tmp_path
 
 
 def test_operator_resolution_fails_closed_without_pr184(tmp_path):
-    with pytest.raises(ProductionStartupError, match="CANONICAL_INTELLIGENCE_SNAPSHOT_MISSING"):
+    context_report, _, engine = setup_engine(tmp_path)
+    engine.run(context_report)
+    assert engine.repository.records()
+    assert engine.repository.activations() == ()
+    with pytest.raises(ProductionStartupError, match="DECISION_INTELLIGENCE_ACTIVATION_MISSING"):
         ProductionStartupConfiguration.from_canonical_repository(
             observations=tuple(zip(ENVIRONMENT_DIMENSIONS, GOOD)),
             captured_at="2026-07-27T12:00:00Z",
-            intelligence_root=tmp_path / "decision_intelligence",
+            intelligence_root=engine.repository.root,
         )
+
+
+def _append_unrelated_ready(config):
+    from learning.decision_intelligence import (
+        DecisionIntelligence,
+        DecisionIntelligenceRepository,
+        DecisionIntelligenceSnapshot,
+    )
+
+    repository = DecisionIntelligenceRepository(config.intelligence_root)
+    previous = repository.snapshots()[0]
+    source = repository.records()[0]
+    values = source.identity_payload()
+    values["created_at"] = "2026-07-25T00:00:01Z"
+    unrelated = DecisionIntelligence.create(**values)
+    repository.save(unrelated)
+    snapshot_values = previous.identity_payload()
+    snapshot_values.update(
+        intelligence_identities=repository.identities(),
+        record_count=2,
+        repository_digest=repository.digest(),
+        previous_snapshot_uuid=previous.snapshot_uuid,
+        previous_snapshot_digest=previous.snapshot_digest,
+        generated_at="2026-07-25T00:00:01Z",
+    )
+    snapshot = DecisionIntelligenceSnapshot.create(**snapshot_values)
+    repository.save_snapshot(snapshot)
+    return repository, unrelated, snapshot
+
+
+def test_activation_is_stable_after_unrelated_ready_append(tmp_path):
+    explicit = configured(tmp_path)
+    first = ProductionStartupConfiguration.from_canonical_repository(
+        observations=explicit.observations,
+        captured_at=explicit.captured_at,
+        intelligence_root=explicit.intelligence_root,
+    )
+    _append_unrelated_ready(explicit)
+    second = ProductionStartupConfiguration.from_canonical_repository(
+        observations=explicit.observations,
+        captured_at=explicit.captured_at,
+        intelligence_root=explicit.intelligence_root,
+    )
+    assert first.decision_intelligence_uuid == second.decision_intelligence_uuid
+    assert first.decision_intelligence_snapshot_uuid == second.decision_intelligence_snapshot_uuid
+
+
+def test_historical_ready_records_do_not_create_startup_ambiguity(tmp_path):
+    config = configured(tmp_path)
+    repository, unrelated, _ = _append_unrelated_ready(config)
+    activation = repository.activations()[0]
+    resolved = ProductionStartupConfiguration.from_canonical_repository(
+        observations=config.observations,
+        captured_at=config.captured_at,
+        intelligence_root=config.intelligence_root,
+    )
+    assert resolved.decision_intelligence_uuid == activation.intelligence_uuid
+    assert resolved.decision_intelligence_uuid != unrelated.intelligence_uuid
+
+
+def test_duplicate_activation_fails_closed(tmp_path):
+    from learning.decision_intelligence import DecisionIntelligenceActivation
+
+    config = configured(tmp_path)
+    repository, _, _ = _append_unrelated_ready(config)
+    original = repository.activations()[0]
+    values = original.identity_payload()
+    values["repository_digest"] = "0" * 64
+    repository.save_activation(DecisionIntelligenceActivation.create(**values))
+    with pytest.raises(ProductionStartupError, match="DECISION_INTELLIGENCE_ACTIVATION_AMBIGUOUS"):
+        ProductionStartupConfiguration.from_canonical_repository(
+            observations=config.observations,
+            captured_at=config.captured_at,
+            intelligence_root=config.intelligence_root,
+        )
+
+
+def test_corrupt_activation_fails_closed(tmp_path):
+    config = configured(tmp_path)
+    activation = next((config.intelligence_root / "activations").glob("*.json"))
+    activation.write_text("{}")
+    with pytest.raises(ProductionStartupError, match="CORRUPT_DECISION_INTELLIGENCE_ACTIVATION_REPOSITORY"):
+        ProductionStartupConfiguration.from_canonical_repository(
+            observations=config.observations,
+            captured_at=config.captured_at,
+            intelligence_root=config.intelligence_root,
+        )
+
+
+@pytest.mark.parametrize("field,value,reason", [
+    ("repository_digest", "0" * 64, "SNAPSHOT_MISMATCH"),
+    ("intelligence_policy_version", "PR184.POLICY.999", "SNAPSHOT_MISMATCH"),
+    ("intelligence_engine_version", "PR184.9.9", "SNAPSHOT_MISMATCH"),
+])
+def test_activation_partition_mismatch_fails_closed(tmp_path, field, value, reason):
+    from learning.decision_intelligence import DecisionIntelligenceActivation
+
+    config = configured(tmp_path)
+    activation_path = next((config.intelligence_root / "activations").glob("*.json"))
+    values = json.loads(activation_path.read_text())
+    values = {
+        key: item for key, item in values.items()
+        if key not in {"activation_uuid", "activation_digest"}
+    }
+    values[field] = value
+    activation_path.unlink()
+    repository = __import__(
+        "learning.decision_intelligence", fromlist=["DecisionIntelligenceRepository"]
+    ).DecisionIntelligenceRepository(config.intelligence_root)
+    repository.save_activation(DecisionIntelligenceActivation.create(**values))
+    with pytest.raises(ProductionStartupError, match=reason):
+        ProductionStartupConfiguration.from_canonical_repository(
+            observations=config.observations,
+            captured_at=config.captured_at,
+            intelligence_root=config.intelligence_root,
+        )
+
+
+def test_repeated_identical_command_resolves_same_activation(tmp_path):
+    config = configured(tmp_path)
+    arguments = dict(
+        observations=config.observations,
+        captured_at=config.captured_at,
+        intelligence_root=config.intelligence_root,
+    )
+    assert (
+        ProductionStartupConfiguration.from_canonical_repository(**arguments)
+        == ProductionStartupConfiguration.from_canonical_repository(**arguments)
+    )
 
 
 def test_missing_malformed_and_duplicate_intelligence_fail_before_runtime(tmp_path, monkeypatch):

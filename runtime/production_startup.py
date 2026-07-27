@@ -60,55 +60,43 @@ class ProductionStartupConfiguration:
         intelligence_root=Path("learning_data/decision_intelligence"),
         **roots,
     ):
-        """Resolve the sole production-eligible PR184 identity without ordering."""
+        """Resolve the sole owner-activated PR184 identity without head selection."""
         repository = DecisionIntelligenceRepository(intelligence_root)
         try:
-            records = repository.records()
-            identities = repository.identities()
-            repository_digest = repository.digest()
-            snapshots = tuple(
-                item for item in repository.snapshots()
-                if item.intelligence_identities == identities
-                and item.repository_digest == repository_digest
-            )
+            activations = repository.activations()
         except DecisionIntelligenceError as exc:
             raise ProductionStartupError(str(exc)) from exc
-        if len(snapshots) != 1:
-            raise ProductionStartupError("CANONICAL_INTELLIGENCE_SNAPSHOT_MISSING")
-        snapshot = snapshots[0]
-        ready = tuple(
-            item for item in records
-            if item.intelligence_state == "DECISION_INTELLIGENCE_READY"
-            and (item.intelligence_uuid, item.intelligence_digest)
-            in snapshot.intelligence_identities
-        )
-        if len(ready) != 1:
-            raise ProductionStartupError("CANONICAL_DECISION_INTELLIGENCE_MISSING")
-        intelligence = ready[0]
+        if not activations:
+            raise ProductionStartupError("DECISION_INTELLIGENCE_ACTIVATION_MISSING")
+        if len(activations) != 1:
+            raise ProductionStartupError("DECISION_INTELLIGENCE_ACTIVATION_AMBIGUOUS")
+        activation = activations[0]
         try:
-            repository.exact(
-                intelligence_uuid=intelligence.intelligence_uuid,
-                intelligence_digest=intelligence.intelligence_digest,
-                snapshot_uuid=snapshot.snapshot_uuid,
-                snapshot_digest=snapshot.snapshot_digest,
-                repository_digest=snapshot.repository_digest,
-                intelligence_policy_uuid=snapshot.intelligence_policy_uuid,
-                intelligence_policy_digest=snapshot.intelligence_policy_digest,
-                intelligence_policy_version=snapshot.intelligence_policy_version,
-                intelligence_engine_version=snapshot.intelligence_engine_version,
+            intelligence, _ = repository.exact(
+                intelligence_uuid=activation.intelligence_uuid,
+                intelligence_digest=activation.intelligence_digest,
+                snapshot_uuid=activation.snapshot_uuid,
+                snapshot_digest=activation.snapshot_digest,
+                repository_digest=activation.repository_digest,
+                intelligence_policy_uuid=activation.intelligence_policy_uuid,
+                intelligence_policy_digest=activation.intelligence_policy_digest,
+                intelligence_policy_version=activation.intelligence_policy_version,
+                intelligence_engine_version=activation.intelligence_engine_version,
             )
         except DecisionIntelligenceError as exc:
             raise ProductionStartupError(str(exc)) from exc
+        if intelligence.intelligence_state != "DECISION_INTELLIGENCE_READY":
+            raise ProductionStartupError("ACTIVATED_DECISION_INTELLIGENCE_NOT_READY")
         return cls(
             decision_intelligence_uuid=intelligence.intelligence_uuid,
             decision_intelligence_digest=intelligence.intelligence_digest,
-            decision_intelligence_snapshot_uuid=snapshot.snapshot_uuid,
-            decision_intelligence_snapshot_digest=snapshot.snapshot_digest,
-            decision_intelligence_repository_digest=snapshot.repository_digest,
-            intelligence_policy_uuid=snapshot.intelligence_policy_uuid,
-            intelligence_policy_digest=snapshot.intelligence_policy_digest,
-            intelligence_policy_version=snapshot.intelligence_policy_version,
-            intelligence_engine_version=snapshot.intelligence_engine_version,
+            decision_intelligence_snapshot_uuid=activation.snapshot_uuid,
+            decision_intelligence_snapshot_digest=activation.snapshot_digest,
+            decision_intelligence_repository_digest=activation.repository_digest,
+            intelligence_policy_uuid=activation.intelligence_policy_uuid,
+            intelligence_policy_digest=activation.intelligence_policy_digest,
+            intelligence_policy_version=activation.intelligence_policy_version,
+            intelligence_engine_version=activation.intelligence_engine_version,
             observations=observations,
             captured_at=captured_at,
             intelligence_root=intelligence_root,

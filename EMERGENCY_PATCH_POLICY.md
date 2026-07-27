@@ -51,9 +51,11 @@ automatic Recommendation selection, synthesize environment observations, fabrica
 accept downstream UUIDs, directly create repository JSON, bypass an owning PR186–PR190
 engine or repository, continue from a non-ready state, or add fallback, repair, trading,
 broker, position-management, exit, or execution behavior. PR184 input resolution may
-use only a unique owner-emitted repository-complete snapshot and sole ready member
-after full lineage verification; absence or ambiguity fails closed, and timestamp,
-filename-order, and latest-record selection are forbidden.
+use only the sole immutable owner-governed production-input
+activation record after full exact-identity and lineage verification. Absence,
+duplication, corruption, or mismatch fails closed. Deriving authority from current
+repository contents, READY-state scanning, timestamps, filename ordering, or latest
+records is forbidden.
 
 ## PR192 boundary
 

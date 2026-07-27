@@ -8,6 +8,7 @@ RECORD_NAMESPACE = UUID("f1840001-0000-5000-8000-000000000001")
 SNAPSHOT_NAMESPACE = UUID("f1840002-0000-5000-8000-000000000002")
 REPORT_NAMESPACE = UUID("f1840003-0000-5000-8000-000000000003")
 POLICY_NAMESPACE = UUID("f1840004-0000-5000-8000-000000000004")
+ACTIVATION_NAMESPACE = UUID("f1840005-0000-5000-8000-000000000005")
 
 
 def canonical_bytes(value):
@@ -26,3 +27,4 @@ def intelligence_uuid(value): return _uuid(RECORD_NAMESPACE, value)
 def snapshot_uuid(value): return _uuid(SNAPSHOT_NAMESPACE, value)
 def report_uuid(value): return _uuid(REPORT_NAMESPACE, value)
 def policy_uuid(value): return _uuid(POLICY_NAMESPACE, value)
+def activation_uuid(value): return _uuid(ACTIVATION_NAMESPACE, value)

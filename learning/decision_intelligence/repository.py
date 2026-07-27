@@ -9,7 +9,11 @@ from uuid import UUID
 
 from .exceptions import DecisionIntelligenceError
 from .identity import canonical_bytes, digest
-from .models import DecisionIntelligence, DecisionIntelligenceSnapshot
+from .models import (
+    DecisionIntelligence,
+    DecisionIntelligenceActivation,
+    DecisionIntelligenceSnapshot,
+)
 
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
@@ -18,6 +22,7 @@ class DecisionIntelligenceRepository:
     def __init__(self, root="learning_data/decision_intelligence"):
         self.root = Path(root)
         self.snapshot_root = self.root / "snapshots"
+        self.activation_root = self.root / "activations"
 
     @staticmethod
     def _append(path, value, collision):
@@ -55,6 +60,15 @@ class DecisionIntelligenceRepository:
             "REPLAY_COLLISION",
         )
 
+    def save_activation(self, value):
+        if type(value) is not DecisionIntelligenceActivation:
+            raise DecisionIntelligenceError("INVALID_DECISION_INTELLIGENCE_ACTIVATION")
+        return self._append(
+            self.activation_root / f"{value.activation_uuid}.json",
+            value,
+            "ACTIVATION_REPLAY_COLLISION",
+        )
+
     def _load(self, root, model, label, identity_field):
         if not root.exists():
             return ()
@@ -83,6 +97,54 @@ class DecisionIntelligenceRepository:
             "INTELLIGENCE_SNAPSHOT",
             "snapshot_uuid",
         )
+
+    def activations(self):
+        return self._load(
+            self.activation_root,
+            DecisionIntelligenceActivation,
+            "DECISION_INTELLIGENCE_ACTIVATION",
+            "activation_uuid",
+        )
+
+    def activate(self, intelligence, snapshot):
+        """Persist the owner's immutable exact production identity selection."""
+        if (
+            type(intelligence) is not DecisionIntelligence
+            or type(snapshot) is not DecisionIntelligenceSnapshot
+            or intelligence.intelligence_state != "DECISION_INTELLIGENCE_READY"
+            or (intelligence.intelligence_uuid, intelligence.intelligence_digest)
+            not in snapshot.intelligence_identities
+        ):
+            raise DecisionIntelligenceError("INVALID_DECISION_INTELLIGENCE_ACTIVATION")
+        self.exact(
+            intelligence_uuid=intelligence.intelligence_uuid,
+            intelligence_digest=intelligence.intelligence_digest,
+            snapshot_uuid=snapshot.snapshot_uuid,
+            snapshot_digest=snapshot.snapshot_digest,
+            repository_digest=snapshot.repository_digest,
+            intelligence_policy_uuid=snapshot.intelligence_policy_uuid,
+            intelligence_policy_digest=snapshot.intelligence_policy_digest,
+            intelligence_policy_version=snapshot.intelligence_policy_version,
+            intelligence_engine_version=snapshot.intelligence_engine_version,
+        )
+        activation = DecisionIntelligenceActivation.create(
+            intelligence_uuid=intelligence.intelligence_uuid,
+            intelligence_digest=intelligence.intelligence_digest,
+            snapshot_uuid=snapshot.snapshot_uuid,
+            snapshot_digest=snapshot.snapshot_digest,
+            repository_digest=snapshot.repository_digest,
+            intelligence_policy_uuid=snapshot.intelligence_policy_uuid,
+            intelligence_policy_digest=snapshot.intelligence_policy_digest,
+            intelligence_policy_version=snapshot.intelligence_policy_version,
+            intelligence_engine_version=snapshot.intelligence_engine_version,
+        )
+        existing = self.activations()
+        if existing:
+            if existing == (activation,):
+                return activation
+            raise DecisionIntelligenceError("DECISION_INTELLIGENCE_ACTIVATION_EXISTS")
+        self.save_activation(activation)
+        return activation
 
     def identities(self):
         return tuple(

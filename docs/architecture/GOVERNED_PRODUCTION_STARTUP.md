@@ -3,17 +3,22 @@
 ## Boundary and prerequisite
 
 `runtime.production_startup` is the operator-facing composition. It automatically
-resolves the **exact PR184 Decision Intelligence identity bundle** from the unique repository-complete owner snapshot, invokes the existing
+resolves the **exact PR184 Decision Intelligence identity bundle** from the sole
+immutable owner-governed production-input activation record, invokes the existing
 `GovernedDecisionRecommendationEngine` (PR185 owner), persists its deterministic
 Recommendation through `DecisionRecommendationRepository`, and passes the returned
 Recommendation UUID to PR209. It never chooses a latest record and never constructs
 an identity.
 
 PR185's canonical input is an immutable PR184 `DecisionIntelligence`, report, or
-snapshot backed by its canonical repository and snapshot lineage. Resolution requires exactly one repository-complete snapshot and exactly one ready
-member; absence or ambiguity fails closed without timestamp, filename-order, or
-latest-record selection. Consequently, a
-machine with no PR184 or upstream records cannot truthfully create PR185; the startup
+snapshot backed by its canonical repository and snapshot lineage. The activation binds
+the exact intelligence UUID/digest, snapshot UUID/digest, repository digest, policy
+UUID/digest/version, engine version, and its own activation UUID/digest. Missing,
+duplicate, corrupt, or mismatched activation fails closed. Resolution never derives
+authority from current repository contents, READY-state scanning, timestamps,
+filename ordering, or latest-record selection. READY state alone never creates an
+activation or defines production eligibility. Consequently, a machine with no PR184
+or upstream records cannot truthfully create PR185; the startup
 fails closed with `DECISION_INTELLIGENCE_MISSING`. “Clean production state” for this
 entrypoint means the PR184 governed chain is present while PR185–PR190 repositories
 may be absent. Creating synthetic upstream intelligence would violate Rules #019 and
@@ -49,8 +54,9 @@ command supplies no observation defaults.
 
 ## Single PowerShell production command
 
-The installed governed `learning_data/decision_intelligence` repository supplies the
-identity bundle. The operator supplies only timestamped measurements from production
+The installed governed `learning_data/decision_intelligence/activations` repository
+supplies the sole owner-activated identity bundle. The operator supplies only
+timestamped measurements from production
 monitoring; no UUID, digest, JSON edit, or manual package environment variable is used.
 
 ```powershell

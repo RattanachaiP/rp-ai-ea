@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from learning.pattern_memory.models import valid_digest, valid_timestamp, valid_uuid
 from learning.decision_context.models import CONTEXT_STATES
 
-from .identity import intelligence_uuid, digest, report_uuid, snapshot_uuid
+from .identity import activation_uuid, intelligence_uuid, digest, report_uuid, snapshot_uuid
 
 AUTHORITY_SCOPE = "ADVISORY_DECISION_INTELLIGENCE_ONLY"
 INTELLIGENCE_STATES = ("REJECTED", "INSUFFICIENT_DECISION_INTELLIGENCE", "DECISION_INTELLIGENCE_READY")
@@ -233,6 +233,73 @@ class DecisionIntelligenceSnapshot:
         return cls(
             snapshot_uuid=identity,
             snapshot_digest=digest(payload),
+            **values,
+        )
+
+
+@dataclass(frozen=True)
+class DecisionIntelligenceActivation:
+    """Owner-governed immutable production selection of one exact PR184 bundle."""
+
+    activation_uuid: str
+    activation_digest: str
+    intelligence_uuid: str
+    intelligence_digest: str
+    snapshot_uuid: str
+    snapshot_digest: str
+    repository_digest: str
+    intelligence_policy_uuid: str
+    intelligence_policy_digest: str
+    intelligence_policy_version: str
+    intelligence_engine_version: str
+
+    def __post_init__(self):
+        if (
+            not all(valid_uuid(value) for value in (
+                self.activation_uuid,
+                self.intelligence_uuid,
+                self.snapshot_uuid,
+                self.intelligence_policy_uuid,
+            ))
+            or not all(valid_digest(value) for value in (
+                self.activation_digest,
+                self.intelligence_digest,
+                self.snapshot_digest,
+                self.repository_digest,
+                self.intelligence_policy_digest,
+            ))
+            or not all(_valid_version(value) for value in (
+                self.intelligence_policy_version,
+                self.intelligence_engine_version,
+            ))
+            or activation_uuid(self.identity_payload()) != self.activation_uuid
+            or digest(self.digest_payload()) != self.activation_digest
+        ):
+            raise ValueError("INVALID_DECISION_INTELLIGENCE_ACTIVATION")
+
+    def identity_payload(self):
+        return {
+            name: getattr(self, name)
+            for name in self.__dataclass_fields__
+            if name not in {"activation_uuid", "activation_digest"}
+        }
+
+    def digest_payload(self):
+        return {"activation_uuid": self.activation_uuid, **self.identity_payload()}
+
+    def to_dict(self):
+        return {
+            "activation_uuid": self.activation_uuid,
+            "activation_digest": self.activation_digest,
+            **self.identity_payload(),
+        }
+
+    @classmethod
+    def create(cls, **values):
+        identity = activation_uuid(values)
+        return cls(
+            activation_uuid=identity,
+            activation_digest=digest({"activation_uuid": identity, **values}),
             **values,
         )
 
