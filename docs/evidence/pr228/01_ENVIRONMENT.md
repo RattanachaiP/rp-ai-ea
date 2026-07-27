@@ -1,6 +1,6 @@
 # PR228 Environment Verification
 
-**Collection time:** 2026-07-27 UTC
+**Evidence record timestamp:** 2026-07-27T17:51:28Z
 **Result:** **FAIL — no live-connected MT5 Demo environment was available.**
 
 The collection host exposed Python 3.14.4, but no MT5 terminal executable,
