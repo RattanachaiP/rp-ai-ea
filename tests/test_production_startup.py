@@ -25,9 +25,19 @@ GOOD = (0.99, 0.999, 0.9, 20.0, 100.0, 10.0, 0.9, 0.9, 2.0, 0.95)
 
 def configured(root: Path):
     context_report, _, engine = setup_engine(root)
-    intelligence = engine.run(context_report).decision_intelligences[0]
+    report = engine.run(context_report)
+    intelligence = report.decision_intelligences[0]
+    snapshot = engine.repository.snapshots()[0]
     return ProductionStartupConfiguration(
         decision_intelligence_uuid=intelligence.intelligence_uuid,
+        decision_intelligence_digest=intelligence.intelligence_digest,
+        decision_intelligence_snapshot_uuid=snapshot.snapshot_uuid,
+        decision_intelligence_snapshot_digest=snapshot.snapshot_digest,
+        decision_intelligence_repository_digest=snapshot.repository_digest,
+        intelligence_policy_uuid=snapshot.intelligence_policy_uuid,
+        intelligence_policy_digest=snapshot.intelligence_policy_digest,
+        intelligence_policy_version=snapshot.intelligence_policy_version,
+        intelligence_engine_version=snapshot.intelligence_engine_version,
         observations=tuple(zip(ENVIRONMENT_DIMENSIONS, GOOD)),
         captured_at=intelligence.created_at,
         intelligence_root=root / "decision_intelligence",
@@ -72,7 +82,7 @@ def test_missing_malformed_and_duplicate_intelligence_fail_before_runtime(tmp_pa
     )
     with pytest.raises(ProductionStartupError, match="DECISION_INTELLIGENCE_MISSING"):
         GovernedProductionStartup(missing).start(lambda: calls.append(True))
-    with pytest.raises(ProductionStartupError, match="INVALID_DECISION_INTELLIGENCE_UUID"):
+    with pytest.raises(ProductionStartupError, match="INVALID_DECISION_INTELLIGENCE_IDENTITY"):
         ProductionStartupConfiguration(**(config.__dict__ | {"decision_intelligence_uuid": "BAD"}))
 
     from learning.decision_intelligence import DecisionIntelligenceRepository
@@ -193,3 +203,65 @@ def test_replay_is_idempotent_and_invokes_runtime_once_per_explicit_start(tmp_pa
     assert {path: path.read_bytes() for path in before} == before
     assert set(tmp_path.glob("**/*.json")) == set(before)
     assert len(calls) == 2 and calls[0] == calls[1]
+
+
+def test_explicit_non_head_snapshot_is_immune_to_unrelated_new_head(tmp_path, monkeypatch):
+    from learning.decision_intelligence import (
+        DecisionIntelligence,
+        DecisionIntelligenceRepository,
+        DecisionIntelligenceSnapshot,
+    )
+
+    config = configured(tmp_path)
+    repository = DecisionIntelligenceRepository(config.intelligence_root)
+    target_snapshot = repository.snapshots()[0]
+    source = repository.records()[0]
+    unrelated_values = source.identity_payload()
+    unrelated_values["created_at"] = "2026-07-25T00:00:01Z"
+    unrelated = DecisionIntelligence.create(**unrelated_values)
+    repository.save(unrelated)
+    head_values = target_snapshot.identity_payload()
+    head_values.update(
+        intelligence_identities=repository.identities(),
+        record_count=2,
+        repository_digest=repository.digest(),
+        previous_snapshot_uuid=target_snapshot.snapshot_uuid,
+        previous_snapshot_digest=target_snapshot.snapshot_digest,
+        generated_at="2026-07-25T00:00:01Z",
+    )
+    head = DecisionIntelligenceSnapshot.create(**head_values)
+    repository.save_snapshot(head)
+    calls = []
+    monkeypatch.delenv("RP_EXECUTION_PACKAGE_UUID", raising=False)
+
+    GovernedProductionStartup(config).start(lambda: calls.append(True))
+
+    recommendation_files = tuple(config.recommendation_root.glob("*.json"))
+    assert len(calls) == 1
+    assert len(recommendation_files) == 1
+    recommendation = json.loads(recommendation_files[0].read_text())
+    assert recommendation["decision_intelligence_uuid"] == config.decision_intelligence_uuid
+    assert recommendation["decision_intelligence_snapshot_uuid"] == target_snapshot.snapshot_uuid
+    assert head.snapshot_uuid != target_snapshot.snapshot_uuid
+
+
+def test_disconnected_snapshot_lineage_fails_before_runtime(tmp_path):
+    from learning.decision_intelligence import (
+        DecisionIntelligenceRepository,
+        DecisionIntelligenceSnapshot,
+    )
+
+    config = configured(tmp_path)
+    repository = DecisionIntelligenceRepository(config.intelligence_root)
+    source = repository.snapshots()[0]
+    values = source.identity_payload()
+    values.update(
+        previous_snapshot_uuid=None,
+        previous_snapshot_digest=None,
+        generated_at="2026-07-25T00:00:01Z",
+    )
+    repository.save_snapshot(DecisionIntelligenceSnapshot.create(**values))
+    calls = []
+    with pytest.raises(ProductionStartupError, match="SNAPSHOT_MISMATCH"):
+        GovernedProductionStartup(config).start(lambda: calls.append(True))
+    assert calls == []

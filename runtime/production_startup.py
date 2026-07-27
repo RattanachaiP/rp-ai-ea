@@ -15,6 +15,7 @@ from uuid import UUID
 
 from learning.decision_intelligence import DecisionIntelligenceRepository
 from learning.decision_intelligence.exceptions import DecisionIntelligenceError
+from learning.pattern_memory.models import valid_digest
 from learning.decision_recommendation import (
     DecisionRecommendationRepository,
     GovernedDecisionRecommendationEngine,
@@ -33,6 +34,14 @@ class ProductionStartupError(ValueError):
 @dataclass(frozen=True)
 class ProductionStartupConfiguration:
     decision_intelligence_uuid: str
+    decision_intelligence_digest: str
+    decision_intelligence_snapshot_uuid: str
+    decision_intelligence_snapshot_digest: str
+    decision_intelligence_repository_digest: str
+    intelligence_policy_uuid: str
+    intelligence_policy_digest: str
+    intelligence_policy_version: str
+    intelligence_engine_version: str
     observations: tuple[tuple[str, float], ...]
     captured_at: str
     intelligence_root: Path = Path("learning_data/decision_intelligence")
@@ -43,12 +52,33 @@ class ProductionStartupConfiguration:
     package_root: Path = Path("learning_data/execution_package")
 
     def __post_init__(self):
-        try:
-            canonical = str(UUID(self.decision_intelligence_uuid))
-        except (ValueError, TypeError, AttributeError):
-            canonical = None
-        if type(self.decision_intelligence_uuid) is not str or canonical != self.decision_intelligence_uuid:
-            raise ProductionStartupError("INVALID_DECISION_INTELLIGENCE_UUID")
+        for value in (
+            self.decision_intelligence_uuid,
+            self.decision_intelligence_snapshot_uuid,
+            self.intelligence_policy_uuid,
+        ):
+            try:
+                canonical = str(UUID(value)) if type(value) is str else None
+            except (ValueError, TypeError, AttributeError):
+                canonical = None
+            if canonical != value:
+                raise ProductionStartupError("INVALID_DECISION_INTELLIGENCE_IDENTITY")
+        if not all(
+            valid_digest(value)
+            for value in (
+                self.decision_intelligence_digest,
+                self.decision_intelligence_snapshot_digest,
+                self.decision_intelligence_repository_digest,
+                self.intelligence_policy_digest,
+            )
+        ) or any(
+            type(value) is not str or not value or value != value.strip()
+            for value in (
+                self.intelligence_policy_version,
+                self.intelligence_engine_version,
+            )
+        ):
+            raise ProductionStartupError("INVALID_DECISION_INTELLIGENCE_IDENTITY")
         try:
             observations = tuple(tuple(item) for item in self.observations)
         except (TypeError, ValueError):
@@ -99,8 +129,16 @@ class GovernedProductionStartup:
                 config.intelligence_root
             )
             try:
-                intelligence = intelligence_repository.exact(
-                    config.decision_intelligence_uuid
+                intelligence, intelligence_snapshot = intelligence_repository.exact(
+                    intelligence_uuid=config.decision_intelligence_uuid,
+                    intelligence_digest=config.decision_intelligence_digest,
+                    snapshot_uuid=config.decision_intelligence_snapshot_uuid,
+                    snapshot_digest=config.decision_intelligence_snapshot_digest,
+                    repository_digest=config.decision_intelligence_repository_digest,
+                    intelligence_policy_uuid=config.intelligence_policy_uuid,
+                    intelligence_policy_digest=config.intelligence_policy_digest,
+                    intelligence_policy_version=config.intelligence_policy_version,
+                    intelligence_engine_version=config.intelligence_engine_version,
                 )
             except DecisionIntelligenceError as exc:
                 raise ProductionStartupError(str(exc)) from exc
@@ -109,7 +147,7 @@ class GovernedProductionStartup:
             )
             report = GovernedDecisionRecommendationEngine(
                 intelligence_repository, recommendation_repository
-            ).run(intelligence)
+            ).run(intelligence_snapshot)
             matches = tuple(
                 item
                 for item in report.recommendations
@@ -144,6 +182,14 @@ def _parser():
         description="Create PR185 from an exact PR184 record and start the governed Runtime."
     )
     parser.add_argument("--decision-intelligence-uuid", required=True)
+    parser.add_argument("--decision-intelligence-digest", required=True)
+    parser.add_argument("--decision-intelligence-snapshot-uuid", required=True)
+    parser.add_argument("--decision-intelligence-snapshot-digest", required=True)
+    parser.add_argument("--decision-intelligence-repository-digest", required=True)
+    parser.add_argument("--intelligence-policy-uuid", required=True)
+    parser.add_argument("--intelligence-policy-digest", required=True)
+    parser.add_argument("--intelligence-policy-version", required=True)
+    parser.add_argument("--intelligence-engine-version", required=True)
     parser.add_argument("--captured-at", required=True)
     for dimension in ENVIRONMENT_DIMENSIONS:
         parser.add_argument("--" + dimension.replace("_", "-"), type=float, required=True)
@@ -164,6 +210,14 @@ def main(argv: Optional[Sequence[str]] = None):
     return GovernedProductionStartup(
         ProductionStartupConfiguration(
             decision_intelligence_uuid=arguments.decision_intelligence_uuid,
+            decision_intelligence_digest=arguments.decision_intelligence_digest,
+            decision_intelligence_snapshot_uuid=arguments.decision_intelligence_snapshot_uuid,
+            decision_intelligence_snapshot_digest=arguments.decision_intelligence_snapshot_digest,
+            decision_intelligence_repository_digest=arguments.decision_intelligence_repository_digest,
+            intelligence_policy_uuid=arguments.intelligence_policy_uuid,
+            intelligence_policy_digest=arguments.intelligence_policy_digest,
+            intelligence_policy_version=arguments.intelligence_policy_version,
+            intelligence_engine_version=arguments.intelligence_engine_version,
             observations=tuple(
                 (dimension, getattr(arguments, dimension))
                 for dimension in ENVIRONMENT_DIMENSIONS

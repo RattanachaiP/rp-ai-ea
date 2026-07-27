@@ -7,7 +7,9 @@ Authoritative branch policy: `codex-dev`
 ## Production Execution Initialization — IMPLEMENTED, PENDING ACCEPTANCE
 
 - `runtime.production_startup` is the canonical operator-facing entrypoint. It resolves
-  one exact persisted PR184 Decision Intelligence UUID, invokes and persists PR185
+  one exact persisted PR184 Decision Intelligence and caller-bound owner snapshot,
+  digest, repository, policy, and engine partition without repository-head selection,
+  then invokes and persists PR185
   through its owner, and passes only PR185's returned identity into PR209. The older
   `runtime.production_execution_initialization` remains the internal PR209 composition.
 - PR185 requires the canonical PR184 repository and snapshot lineage; it cannot create
