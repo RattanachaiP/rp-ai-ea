@@ -15,10 +15,10 @@ it is not a Live-readiness claim.
 | B | Architecture ownership is preserved | PASS | Governance-only candidate diff review |
 | B | Each governed contract has a single authority | PASS | Approved architecture baseline and no ownership diff |
 | B | Execution package is immutable and digest-identified | PASS | PR226 baseline review plus unchanged runtime diff |
-| C | Runtime diagnostics satisfy governed checks | PASS | Approved PR224 baseline evidence tied to its digest |
-| C | UUID lineage is complete | PASS | Approved PR224 lineage evidence tied to its digest |
-| C | Runtime identifies repository digest | PASS | Approved PR224 digest evidence tied to its digest |
-| C | Activation invariant is proven | PASS | Approved PR224 activation evidence tied to its digest |
+| C | Runtime diagnostics satisfy governed checks | FAIL | Candidate-bound runtime diagnostics for the exact `v27.0.0-rc1` commit and artifact digest; PR224 baseline evidence alone is insufficient |
+| C | UUID lineage is complete | FAIL | Candidate-bound UUID lineage for the exact `v27.0.0-rc1` commit and artifact digest; PR224 baseline evidence alone is insufficient |
+| C | Runtime identifies repository digest | FAIL | Runtime evidence proving the exact `v27.0.0-rc1` candidate digest; PR224 baseline evidence alone is insufficient |
+| C | Activation invariant is proven | FAIL | Candidate-bound activation evidence for the exact `v27.0.0-rc1` commit and artifact digest; PR224 baseline evidence alone is insufficient |
 | D | Environment is verified MT5 Demo | FAIL | Real Demo account/server evidence |
 | D | Broker interaction is correlated | FAIL | Broker request/response evidence |
 | D | OrderSend is evidenced | FAIL | Real request, response, codes, and order/deal IDs |
@@ -35,7 +35,7 @@ it is not a Live-readiness claim.
 
 - Gate A: **FAIL**
 - Gate B: **PASS**
-- Gate C: **PASS** (governed baseline only)
+- Gate C: **FAIL** — governed PR224 baseline evidence exists, but candidate-bound runtime evidence for `v27.0.0-rc1` is absent
 - Gate D: **FAIL**
 - Approval matrix: **FAIL**
 - Release Status: **NOT APPROVED**
