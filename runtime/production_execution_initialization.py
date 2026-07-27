@@ -124,9 +124,11 @@ class ProductionExecutionInitializer:
             if readiness.readiness_state != "EXECUTION_READY_FOR_ENVIRONMENT_CHECK":
                 raise ProductionExecutionInitializationError("READINESS_NOT_READY")
 
-            readiness_snapshot = readiness_repository.latest_snapshot()
-            if readiness_snapshot is None:
-                raise ProductionExecutionInitializationError("READINESS_SNAPSHOT_MISSING")
+            readiness_snapshot = readiness_repository.exact_snapshot_for(
+                readiness,
+                readiness_report.snapshot_uuid,
+                readiness_report.snapshot_digest,
+            )
             evidence = ExecutionEnvironmentEvidence.create(
                 execution_readiness_uuid=readiness.execution_readiness_uuid,
                 execution_readiness_digest=readiness.execution_readiness_digest,
