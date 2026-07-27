@@ -496,6 +496,19 @@ Exact-input restarts retain the same canonical package UUID and bytes. If
 Runtime invocation fails after environment handoff, the bootstrap restores the
 previous `RP_EXECUTION_PACKAGE_UUID` state and re-raises the original failure.
 
+The production repository-initialization path is:
+
+`exact PR185 Recommendation UUID + explicit timestamped environment observations`
+`-> PR186 Execution Readiness -> canonical PR187 evidence -> PR187 Execution Environment`
+`-> PR188 Execution Feasibility -> engine-derived UUID handoff to PR208`
+`-> PR189 assembly -> PR190 consumption -> V26 Runtime`.
+
+`python -m runtime.production_execution_initialization` is the tracked entrypoint for
+this complete path. It does not choose a latest Recommendation, accept downstream UUIDs,
+or directly serialize repository records. Every non-ready state and every identity,
+integrity, snapshot, policy, version, replay, or lineage failure stops before Runtime
+invocation.
+
 PR192 is the only Runtime-to-Executor payload boundary. Its exact canonical
 schema exposes execution-facing metadata, not an `ExecutionPackage`, confidence
 implementation, strategy object, or governance artifact. The Executor validates

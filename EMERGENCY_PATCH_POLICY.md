@@ -44,6 +44,14 @@ validation gateway or authority stage. Emergency-patch authority may not add
 recovery, repair, evaluation, recommendation, publication, broker, position,
 exit, or execution behavior to package loading.
 
+## Production Execution Initialization boundary
+
+Production initialization is composition only. Emergency-patch authority may not add
+automatic Recommendation selection, synthesize environment observations, fabricate or
+accept downstream UUIDs, directly create repository JSON, bypass an owning PR186–PR190
+engine or repository, continue from a non-ready state, or add fallback, repair, trading,
+broker, position-management, exit, or execution behavior.
+
 ## PR192 boundary
 
 PR192 is the permanent immutable Runtime-to-Executor public interface.
