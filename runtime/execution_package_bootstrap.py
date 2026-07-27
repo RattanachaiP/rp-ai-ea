@@ -109,6 +109,13 @@ class ExecutionPackageRuntimeBootstrap:
         previous = os.environ.get(variable)
         existed = variable in os.environ
         os.environ[variable] = consumed.execution_package_uuid
+        print(
+            "EXECUTION PACKAGE CONSUMED",
+            f"| execution_package_uuid={consumed.execution_package_uuid}",
+            f"| execution_package_digest={consumed.execution_package_digest}",
+            f"| repository={config.package_root}",
+            flush=True,
+        )
         try:
             if runtime is None:
                 from bridge.ai_decision_engine_xauusd_v26_execution_confidence_engine import run

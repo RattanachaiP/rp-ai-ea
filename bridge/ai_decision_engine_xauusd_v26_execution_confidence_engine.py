@@ -3,7 +3,8 @@ import os
 import time
 import uuid
 import atexit
-from datetime import datetime
+from datetime import datetime, timezone
+from math import isfinite
 from pathlib import Path
 import sys
 
@@ -60,7 +61,10 @@ from learning.execution_package_consumer import ExecutionPackageConsumer
 SYMBOL = "XAUUSD"
 TIMEFRAME = "M15"
 
-COMMON_SHARED_ROOT = Path(r"C:\Users\rp_fu\AppData\Roaming\MetaQuotes\Terminal\Common\Files\RP_AI_EA\shared")
+COMMON_SHARED_ROOT = Path(os.environ.get(
+    "RP_AI_SHARED_ROOT",
+    r"C:\Users\rp_fu\AppData\Roaming\MetaQuotes\Terminal\Common\Files\RP_AI_EA\shared",
+))
 BASE_PATH = COMMON_SHARED_ROOT / SYMBOL
 FILE_PATH = BASE_PATH / "market_state.json"
 OUTPUT_PATH = BASE_PATH / "decision.json"
@@ -5671,6 +5675,107 @@ def attach_final_write_metadata(data, write_start):
     return data
 
 
+DECISION_DIRECTIONS = frozenset({"BUY", "SELL"})
+NON_TRADE_DIRECTION = "NONE"
+DECISION_LIFECYCLES = frozenset({
+    "NORMAL_TRADE", "GOVERNED_NO_TRADE", "STALE_INPUT_FALLBACK",
+    "LOGIC_ERROR_REJECTION",
+})
+
+
+def attach_decision_identity(data, *, lifecycle="GOVERNED_NO_TRADE"):
+    """Validate and attach identity once at the logical publication boundary.
+
+    A new logical publication receives one UUID. Reusing the same dictionary
+    for an atomic-write retry or an explicit republish preserves all identity
+    fields byte-for-byte.
+    """
+    if not isinstance(data, dict):
+        raise ValueError("INVALID_DECISION_PUBLICATION")
+    if lifecycle not in DECISION_LIFECYCLES:
+        raise ValueError("INVALID_DECISION_LIFECYCLE")
+    if "decision_lifecycle" in data and data["decision_lifecycle"] != lifecycle:
+        raise ValueError("DECISION_LIFECYCLE_MISMATCH")
+    decision = str(data.get("decision", "")).upper().strip()
+    direction = data.get("direction")
+    if decision == "TRADE":
+        if direction not in DECISION_DIRECTIONS:
+            raise ValueError("INVALID_TRADE_DIRECTION")
+    elif decision == "NO_TRADE":
+        if direction != NON_TRADE_DIRECTION:
+            raise ValueError("INVALID_NO_TRADE_DIRECTION")
+    else:
+        raise ValueError("INVALID_FINAL_DECISION")
+    if "confidence" not in data:
+        raise ValueError("MISSING_DECISION_CONFIDENCE")
+    confidence = data["confidence"]
+    if (type(confidence) not in (int, float) or not isfinite(confidence)
+            or not 0 <= confidence <= 100):
+        raise ValueError("INVALID_DECISION_CONFIDENCE")
+
+    identity_fields = ("decision_uuid", "decision_timestamp", "timestamp")
+    present = tuple(field in data for field in identity_fields)
+    if any(present):
+        if not all(present):
+            raise ValueError("INCOMPLETE_DECISION_IDENTITY")
+        try:
+            canonical_uuid = str(uuid.UUID(data["decision_uuid"]))
+            parsed_timestamp = datetime.fromisoformat(
+                data["decision_timestamp"].replace("Z", "+00:00")
+            )
+        except (AttributeError, TypeError, ValueError):
+            raise ValueError("INVALID_DECISION_IDENTITY") from None
+        if (canonical_uuid != data["decision_uuid"]
+                or data["decision_timestamp"] != data["timestamp"]
+                or parsed_timestamp.tzinfo is None):
+            raise ValueError("INVALID_DECISION_IDENTITY")
+    else:
+        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        data["decision_uuid"] = str(uuid.uuid4())
+        data["decision_timestamp"] = timestamp
+        data["timestamp"] = timestamp
+    data["decision_lifecycle"] = lifecycle
+    return data
+
+
+def final_decision_publication(data, *, lifecycle):
+    """Map V26's final bias authority into the explicit publication domain."""
+    decision = str(data.get("decision", "")).upper().strip()
+    if decision == "TRADE":
+        canonical_bias = data.get("bias")
+        if canonical_bias not in DECISION_DIRECTIONS:
+            raise ValueError("INVALID_FINAL_DECISION_BIAS")
+        existing = data.get("direction")
+        if existing is not None and existing != canonical_bias:
+            raise ValueError("FINAL_DIRECTION_MISMATCH")
+        data["direction"] = canonical_bias
+    elif decision == "NO_TRADE":
+        existing = data.get("direction")
+        if existing is not None and existing != NON_TRADE_DIRECTION:
+            raise ValueError("FINAL_DIRECTION_MISMATCH")
+        data["direction"] = NON_TRADE_DIRECTION
+    else:
+        raise ValueError("INVALID_FINAL_DECISION")
+    return attach_decision_identity(data, lifecycle=lifecycle)
+
+
+def validate_existing_decision_identity(data):
+    """Validate persistence input without creating or mutating its identity."""
+    identity_fields = (
+        "decision_uuid", "decision_timestamp", "timestamp", "decision_lifecycle",
+    )
+    if not all(field in data for field in identity_fields):
+        raise ValueError("MISSING_DECISION_IDENTITY")
+    before = tuple(data[field] for field in identity_fields)
+    validated = attach_decision_identity(
+        dict(data), lifecycle=data["decision_lifecycle"]
+    )
+    after = tuple(validated[field] for field in identity_fields)
+    if after != before:
+        raise ValueError("DECISION_IDENTITY_CHANGED")
+    return data
+
+
 def write_decision(data, execution_context=None):
     """
     Safe atomic write for decision.json.
@@ -5802,6 +5907,13 @@ def write_decision(data, execution_context=None):
                     data["ai_intended_be_policy"] = data.get("breakeven_policy", data.get("be_policy", ""))
                     data["ai_intended_trail_policy"] = data.get("trail_policy", data.get("trailing_policy", ""))
                     data["ai_intended_position_size_factor"] = data.get("position_size_factor", data.get("position_size_multiplier", data.get("risk_fraction", 1.0)))
+                # Persistence consumes an already identified logical
+                # publication. It must never mint or replace identity.
+                if any(field in data for field in (
+                    "decision_uuid", "decision_timestamp", "timestamp",
+                    "decision_lifecycle",
+                )):
+                    data = validate_existing_decision_identity(data)
                 data["runtime_branch"] = RUNTIME_BRANCH
                 data["arch_version"] = ARCH_VERSION
                 data["build_tag"] = BUILD_TAG
@@ -9702,7 +9814,7 @@ def brain_position_intelligence(candidate_decision):
 
 
 def brain_decision_publication(final_payload):
-    """Decision Publication: final V26 payload -> existing atomic writer input."""
+    """Decision Publication compatibility boundary; preserves V26 identity."""
     return final_payload
 
 
@@ -10012,6 +10124,7 @@ def build_decision(data):
 
 
 def run():
+    print("RUNTIME BOOT", flush=True)
     print("RP AI Decision Engine XAUUSD V21.2 SOFT DIRECTION LOCK + SPIKE CONTINUATION + EA SCHEMA FIX started")
     print(f"RUNTIME_BRANCH={RUNTIME_BRANCH} | ARCH_VERSION={ARCH_VERSION} | BUILD_TAG={BUILD_TAG} | RUNTIME_SIGNATURE={RUNTIME_SIGNATURE}")
     print(f"BASE_PATH = {BASE_PATH}")
@@ -10029,6 +10142,10 @@ def run():
         raise ExecutionConfidenceIntegrationError("PACKAGE_MISSING")
     execution_context = ExecutionConfidenceIntegration(
         ExecutionPackageConsumer()).consume(package_uuid)
+    print("EXECUTION CONTEXT CONSUMED", flush=True)
+
+    market_received = False
+    decision_generated = False
 
     while True:
         cycle_start = time.time()
@@ -10041,9 +10158,20 @@ def run():
             fallback["file_write_latency"] = 0.0
             fallback["total_cycle_time"] = fallback["loop_duration_sec"]
             observe_knowledge(fallback, {})
-            write_decision(brain_decision_publication(fallback), execution_context)
+            write_decision(final_decision_publication(
+                brain_decision_publication(fallback),
+                lifecycle="STALE_INPUT_FALLBACK",
+            ), execution_context)
             time.sleep(1)
             continue
+        if not market_received:
+            print(
+                "MARKET STATE FIRST ACCEPTED",
+                f"| sequence={data.get('sequence_id')}",
+                f"| heartbeat={data.get('heartbeat_unix')}",
+                flush=True,
+            )
+            market_received = True
         try:
             # Private Brain context explains observations without changing the
             # original object or authoritative V26 calculations.
@@ -10069,15 +10197,28 @@ def run():
             if fire_ok:
                 decision["final_decision_build_sec"] = round(time.time() - cycle_start, 6)
                 observe_knowledge(decision, data)
-                write_decision(brain_decision_publication(decision), execution_context)
+                persisted = write_decision(final_decision_publication(
+                    brain_decision_publication(decision),
+                    lifecycle=("NORMAL_TRADE" if decision.get("decision") == "TRADE"
+                               else "GOVERNED_NO_TRADE"),
+                ), execution_context)
             else:
                 print("COOLDOWN / MAX SIGNAL BLOCK:", key, "|", fire_reason)
                 blocked_decision = build_cooldown_wait_decision(decision, data, fire_reason, cycle_start)
                 blocked_decision["final_decision_build_sec"] = round(time.time() - cycle_start, 6)
                 observe_knowledge(blocked_decision, data)
-                write_decision(brain_decision_publication(blocked_decision), execution_context)
+                persisted = write_decision(final_decision_publication(
+                    brain_decision_publication(blocked_decision),
+                    lifecycle="GOVERNED_NO_TRADE",
+                ), execution_context)
+            if persisted and not decision_generated:
+                print("DECISION FIRST PERSISTED", flush=True)
+                print("EXECUTOR CONSUMPTION PENDING", flush=True)
+                decision_generated = True
         except Exception as e:
-            print("LOGIC ERROR:", e)
+            print("RUNTIME CYCLE REJECTED", flush=True)
+            print("Stage: Decision Intelligence", flush=True)
+            print(f"Reason: {type(e).__name__}: {e}", flush=True)
             err_decision = no_trade(f"logic error: {e}")
             err_decision["loop_duration_sec"] = round(time.time() - cycle_start, 6)
             err_decision["stale_prevention_timing_sec"] = err_decision["loop_duration_sec"]
@@ -10085,9 +10226,23 @@ def run():
             err_decision["file_write_latency"] = 0.0
             err_decision["total_cycle_time"] = err_decision["loop_duration_sec"]
             observe_knowledge(err_decision, data if isinstance(data, dict) else {})
-            write_decision(brain_decision_publication(err_decision), execution_context)
+            write_decision(final_decision_publication(
+                brain_decision_publication(err_decision),
+                lifecycle="LOGIC_ERROR_REJECTION",
+            ), execution_context)
         time.sleep(1)
 
 
+def main():
+    """Canonical V26 process entry point with stage-specific stop reporting."""
+    try:
+        return run()
+    except BaseException as exc:
+        print("RUNTIME STOPPED", flush=True)
+        print("Stage: Runtime Initialization", flush=True)
+        print(f"Reason: {type(exc).__name__}: {exc}", flush=True)
+        raise
+
+
 if __name__ == "__main__":
-    run()
+    main()
