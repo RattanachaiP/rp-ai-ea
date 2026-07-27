@@ -218,9 +218,11 @@ Strategy, governance, broker, order, position, exit, or execution authority.
 
 ## Production Execution Initialization rule
 
-**Rule #035 — Exact governed startup initialization.** Production initialization
-starts from one operator-supplied, canonical PR185 Recommendation UUID and explicit,
-timestamped PR187 environment observations. It invokes PR186, persists PR186 and the
+**Rule #035 — Exact governed startup initialization.** The canonical operator startup
+starts from one operator-supplied, canonical PR184 Decision Intelligence UUID and
+explicit, timestamped PR187 environment observations. It invokes PR185 through its
+owning engine and repository, passes only the resulting exact Recommendation identity
+to production initialization, invokes PR186, persists PR186 and the
 canonical environment evidence through their owning repositories, invokes and persists
 PR187 and PR188, and passes only the identities returned by those engines to the PR208
 Runtime Bootstrap. PR208 remains the sole composition of PR189 package assembly, PR190
