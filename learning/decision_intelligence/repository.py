@@ -5,6 +5,7 @@ import os
 import re
 import tempfile
 from pathlib import Path
+from uuid import UUID
 
 from .exceptions import DecisionIntelligenceError
 from .identity import canonical_bytes, digest
@@ -90,6 +91,121 @@ class DecisionIntelligenceRepository:
 
     def digest(self):
         return digest([list(item) for item in self.identities()])
+
+    def exact(
+        self,
+        *,
+        intelligence_uuid,
+        intelligence_digest,
+        snapshot_uuid,
+        snapshot_digest,
+        repository_digest,
+        intelligence_policy_uuid,
+        intelligence_policy_digest,
+        intelligence_policy_version,
+        intelligence_engine_version,
+    ):
+        """Return one caller-bound record and snapshot without head selection."""
+        try:
+            canonical = (
+                str(UUID(intelligence_uuid))
+                if type(intelligence_uuid) is str
+                else None
+            )
+        except (ValueError, TypeError, AttributeError):
+            canonical = None
+        if canonical != intelligence_uuid:
+            raise DecisionIntelligenceError("INVALID_DECISION_INTELLIGENCE_UUID")
+        record_matches = tuple(
+            item
+            for item in self.records()
+            if item.intelligence_uuid == intelligence_uuid
+            and item.intelligence_digest == intelligence_digest
+        )
+        if len(record_matches) != 1:
+            raise DecisionIntelligenceError("DECISION_INTELLIGENCE_MISSING")
+        snapshots = self.snapshots()
+        snapshot_matches = tuple(
+            item
+            for item in snapshots
+            if item.snapshot_uuid == snapshot_uuid
+            and item.snapshot_digest == snapshot_digest
+        )
+        if len(snapshot_matches) != 1:
+            raise DecisionIntelligenceError("SNAPSHOT_MISMATCH")
+        snapshot = snapshot_matches[0]
+        item = record_matches[0]
+        if (
+            snapshot.repository_digest != repository_digest
+            or snapshot.repository_digest
+            != digest([list(identity) for identity in snapshot.intelligence_identities])
+            or (
+                snapshot.intelligence_policy_uuid,
+                snapshot.intelligence_policy_digest,
+                snapshot.intelligence_policy_version,
+                snapshot.intelligence_engine_version,
+            )
+            != (
+                intelligence_policy_uuid,
+                intelligence_policy_digest,
+                intelligence_policy_version,
+                intelligence_engine_version,
+            )
+            or (item.intelligence_uuid, item.intelligence_digest)
+            not in snapshot.intelligence_identities
+        ):
+            raise DecisionIntelligenceError("SNAPSHOT_MISMATCH")
+        by_uuid = {value.snapshot_uuid: value for value in snapshots}
+        if len(by_uuid) != len(snapshots):
+            raise DecisionIntelligenceError("SNAPSHOT_MISMATCH")
+        children = {}
+        for value in snapshots:
+            if value.previous_snapshot_uuid is not None:
+                children.setdefault(value.previous_snapshot_uuid, []).append(value)
+        seen = set()
+        current = snapshot
+        while True:
+            if current.snapshot_uuid in seen:
+                raise DecisionIntelligenceError("SNAPSHOT_MISMATCH")
+            seen.add(current.snapshot_uuid)
+            if current.previous_snapshot_uuid is None:
+                break
+            previous = by_uuid.get(current.previous_snapshot_uuid)
+            if previous is None or previous.snapshot_digest != current.previous_snapshot_digest:
+                raise DecisionIntelligenceError("SNAPSHOT_MISMATCH")
+            current = previous
+        current = snapshot
+        while children.get(current.snapshot_uuid):
+            descendants = children[current.snapshot_uuid]
+            if len(descendants) != 1:
+                raise DecisionIntelligenceError("SNAPSHOT_MISMATCH")
+            descendant = descendants[0]
+            if descendant.previous_snapshot_digest != current.snapshot_digest:
+                raise DecisionIntelligenceError("SNAPSHOT_MISMATCH")
+            current = descendant
+            if current.snapshot_uuid in seen:
+                raise DecisionIntelligenceError("SNAPSHOT_MISMATCH")
+            seen.add(current.snapshot_uuid)
+        if len(seen) != len(snapshots):
+            raise DecisionIntelligenceError("SNAPSHOT_MISMATCH")
+        expected_partition = (
+            intelligence_policy_uuid,
+            intelligence_policy_digest,
+            intelligence_policy_version,
+            intelligence_engine_version,
+        )
+        records = {(value.intelligence_uuid, value.intelligence_digest) for value in self.records()}
+        for value in snapshots:
+            if (
+                value.intelligence_policy_uuid,
+                value.intelligence_policy_digest,
+                value.intelligence_policy_version,
+                value.intelligence_engine_version,
+            ) != expected_partition or value.repository_digest != digest(
+                [list(identity) for identity in value.intelligence_identities]
+            ) or not set(value.intelligence_identities).issubset(records):
+                raise DecisionIntelligenceError("POLICY_MISMATCH")
+        return item, snapshot
 
     def latest_snapshot(self):
         snapshots = self.snapshots()
