@@ -436,7 +436,7 @@ PR183 prepares context only. `CONTEXT_PREPARED` has no trading or operational me
 
 `PR183 Decision Context -> PR184 canonical provenance, repository, snapshot, policy, and engine verification -> immutable advisory Decision Intelligence -> future PR185 Decision Recommendation.`
 
-PR184's quality, reliability, consistency, and recommendation-review fields are advisory evidence only. `DECISION_INTELLIGENCE_READY` is not BUY, SELL, HOLD, trade approval, publication, activation, or execution approval. Only future PR185 may consume Decision Intelligence, and PR185 remains advisory-only.
+PR184's quality, reliability, consistency, and recommendation-review fields are advisory evidence only. Its immutable production-input activation names one exact governed bundle for PR185 consumption and grants no trading or execution authority. `DECISION_INTELLIGENCE_READY` is not BUY, SELL, HOLD, trade approval, publication, activation, or execution approval. Only future PR185 may consume Decision Intelligence, and PR185 remains advisory-only.
 
 ## PR185 governed advisory Decision Recommendation flow
 
@@ -498,7 +498,8 @@ previous `RP_EXECUTION_PACKAGE_UUID` state and re-raises the original failure.
 
 The production repository-initialization path is:
 
-`exact PR185 Recommendation UUID + explicit timestamped environment observations`
+`sole owner-governed PR184 activation -> exact identity validation -> PR185 Recommendation`
+`+ explicit timestamped environment observations`
 `-> PR186 Execution Readiness -> canonical PR187 evidence -> PR187 Execution Environment`
 `-> PR188 Execution Feasibility -> engine-derived UUID handoff to PR208`
 `-> PR189 assembly -> PR190 consumption -> V26 Runtime`.

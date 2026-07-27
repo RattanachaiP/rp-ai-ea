@@ -51,6 +51,58 @@ class ProductionStartupConfiguration:
     feasibility_root: Path = Path("learning_data/execution_feasibility")
     package_root: Path = Path("learning_data/execution_package")
 
+    @classmethod
+    def from_canonical_repository(
+        cls,
+        *,
+        observations,
+        captured_at,
+        intelligence_root=Path("learning_data/decision_intelligence"),
+        **roots,
+    ):
+        """Resolve the sole owner-activated PR184 identity without head selection."""
+        repository = DecisionIntelligenceRepository(intelligence_root)
+        try:
+            activations = repository.activations()
+        except DecisionIntelligenceError as exc:
+            raise ProductionStartupError(str(exc)) from exc
+        if not activations:
+            raise ProductionStartupError("DECISION_INTELLIGENCE_ACTIVATION_MISSING")
+        if len(activations) != 1:
+            raise ProductionStartupError("DECISION_INTELLIGENCE_ACTIVATION_AMBIGUOUS")
+        activation = activations[0]
+        try:
+            intelligence, _ = repository.exact(
+                intelligence_uuid=activation.intelligence_uuid,
+                intelligence_digest=activation.intelligence_digest,
+                snapshot_uuid=activation.snapshot_uuid,
+                snapshot_digest=activation.snapshot_digest,
+                repository_digest=activation.repository_digest,
+                intelligence_policy_uuid=activation.intelligence_policy_uuid,
+                intelligence_policy_digest=activation.intelligence_policy_digest,
+                intelligence_policy_version=activation.intelligence_policy_version,
+                intelligence_engine_version=activation.intelligence_engine_version,
+            )
+        except DecisionIntelligenceError as exc:
+            raise ProductionStartupError(str(exc)) from exc
+        if intelligence.intelligence_state != "DECISION_INTELLIGENCE_READY":
+            raise ProductionStartupError("ACTIVATED_DECISION_INTELLIGENCE_NOT_READY")
+        return cls(
+            decision_intelligence_uuid=intelligence.intelligence_uuid,
+            decision_intelligence_digest=intelligence.intelligence_digest,
+            decision_intelligence_snapshot_uuid=activation.snapshot_uuid,
+            decision_intelligence_snapshot_digest=activation.snapshot_digest,
+            decision_intelligence_repository_digest=activation.repository_digest,
+            intelligence_policy_uuid=activation.intelligence_policy_uuid,
+            intelligence_policy_digest=activation.intelligence_policy_digest,
+            intelligence_policy_version=activation.intelligence_policy_version,
+            intelligence_engine_version=activation.intelligence_engine_version,
+            observations=observations,
+            captured_at=captured_at,
+            intelligence_root=intelligence_root,
+            **roots,
+        )
+
     def __post_init__(self):
         for value in (
             self.decision_intelligence_uuid,
@@ -181,15 +233,6 @@ def _parser():
     parser = argparse.ArgumentParser(
         description="Create PR185 from an exact PR184 record and start the governed Runtime."
     )
-    parser.add_argument("--decision-intelligence-uuid", required=True)
-    parser.add_argument("--decision-intelligence-digest", required=True)
-    parser.add_argument("--decision-intelligence-snapshot-uuid", required=True)
-    parser.add_argument("--decision-intelligence-snapshot-digest", required=True)
-    parser.add_argument("--decision-intelligence-repository-digest", required=True)
-    parser.add_argument("--intelligence-policy-uuid", required=True)
-    parser.add_argument("--intelligence-policy-digest", required=True)
-    parser.add_argument("--intelligence-policy-version", required=True)
-    parser.add_argument("--intelligence-engine-version", required=True)
     parser.add_argument("--captured-at", required=True)
     for dimension in ENVIRONMENT_DIMENSIONS:
         parser.add_argument("--" + dimension.replace("_", "-"), type=float, required=True)
@@ -208,16 +251,7 @@ def _parser():
 def main(argv: Optional[Sequence[str]] = None):
     arguments = _parser().parse_args(argv)
     return GovernedProductionStartup(
-        ProductionStartupConfiguration(
-            decision_intelligence_uuid=arguments.decision_intelligence_uuid,
-            decision_intelligence_digest=arguments.decision_intelligence_digest,
-            decision_intelligence_snapshot_uuid=arguments.decision_intelligence_snapshot_uuid,
-            decision_intelligence_snapshot_digest=arguments.decision_intelligence_snapshot_digest,
-            decision_intelligence_repository_digest=arguments.decision_intelligence_repository_digest,
-            intelligence_policy_uuid=arguments.intelligence_policy_uuid,
-            intelligence_policy_digest=arguments.intelligence_policy_digest,
-            intelligence_policy_version=arguments.intelligence_policy_version,
-            intelligence_engine_version=arguments.intelligence_engine_version,
+        ProductionStartupConfiguration.from_canonical_repository(
             observations=tuple(
                 (dimension, getattr(arguments, dimension))
                 for dimension in ENVIRONMENT_DIMENSIONS

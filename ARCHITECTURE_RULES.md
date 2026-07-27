@@ -63,7 +63,9 @@ Risk Engine.
 **Rule #019 — Advisory Decision Intelligence.** PR184 may consume only immutable,
 canonical PR183 Decision Context records, reports, or snapshots. It verifies exact
 repository, snapshot, provenance, policy, and engine partitions before constructing
-immutable Decision Intelligence. `DECISION_INTELLIGENCE_READY` means only that the
+immutable Decision Intelligence. PR184 also owns an immutable production-input
+activation record binding one exact intelligence/snapshot/repository/policy/engine
+bundle. `DECISION_INTELLIGENCE_READY` means only that the
 advisory artifact was constructed; it grants no strategy, bias, direction, risk,
 publication, activation, broker, position-management, exit, or execution authority.
 Only PR185 may consume PR184 Decision Intelligence.
@@ -219,14 +221,16 @@ Strategy, governance, broker, order, position, exit, or execution authority.
 ## Production Execution Initialization rule
 
 **Rule #035 — Exact governed startup initialization.** The canonical operator startup
-starts from one operator-supplied, canonical PR184 Decision Intelligence identity,
-its digest, and its exact owner-emitted snapshot/repository/policy partition and
+starts from the exact PR184 Decision Intelligence bundle named by the sole immutable
+owner-governed production-input activation record and
 explicit, timestamped PR187 environment observations. It invokes PR185 through its
 owning engine and repository, passes only the resulting exact Recommendation identity
 to production initialization, invokes PR186, persists PR186 and the
 canonical environment evidence through their owning repositories, invokes and persists
 PR187 and PR188, and passes only the identities returned by those engines to the PR208
 Runtime Bootstrap. PR208 remains the sole composition of PR189 package assembly, PR190
-package consumption, environment handoff, and Runtime invocation. No downstream UUID may
+package consumption, environment handoff, and Runtime invocation. Activation resolution
+must be unique and may not derive authority from current repository contents, timestamps,
+file ordering, READY-state scanning, or a latest-record choice. No downstream UUID may
 be supplied, fabricated, selected as latest, or recovered; any missing, non-ready,
 incompatible, corrupt, or lineage-invalid stage prevents Runtime invocation.
