@@ -485,6 +485,17 @@ execution authority remains exclusively inside the MT5 Executor.
 
 `PR190 immutable ExecutionPackage -> PR191 immutable ExecutionConfidenceContext -> V26 Runtime -> PR192 canonical immutable ExecutionContext -> PR193 atomic publication -> PR194 MT5 Executor consumer`.
 
+The tracked V26 bootstrap accepts explicit PR186, PR187, and PR188 UUIDs, asks
+PR189 to assemble and persist their exact deterministic package, requires PR190
+to consume that package from its canonical snapshot, exports the returned UUID
+as `RP_EXECUTION_PACKAGE_UUID`, and only then invokes the V26 Runtime. PR189
+retains package creation and persistence authority; the bootstrap owns only
+composition, environment handoff, and Runtime invocation. It performs no
+latest-record selection, recovery, repair, scoring, or execution authorization.
+Exact-input restarts retain the same canonical package UUID and bytes. If
+Runtime invocation fails after environment handoff, the bootstrap restores the
+previous `RP_EXECUTION_PACKAGE_UUID` state and re-raises the original failure.
+
 PR192 is the only Runtime-to-Executor payload boundary. Its exact canonical
 schema exposes execution-facing metadata, not an `ExecutionPackage`, confidence
 implementation, strategy object, or governance artifact. The Executor validates
