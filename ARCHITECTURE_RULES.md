@@ -215,3 +215,15 @@ qualification thresholds and emitting an immutable `CandidateKnowledge` as
 only declared policy-threshold satisfaction and performs no prediction,
 recommendation, optimisation, or source modification and grants no Runtime,
 Strategy, governance, broker, order, position, exit, or execution authority.
+
+## Production Execution Initialization rule
+
+**Rule #035 — Exact governed startup initialization.** Production initialization
+starts from one operator-supplied, canonical PR185 Recommendation UUID and explicit,
+timestamped PR187 environment observations. It invokes PR186, persists PR186 and the
+canonical environment evidence through their owning repositories, invokes and persists
+PR187 and PR188, and passes only the identities returned by those engines to the PR208
+Runtime Bootstrap. PR208 remains the sole composition of PR189 package assembly, PR190
+package consumption, environment handoff, and Runtime invocation. No downstream UUID may
+be supplied, fabricated, selected as latest, or recovered; any missing, non-ready,
+incompatible, corrupt, or lineage-invalid stage prevents Runtime invocation.

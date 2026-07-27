@@ -4,6 +4,22 @@ Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
 
+## Production Execution Initialization — IMPLEMENTED, PENDING ACCEPTANCE
+
+- `runtime.production_execution_initialization` is the production entrypoint that closes
+  the repository-population gap before PR208. It requires one exact canonical PR185
+  Recommendation UUID, a capture timestamp, and all ten explicit PR187 environment
+  observations.
+- The entrypoint invokes the existing PR186, PR187, and PR188 engines and uses their
+  canonical append-only repositories under `learning_data`. It constructs and persists
+  environment evidence through the PR187 model and evidence repository; it never writes
+  repository JSON itself.
+- Only engine-derived PR186–PR188 identities are handed to PR208. PR208 continues to own
+  PR189 assembly, PR190 consumption, package export, and Runtime invocation. Missing or
+  non-ready inputs, invalid observations, repository corruption, policy/version mismatch,
+  or broken lineage fail closed before the Runtime starts.
+
+
 ## Execution Package Runtime Bootstrap — IMPLEMENTED, PENDING ACCEPTANCE
 
 - `runtime.execution_package_bootstrap` is the tracked V26 entrypoint that composes the existing PR189 and PR190 authorities before invoking the AI Runtime.

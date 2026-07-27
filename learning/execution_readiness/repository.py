@@ -166,3 +166,101 @@ class ExecutionReadinessRepository:
         if head.repository_digest != self.digest():
             raise ExecutionReadinessError("REPOSITORY_MISMATCH")
         return head
+
+    def exact_snapshot_for(
+        self,
+        readiness,
+        snapshot_uuid,
+        snapshot_digest,
+    ):
+        """Resolve one caller-specified snapshot and verify its complete lineage.
+
+        This API deliberately does not infer a head or use filesystem ordering. The
+        caller must provide the snapshot identity emitted by the PR186 engine.
+        """
+        if type(readiness) is not ExecutionReadiness:
+            raise ExecutionReadinessError("INVALID_EXECUTION_READINESS")
+        records = self.records()
+        record_matches = tuple(
+            item
+            for item in records
+            if (
+                item.execution_readiness_uuid,
+                item.execution_readiness_digest,
+            )
+            == (
+                readiness.execution_readiness_uuid,
+                readiness.execution_readiness_digest,
+            )
+        )
+        if len(record_matches) != 1 or record_matches[0] != readiness:
+            raise ExecutionReadinessError("BROKEN_PROVENANCE")
+
+        snapshots = self.snapshots()
+        matches = tuple(
+            item
+            for item in snapshots
+            if (item.snapshot_uuid, item.snapshot_digest)
+            == (snapshot_uuid, snapshot_digest)
+        )
+        if len(matches) != 1:
+            raise ExecutionReadinessError("SNAPSHOT_MISMATCH")
+        target = matches[0]
+        expected_partition = (
+            readiness.readiness_policy_uuid,
+            readiness.readiness_policy_digest,
+            readiness.readiness_policy_version,
+            readiness.readiness_engine_version,
+        )
+        actual_partition = (
+            target.readiness_policy_uuid,
+            target.readiness_policy_digest,
+            target.readiness_policy_version,
+            target.readiness_engine_version,
+        )
+        if actual_partition[3] != expected_partition[3]:
+            raise ExecutionReadinessError("ENGINE_VERSION_MISMATCH")
+        if actual_partition != expected_partition:
+            raise ExecutionReadinessError("POLICY_MISMATCH")
+        identity = (
+            readiness.execution_readiness_uuid,
+            readiness.execution_readiness_digest,
+        )
+        if target.readiness_identities.count(identity) != 1:
+            raise ExecutionReadinessError("SNAPSHOT_MISMATCH")
+        if target.readiness_identities != self.identities():
+            raise ExecutionReadinessError("SNAPSHOT_MISMATCH")
+        if target.repository_digest != self.digest():
+            raise ExecutionReadinessError("REPOSITORY_MISMATCH")
+
+        by_uuid = {item.snapshot_uuid: item for item in snapshots}
+        if len(by_uuid) != len(snapshots):
+            raise ExecutionReadinessError("SNAPSHOT_MISMATCH")
+        current = target
+        seen = set()
+        while True:
+            if current.snapshot_uuid in seen:
+                raise ExecutionReadinessError("SNAPSHOT_MISMATCH")
+            seen.add(current.snapshot_uuid)
+            current_partition = (
+                current.readiness_policy_uuid,
+                current.readiness_policy_digest,
+                current.readiness_policy_version,
+                current.readiness_engine_version,
+            )
+            if current_partition[3] != expected_partition[3]:
+                raise ExecutionReadinessError("ENGINE_VERSION_MISMATCH")
+            if current_partition != expected_partition:
+                raise ExecutionReadinessError("POLICY_MISMATCH")
+            if current.previous_snapshot_uuid is None:
+                break
+            previous = by_uuid.get(current.previous_snapshot_uuid)
+            if (
+                previous is None
+                or previous.snapshot_digest != current.previous_snapshot_digest
+            ):
+                raise ExecutionReadinessError("SNAPSHOT_MISMATCH")
+            current = previous
+        if len(seen) != len(snapshots):
+            raise ExecutionReadinessError("SNAPSHOT_MISMATCH")
+        return target
