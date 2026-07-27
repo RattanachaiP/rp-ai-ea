@@ -47,11 +47,6 @@ malformed atomic-replacement read is recorded but never counted as an independen
 observation. Missing, mismatched, frozen, decreasing, partial, future, or stale
 telemetry fails closed. The operator neither supplies nor edits observations.
 
-`mt5/RP_Market_State_Writer_V13_FULL_LOGIC_ATOMIC_WRITE.mq5` is the canonical
-writer and owns those four identity values at its JSON publication boundary. They
-are not configurable inputs and are not accepted from callers. Runtime validation
-remains an independent, fail-closed consumer of that producer-owned identity.
-
 The PR187.2.1 policy requires:
 
 | Argument | Meaning | Ready range |
