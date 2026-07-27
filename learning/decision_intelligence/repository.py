@@ -5,6 +5,7 @@ import os
 import re
 import tempfile
 from pathlib import Path
+from uuid import UUID
 
 from .exceptions import DecisionIntelligenceError
 from .identity import canonical_bytes, digest
@@ -90,6 +91,35 @@ class DecisionIntelligenceRepository:
 
     def digest(self):
         return digest([list(item) for item in self.identities()])
+
+    def exact(self, intelligence_uuid):
+        """Return one snapshot-bound canonical record, never an ordered fallback."""
+        try:
+            canonical = (
+                str(UUID(intelligence_uuid))
+                if type(intelligence_uuid) is str
+                else None
+            )
+        except (ValueError, TypeError, AttributeError):
+            canonical = None
+        if canonical != intelligence_uuid:
+            raise DecisionIntelligenceError("INVALID_DECISION_INTELLIGENCE_UUID")
+        matches = tuple(
+            item
+            for item in self.records()
+            if item.intelligence_uuid == intelligence_uuid
+        )
+        if len(matches) != 1:
+            raise DecisionIntelligenceError("DECISION_INTELLIGENCE_MISSING")
+        snapshot = self.latest_snapshot()
+        item = matches[0]
+        if (
+            snapshot is None
+            or (item.intelligence_uuid, item.intelligence_digest)
+            not in snapshot.intelligence_identities
+        ):
+            raise DecisionIntelligenceError("SNAPSHOT_MISMATCH")
+        return item
 
     def latest_snapshot(self):
         snapshots = self.snapshots()

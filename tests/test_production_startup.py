@@ -1,6 +1,8 @@
 """Canonical PR184 -> PR185 -> governed Runtime startup coverage."""
 
 import os
+import json
+from math import inf, nan
 from pathlib import Path
 import sys
 
@@ -100,3 +102,94 @@ def test_incomplete_chain_and_unauthorized_runtime_never_start(tmp_path, monkeyp
     with pytest.raises(ProductionStartupError, match="PRODUCTION_STARTUP_REJECTED"):
         startup.start(lambda: calls.append(True))
     assert calls == []
+
+
+@pytest.mark.parametrize(
+    "observations",
+    [
+        tuple(zip(reversed(ENVIRONMENT_DIMENSIONS), GOOD)),
+        tuple(zip(ENVIRONMENT_DIMENSIONS[:-1], GOOD[:-1])),
+        tuple(zip(ENVIRONMENT_DIMENSIONS, (1,) + GOOD[1:])),
+        tuple(zip(ENVIRONMENT_DIMENSIONS, (nan,) + GOOD[1:])),
+        tuple(zip(ENVIRONMENT_DIMENSIONS, (inf,) + GOOD[1:])),
+        tuple(zip(ENVIRONMENT_DIMENSIONS, (-0.1,) + GOOD[1:])),
+    ],
+)
+def test_configuration_rejects_invalid_observation_contract(tmp_path, observations):
+    config = configured(tmp_path)
+    with pytest.raises(ProductionStartupError, match="INVALID_ENVIRONMENT_OBSERVATIONS"):
+        ProductionStartupConfiguration(**(config.__dict__ | {"observations": observations}))
+
+
+@pytest.mark.parametrize("captured_at", [None, "", "   ", 1])
+def test_configuration_rejects_invalid_capture_timestamp(tmp_path, captured_at):
+    config = configured(tmp_path)
+    with pytest.raises(ProductionStartupError, match="INVALID_CAPTURED_AT"):
+        ProductionStartupConfiguration(**(config.__dict__ | {"captured_at": captured_at}))
+
+
+@pytest.mark.parametrize("root", ["learning_data", None, 1, object()])
+def test_configuration_rejects_non_path_repository_roots(tmp_path, root):
+    config = configured(tmp_path)
+    with pytest.raises(ProductionStartupError, match="INVALID_REPOSITORY_ROOT"):
+        ProductionStartupConfiguration(**(config.__dict__ | {"intelligence_root": root}))
+
+
+def test_corrupt_pr184_record_and_snapshot_lineage_never_start_runtime(tmp_path):
+    for corrupt_snapshot in (False, True):
+        root = tmp_path / str(corrupt_snapshot)
+        config = configured(root)
+        calls = []
+        repository_root = config.intelligence_root
+        target = next(
+            (repository_root / "snapshots").glob("*.json")
+            if corrupt_snapshot
+            else repository_root.glob("*.json")
+        )
+        data = json.loads(target.read_text())
+        if corrupt_snapshot:
+            data["repository_digest"] = "0" * 64
+        else:
+            data["intelligence_digest"] = "0" * 64
+        target.write_text(json.dumps(data, sort_keys=True, separators=(",", ":")))
+        with pytest.raises(ProductionStartupError):
+            GovernedProductionStartup(config).start(lambda: calls.append(True))
+        assert calls == []
+
+
+@pytest.mark.parametrize("mode", ["not_ready", "missing", "duplicate"])
+def test_invalid_recommendation_owner_output_never_starts_runtime(tmp_path, monkeypatch, mode):
+    config = configured(tmp_path)
+    calls = []
+    from learning.decision_recommendation import GovernedDecisionRecommendationEngine
+
+    original = GovernedDecisionRecommendationEngine.run
+
+    def invalid(engine, source):
+        report = original(engine, source)
+        if mode == "not_ready":
+            object.__setattr__(report.recommendations[0], "recommendation_state", "RECOMMENDATION_NOT_READY")
+        elif mode == "missing":
+            object.__setattr__(report.recommendations[0], "decision_intelligence_uuid", "00000000-0000-0000-0000-000000000000")
+        else:
+            object.__setattr__(report, "recommendations", report.recommendations * 2)
+        return report
+
+    monkeypatch.setattr(GovernedDecisionRecommendationEngine, "run", invalid)
+    reason = "RECOMMENDATION_NOT_READY" if mode == "not_ready" else "RECOMMENDATION_MISSING"
+    with pytest.raises(ProductionStartupError, match=reason):
+        GovernedProductionStartup(config).start(lambda: calls.append(True))
+    assert calls == []
+
+
+def test_replay_is_idempotent_and_invokes_runtime_once_per_explicit_start(tmp_path, monkeypatch):
+    config = configured(tmp_path)
+    startup = GovernedProductionStartup(config)
+    calls = []
+    monkeypatch.delenv("RP_EXECUTION_PACKAGE_UUID", raising=False)
+    startup.start(lambda: calls.append(os.environ["RP_EXECUTION_PACKAGE_UUID"]))
+    before = {path: path.read_bytes() for path in tmp_path.glob("**/*.json")}
+    startup.start(lambda: calls.append(os.environ["RP_EXECUTION_PACKAGE_UUID"]))
+    assert {path: path.read_bytes() for path in before} == before
+    assert set(tmp_path.glob("**/*.json")) == set(before)
+    assert len(calls) == 2 and calls[0] == calls[1]

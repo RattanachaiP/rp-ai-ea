@@ -8,11 +8,13 @@ record or constructs an identity itself.
 
 import argparse
 from dataclasses import dataclass
+from math import isfinite
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 from uuid import UUID
 
 from learning.decision_intelligence import DecisionIntelligenceRepository
+from learning.decision_intelligence.exceptions import DecisionIntelligenceError
 from learning.decision_recommendation import (
     DecisionRecommendationRepository,
     GovernedDecisionRecommendationEngine,
@@ -47,6 +49,37 @@ class ProductionStartupConfiguration:
             canonical = None
         if type(self.decision_intelligence_uuid) is not str or canonical != self.decision_intelligence_uuid:
             raise ProductionStartupError("INVALID_DECISION_INTELLIGENCE_UUID")
+        try:
+            observations = tuple(tuple(item) for item in self.observations)
+        except (TypeError, ValueError):
+            raise ProductionStartupError(
+                "INVALID_ENVIRONMENT_OBSERVATIONS"
+            ) from None
+        object.__setattr__(self, "observations", observations)
+        if (
+            tuple(item[0] for item in observations if len(item) == 2)
+            != ENVIRONMENT_DIMENSIONS
+            or any(len(item) != 2 for item in observations)
+            or any(
+                type(value) is not float or not isfinite(value) or value < 0.0
+                for _, value in observations
+            )
+        ):
+            raise ProductionStartupError("INVALID_ENVIRONMENT_OBSERVATIONS")
+        if type(self.captured_at) is not str or not self.captured_at.strip():
+            raise ProductionStartupError("INVALID_CAPTURED_AT")
+        if any(
+            not isinstance(root, Path)
+            for root in (
+                self.intelligence_root,
+                self.recommendation_root,
+                self.readiness_root,
+                self.environment_root,
+                self.feasibility_root,
+                self.package_root,
+            )
+        ):
+            raise ProductionStartupError("INVALID_REPOSITORY_ROOT")
 
 
 class GovernedProductionStartup:
@@ -57,15 +90,6 @@ class GovernedProductionStartup:
             raise ProductionStartupError("INVALID_CONFIGURATION")
         self.configuration = configuration
 
-    @staticmethod
-    def _exact(records, expected_uuid):
-        matches = tuple(
-            item for item in records if item.intelligence_uuid == expected_uuid
-        )
-        if len(matches) != 1:
-            raise ProductionStartupError("DECISION_INTELLIGENCE_MISSING")
-        return matches[0]
-
     def start(self, runtime: Optional[Callable[[], object]] = None):
         if runtime is not None and not callable(runtime):
             raise ProductionStartupError("UNAUTHORIZED_RUNTIME_TARGET")
@@ -74,9 +98,12 @@ class GovernedProductionStartup:
             intelligence_repository = DecisionIntelligenceRepository(
                 config.intelligence_root
             )
-            intelligence = self._exact(
-                intelligence_repository.records(), config.decision_intelligence_uuid
-            )
+            try:
+                intelligence = intelligence_repository.exact(
+                    config.decision_intelligence_uuid
+                )
+            except DecisionIntelligenceError as exc:
+                raise ProductionStartupError(str(exc)) from exc
             recommendation_repository = DecisionRecommendationRepository(
                 config.recommendation_root
             )
