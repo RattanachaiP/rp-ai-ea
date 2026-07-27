@@ -5759,6 +5759,23 @@ def final_decision_publication(data, *, lifecycle):
     return attach_decision_identity(data, lifecycle=lifecycle)
 
 
+def validate_existing_decision_identity(data):
+    """Validate persistence input without creating or mutating its identity."""
+    identity_fields = (
+        "decision_uuid", "decision_timestamp", "timestamp", "decision_lifecycle",
+    )
+    if not all(field in data for field in identity_fields):
+        raise ValueError("MISSING_DECISION_IDENTITY")
+    before = tuple(data[field] for field in identity_fields)
+    validated = attach_decision_identity(
+        dict(data), lifecycle=data["decision_lifecycle"]
+    )
+    after = tuple(validated[field] for field in identity_fields)
+    if after != before:
+        raise ValueError("DECISION_IDENTITY_CHANGED")
+    return data
+
+
 def write_decision(data, execution_context=None):
     """
     Safe atomic write for decision.json.
@@ -5893,11 +5910,10 @@ def write_decision(data, execution_context=None):
                 # Persistence consumes an already identified logical
                 # publication. It must never mint or replace identity.
                 if any(field in data for field in (
-                    "decision_uuid", "decision_timestamp", "timestamp"
+                    "decision_uuid", "decision_timestamp", "timestamp",
+                    "decision_lifecycle",
                 )):
-                    data = attach_decision_identity(
-                        data, lifecycle=data.get("decision_lifecycle", "")
-                    )
+                    data = validate_existing_decision_identity(data)
                 data["runtime_branch"] = RUNTIME_BRANCH
                 data["arch_version"] = ARCH_VERSION
                 data["build_tag"] = BUILD_TAG

@@ -48,6 +48,24 @@ def test_existing_identity_and_timestamp_are_preserved(engine):
     assert result["timestamp"] == "2026-07-27T12:00:00Z"
 
 
+def test_persistence_validation_preserves_identity_without_reminting(engine):
+    payload = engine.attach_decision_identity(
+        publication(), lifecycle="NORMAL_TRADE"
+    )
+    before = dict(payload)
+    assert engine.validate_existing_decision_identity(payload) is payload
+    assert payload == before
+
+
+def test_persistence_validation_rejects_missing_or_partial_identity(engine):
+    with pytest.raises(ValueError, match="MISSING_DECISION_IDENTITY"):
+        engine.validate_existing_decision_identity(publication())
+    with pytest.raises(ValueError, match="MISSING_DECISION_IDENTITY"):
+        engine.validate_existing_decision_identity(
+            publication() | {"decision_uuid": str(UUID(int=229))}
+        )
+
+
 def test_two_logical_decisions_receive_different_uuids(engine):
     first = engine.attach_decision_identity(publication(), lifecycle="NORMAL_TRADE")
     second = engine.attach_decision_identity(
