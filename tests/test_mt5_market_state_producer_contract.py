@@ -149,6 +149,61 @@ def test_duplicate_writer_is_protected_by_terminal_wide_cas_mutex():
     assert text.index("if(!LoadSequence())") < text.index("return INIT_FAILED;", text.index("if(!LoadSequence())"))
 
 
+def _acquire(owner, *, owner_exists=False, heartbeat_expired=False,
+             cas_results=(True,), operation_error=0):
+    """Executable state model for the bounded terminal-global CAS loop."""
+    contender = 5163285837109
+    if operation_error:
+        return "MUTEX_ACCESS_FAILURE", owner
+    results = iter(cas_results)
+    for _ in range(4):
+        if owner and owner != contender and owner_exists and not heartbeat_expired:
+            return "DUPLICATE_WRITER", owner
+        if next(results, False):
+            return ("ACQUIRED_ZERO" if owner == 0 else "RECOVERED"), contender
+        # A false CAS with error zero is a value mismatch and is retried after
+        # the terminal global is read again. The model's owner is unchanged.
+    return "MUTEX_ACCESS_FAILURE", owner
+
+
+def test_zero_owner_mutex_acquisition_regressions():
+    # GlobalVariableTemp creates a missing mutex with the unowned value zero;
+    # an already-existing zero mutex follows exactly the same guarded CAS path.
+    assert _acquire(0) == ("ACQUIRED_ZERO", 5163285837109)
+    assert _acquire(0) == ("ACQUIRED_ZERO", 5163285837109)
+    # A comparison mismatch is contention rather than an API error and retries.
+    assert _acquire(0, cas_results=(False, True)) == ("ACQUIRED_ZERO", 5163285837109)
+
+
+def test_active_and_abandoned_owner_regressions():
+    assert _acquire(123, owner_exists=True) == ("DUPLICATE_WRITER", 123)
+    assert _acquire(123, owner_exists=False) == ("RECOVERED", 5163285837109)
+    assert _acquire(123, owner_exists=True, heartbeat_expired=True) == (
+        "RECOVERED", 5163285837109
+    )
+
+
+def test_terminal_global_failure_and_cleanup_regressions():
+    assert _acquire(0, operation_error=4501) == ("MUTEX_ACCESS_FAILURE", 0)
+    text = source()
+    assert "ResetLastError();\n      if(GlobalVariableSetOnCondition" in text
+    assert "int cas_error = GetLastError();" in text
+    assert "if(cas_error != 0)" in text
+    release = text[text.index("void ReleaseWriterOwnership()") : text.index("bool ExactChartIDFromDouble")]
+    assert "owner_value == (double)ChartID()" in release
+    assert "GlobalVariableSetOnCondition(g_sequence_global_name, 0.0, owner_value)" in release
+
+
+def test_mutex_owner_conversion_and_required_logs_are_explicit():
+    text = source()
+    assert "MAX_EXACT_DOUBLE_INTEGER" in text
+    assert "MathFloor(value) != value" in text
+    assert "(double)chart_id == value" in text
+    assert "if(owner_chart <= 0)" in text
+    assert 'Print("WRITER OWNERSHIP ACQUIRED | previous_owner=0 | new_owner="' in text
+    assert 'Print("DUPLICATE WRITER BLOCKED | active_owner="' in text
+
+
 def test_restore_log_is_explicit_and_identifies_storage_source():
     text = source()
     assert 'Print("SEQUENCE RESTORE OK | previous="' in text
@@ -174,7 +229,7 @@ def test_init_failures_are_explicitly_categorized_and_release_ownership():
 
 def test_owner_lock_supports_clean_release_and_abandoned_lease_recovery():
     text = source()
-    assert "owner == ChartID()" in text  # same-chart EX5 replacement/recompile
+    assert "owner == contender" in text  # same-chart EX5 replacement/recompile
     assert "!OwnerChartExists(owner)" in text  # closed/replaced chart
     assert "lease_expired" in text  # live chart left behind without its Writer
     assert "ABANDONED OWNER LOCK RECOVERED" in text

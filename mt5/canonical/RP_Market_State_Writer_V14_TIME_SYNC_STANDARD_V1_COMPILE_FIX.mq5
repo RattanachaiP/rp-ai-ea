@@ -3,7 +3,7 @@
 //|              Writes MA/RSI/MACD/BB + simple scores to JSON       |
 //+------------------------------------------------------------------+
 #property strict
-#property version "1.17"
+#property version "1.18"
 
 // Governed producer identity is owned by this source and cannot be configured.
 #define MARKET_STATE_PRODUCER         "RP_AI_MT5_MARKET_STATE"
@@ -221,6 +221,7 @@ enum ENUM_SEQUENCE_LOAD_FAILURE
    SEQUENCE_LOAD_NONE = 0,
    SEQUENCE_LOAD_DUPLICATE_WRITER,
    SEQUENCE_LOAD_MUTEX_CREATION,
+   SEQUENCE_LOAD_MUTEX_ACCESS,
    SEQUENCE_LOAD_JOURNAL_CORRUPTION,
    SEQUENCE_LOAD_PUBLISHED_RECOVERY
 };
@@ -228,6 +229,8 @@ ENUM_SEQUENCE_LOAD_FAILURE g_sequence_load_failure = SEQUENCE_LOAD_NONE;
 bool g_writer_owner_acquired = false;
 string g_writer_heartbeat_global_name = "";
 #define WRITER_OWNER_LEASE_SECONDS 30
+#define WRITER_OWNER_CAS_RETRIES 4
+#define MAX_EXACT_DOUBLE_INTEGER 9007199254740991.0
 
 string SequenceStateFile()
 {
@@ -265,23 +268,137 @@ bool ReadCommonText(const string path, string &text)
 void ReleaseWriterOwnership()
 {
    if(g_writer_owner_acquired && StringLen(g_sequence_global_name) > 0 &&
-      GlobalVariableCheck(g_sequence_global_name) &&
-      (long)GlobalVariableGet(g_sequence_global_name) == ChartID())
+      GlobalVariableCheck(g_sequence_global_name))
    {
-      GlobalVariableSet(g_sequence_global_name, 0.0);
-      if(StringLen(g_writer_heartbeat_global_name) > 0)
-         GlobalVariableDel(g_writer_heartbeat_global_name);
+      ResetLastError();
+      double owner_value = GlobalVariableGet(g_sequence_global_name);
+      int read_error = GetLastError();
+      if(read_error == 0 && owner_value == (double)ChartID())
+      {
+         // A guarded release cannot clear a replacement Writer which acquired
+         // the mutex between our last heartbeat and deinitialization.
+         ResetLastError();
+         if(GlobalVariableSetOnCondition(g_sequence_global_name, 0.0, owner_value))
+         {
+            if(StringLen(g_writer_heartbeat_global_name) > 0)
+               GlobalVariableDel(g_writer_heartbeat_global_name);
+         }
+      }
    }
    g_writer_owner_acquired = false;
 }
 
+bool ExactChartIDFromDouble(const double value, long &chart_id)
+{
+   if(!MathIsValidNumber(value) || value <= 0.0 ||
+      value > MAX_EXACT_DOUBLE_INTEGER || MathFloor(value) != value)
+      return false;
+   chart_id = (long)value;
+   return (double)chart_id == value;
+}
+
 bool OwnerChartExists(const long owner_chart)
 {
+   if(owner_chart <= 0)
+      return false;
    for(long chart = ChartFirst(); chart >= 0; chart = ChartNext(chart))
       if(chart != owner_chart)
          continue;
       else
          return true;
+   return false;
+}
+
+bool AcquireWriterOwnership()
+{
+   const long contender = ChartID();
+   const double contender_value = (double)contender;
+   long exact_contender = 0;
+   if(!ExactChartIDFromDouble(contender_value, exact_contender) || exact_contender != contender)
+   {
+      g_sequence_load_failure = SEQUENCE_LOAD_MUTEX_ACCESS;
+      Print("MUTEX ACCESS FAILURE | operation=validate_contender | contender=", contender);
+      return false;
+   }
+
+   for(int attempt=0; attempt<WRITER_OWNER_CAS_RETRIES; attempt++)
+   {
+      ResetLastError();
+      double owner_value = GlobalVariableGet(g_sequence_global_name);
+      int read_error = GetLastError();
+      if(read_error != 0)
+      {
+         g_sequence_load_failure = SEQUENCE_LOAD_MUTEX_ACCESS;
+         Print("MUTEX ACCESS FAILURE | operation=read | name=", g_sequence_global_name,
+               " err=", read_error);
+         return false;
+      }
+
+      long owner = 0;
+      if(owner_value != 0.0 && !ExactChartIDFromDouble(owner_value, owner))
+      {
+         g_sequence_load_failure = SEQUENCE_LOAD_MUTEX_ACCESS;
+         Print("MUTEX ACCESS FAILURE | operation=validate_owner | value=", owner_value,
+               " name=", g_sequence_global_name);
+         return false;
+      }
+
+      bool recover_abandoned = false;
+      if(owner != 0)
+      {
+         double last_heartbeat = 0.0;
+         if(GlobalVariableCheck(g_writer_heartbeat_global_name))
+         {
+            ResetLastError();
+            last_heartbeat = GlobalVariableGet(g_writer_heartbeat_global_name);
+            int heartbeat_error = GetLastError();
+            if(heartbeat_error != 0)
+            {
+               g_sequence_load_failure = SEQUENCE_LOAD_MUTEX_ACCESS;
+               Print("MUTEX ACCESS FAILURE | operation=heartbeat_read | name=",
+                     g_writer_heartbeat_global_name, " err=", heartbeat_error);
+               return false;
+            }
+         }
+         bool lease_expired = (last_heartbeat <= 0.0 ||
+                               (double)TimeLocal() - last_heartbeat > WRITER_OWNER_LEASE_SECONDS);
+         recover_abandoned = (owner == contender || !OwnerChartExists(owner) || lease_expired);
+         if(!recover_abandoned)
+         {
+            g_sequence_load_failure = SEQUENCE_LOAD_DUPLICATE_WRITER;
+            Print("DUPLICATE WRITER BLOCKED | active_owner=", owner,
+                  " | contender=", contender, " | mutex=", g_sequence_global_name);
+            return false;
+         }
+      }
+
+      // Error 0 after a false CAS means the comparison value changed.  That
+      // is contention, not a terminal-global failure, so re-read and retry.
+      ResetLastError();
+      if(GlobalVariableSetOnCondition(g_sequence_global_name, contender_value, owner_value))
+      {
+         g_writer_owner_acquired = true;
+         if(owner == 0)
+            Print("WRITER OWNERSHIP ACQUIRED | previous_owner=0 | new_owner=", contender);
+         else
+            Print("ABANDONED OWNER LOCK RECOVERED | previous_owner=", owner,
+                  " new_owner=", contender, " mutex=", g_sequence_global_name);
+         return true;
+      }
+      int cas_error = GetLastError();
+      if(cas_error != 0)
+      {
+         g_sequence_load_failure = SEQUENCE_LOAD_MUTEX_ACCESS;
+         Print("MUTEX ACCESS FAILURE | operation=cas | name=", g_sequence_global_name,
+               " err=", cas_error);
+         return false;
+      }
+      Sleep(1);
+   }
+
+   g_sequence_load_failure = SEQUENCE_LOAD_MUTEX_ACCESS;
+   Print("MUTEX ACCESS FAILURE | operation=cas_retry_exhausted | name=",
+         g_sequence_global_name);
    return false;
 }
 
@@ -342,6 +459,7 @@ bool LoadSequence()
    // governed producer and symbol cannot initialize concurrently.
    // A temporary terminal global is automatically discarded on terminal exit,
    // avoiding a stale owner after a crash while remaining live across charts.
+   ResetLastError();
    if(!GlobalVariableTemp(g_sequence_global_name))
    {
       g_sequence_load_failure = SEQUENCE_LOAD_MUTEX_CREATION;
@@ -349,25 +467,8 @@ bool LoadSequence()
             " err=", GetLastError(), " | verify terminal global-variable storage is writable");
       return false;
    }
-   if(!GlobalVariableSetOnCondition(g_sequence_global_name, (double)ChartID(), 0.0))
-   {
-      long owner = (long)GlobalVariableGet(g_sequence_global_name);
-      double last_heartbeat = GlobalVariableCheck(g_writer_heartbeat_global_name) ?
-                              GlobalVariableGet(g_writer_heartbeat_global_name) : 0.0;
-      bool lease_expired = (last_heartbeat <= 0.0 ||
-                            (double)TimeLocal() - last_heartbeat > WRITER_OWNER_LEASE_SECONDS);
-      bool abandoned = (owner == ChartID() || !OwnerChartExists(owner) || lease_expired);
-      if(!abandoned || !GlobalVariableSetOnCondition(g_sequence_global_name, (double)ChartID(), (double)owner))
-      {
-         g_sequence_load_failure = SEQUENCE_LOAD_DUPLICATE_WRITER;
-         Print("DUPLICATE WRITER BLOCKED | owner=", owner, " contender=", ChartID(),
-               " mutex=", g_sequence_global_name);
-         return false;
-      }
-      Print("ABANDONED OWNER LOCK RECOVERED | previous_owner=", owner,
-            " new_owner=", ChartID(), " mutex=", g_sequence_global_name);
-   }
-   g_writer_owner_acquired = true;
+   if(!AcquireWriterOwnership())
+      return false;
    GlobalVariableTemp(g_writer_heartbeat_global_name);
    GlobalVariableSet(g_writer_heartbeat_global_name, (double)TimeLocal());
 
@@ -573,6 +674,7 @@ int OnInit()
       string category = "UNKNOWN_SEQUENCE_FAILURE";
       if(g_sequence_load_failure == SEQUENCE_LOAD_DUPLICATE_WRITER) category = "DUPLICATE_WRITER";
       else if(g_sequence_load_failure == SEQUENCE_LOAD_MUTEX_CREATION) category = "MUTEX_CREATION_FAILURE";
+      else if(g_sequence_load_failure == SEQUENCE_LOAD_MUTEX_ACCESS) category = "MUTEX_ACCESS_FAILURE";
       else if(g_sequence_load_failure == SEQUENCE_LOAD_JOURNAL_CORRUPTION) category = "SEQUENCE_JOURNAL_CORRUPTION";
       else if(g_sequence_load_failure == SEQUENCE_LOAD_PUBLISHED_RECOVERY) category = "PUBLISHED_STATE_RECOVERY_FAILURE";
       ReleaseWriterOwnership(); // required even when LoadSequence acquired before failing
