@@ -25,6 +25,11 @@ from runtime.production_execution_initialization import (
     ProductionExecutionInitializationConfiguration,
     ProductionExecutionInitializer,
 )
+from runtime.environment_observation import (
+    DEFAULT_MARKET_STATE_PATH,
+    EnvironmentObservationError,
+    GovernedEnvironmentObservationProducer,
+)
 
 
 class ProductionStartupError(ValueError):
@@ -233,9 +238,8 @@ def _parser():
     parser = argparse.ArgumentParser(
         description="Create PR185 from an exact PR184 record and start the governed Runtime."
     )
-    parser.add_argument("--captured-at", required=True)
-    for dimension in ENVIRONMENT_DIMENSIONS:
-        parser.add_argument("--" + dimension.replace("_", "-"), type=float, required=True)
+    parser.add_argument("--market-state", type=Path, default=DEFAULT_MARKET_STATE_PATH)
+    parser.add_argument("--observation-window", type=float, default=5.0)
     for name, directory in (
         ("intelligence", "decision_intelligence"),
         ("recommendation", "decision_recommendation"),
@@ -250,13 +254,17 @@ def _parser():
 
 def main(argv: Optional[Sequence[str]] = None):
     arguments = _parser().parse_args(argv)
+    try:
+        evidence = GovernedEnvironmentObservationProducer(
+            arguments.market_state,
+            window_seconds=arguments.observation_window,
+        ).collect()
+    except EnvironmentObservationError as exc:
+        raise ProductionStartupError(str(exc)) from exc
     return GovernedProductionStartup(
         ProductionStartupConfiguration.from_canonical_repository(
-            observations=tuple(
-                (dimension, getattr(arguments, dimension))
-                for dimension in ENVIRONMENT_DIMENSIONS
-            ),
-            captured_at=arguments.captured_at,
+            observations=evidence.observations,
+            captured_at=evidence.captured_at,
             intelligence_root=arguments.intelligence_root,
             recommendation_root=arguments.recommendation_root,
             readiness_root=arguments.readiness_root,

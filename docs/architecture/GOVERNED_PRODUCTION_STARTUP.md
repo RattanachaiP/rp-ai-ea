@@ -29,10 +29,25 @@ The default repositories are `learning_data/decision_intelligence`,
 `learning_data/execution_environment`, `learning_data/execution_feasibility`, and
 `learning_data/execution_package`.
 
-## Observation contract
+## Governed observation collection
 
-Values are finite, non-negative floats captured from production monitoring at the
-declared UTC timestamp. The PR187.2.1 policy requires:
+Startup samples the canonical MT5 `market_state.json` itself for five seconds before
+constructing PR187 evidence. The immutable `PR187-OBSERVATION-POLICY.1.0` declares
+each dimension's definition, source field, units, aggregation formula, threshold,
+policy UUID/digest, and source provenance. Freshness is calculated exclusively from
+the payload's `heartbeat_unix`; filesystem timestamps have no authority. Heartbeats
+must not be future or older than five seconds, and at least three unique, strictly
+increasing sequence/heartbeat pairs are required.
+
+The source must identify itself as symbol `XAUUSD`, producer
+`RP_AI_MT5_MARKET_STATE` version `V1`, telemetry schema `1.0`, and the policy-bound
+source UUID. Session quality, liquidity quality, and slippage expectation are direct
+producer observations; startup never manufactures them from quotes or spread. A
+malformed atomic-replacement read is recorded but never counted as an independent
+observation. Missing, mismatched, frozen, decreasing, partial, future, or stale
+telemetry fails closed. The operator neither supplies nor edits observations.
+
+The PR187.2.1 policy requires:
 
 | Argument | Meaning | Ready range |
 |---|---|---|
@@ -49,30 +64,18 @@ declared UTC timestamp. The PR187.2.1 policy requires:
 
 PR187 rejects missing, non-finite, negative, wrongly ordered, or wrongly typed
 observations. Values outside the ready thresholds produce a non-ready environment,
-and startup stops before PR188/Runtime. Operators must use measured values; the
-command supplies no observation defaults.
+and startup stops before PR188/Runtime. No metric has a readiness default.
 
 ## Single PowerShell production command
 
 The installed governed `learning_data/decision_intelligence/activations` repository
-supplies the sole owner-activated identity bundle. The operator supplies only
-timestamped measurements from production
-monitoring; no UUID, digest, JSON edit, or manual package environment variable is used.
+supplies the sole owner-activated identity bundle. MT5 and the market-state sync must
+already be running. The operator then executes exactly one command; no UUID, digest,
+timestamp, metric, JSON edit, or manual package environment variable is used.
 
 ```powershell
 cd D:\RP_AI_EA
-python -m runtime.production_startup `
-  --captured-at "2026-07-27T12:00:00Z" `
-  --feed-stability 0.99 `
-  --price-stream-continuity 0.999 `
-  --market-session-quality 0.90 `
-  --spread-quality 20.0 `
-  --latency-quality 100.0 `
-  --slippage-expectation 10.0 `
-  --market-liquidity-quality 0.90 `
-  --environment-consistency 0.90 `
-  --data-freshness 2.0 `
-  --environment-completeness 0.95
+python -m runtime.production_startup
 ```
 
 PR208 imports and invokes
