@@ -9,6 +9,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parents[1]))
 sys.path.insert(1, str(Path(__file__).parent / "learning"))
 
+import runtime.execution_package_bootstrap as bootstrap_module
 from runtime.execution_package_bootstrap import (
     ExecutionPackageBootstrapConfiguration,
     ExecutionPackageBootstrapError,
@@ -43,6 +44,34 @@ def test_bootstrap_assembles_persists_exports_then_starts(tmp_path, monkeypatch)
     package_files = tuple((tmp_path / "execution_package").glob("*.json"))
     assert len(package_files) == 1
     assert observed[0] == package_files[0].stem
+
+
+def test_bootstrap_delegates_to_pr189_and_exports_its_unchanged_uuid(tmp_path, monkeypatch):
+    readiness, environment, feasibility, engine = setup_engine(tmp_path)
+    canonical, _ = engine.run(readiness, environment, feasibility)
+    calls = []
+    owner = bootstrap_module.GovernedExecutionPackageAssemblyEngine
+
+    class ObservedCanonicalOwner(owner):
+        def assemble(self, *args, **kwargs):
+            result = super().assemble(*args, **kwargs)
+            calls.append(result[0])
+            return result
+
+    monkeypatch.setattr(
+        bootstrap_module,
+        "GovernedExecutionPackageAssemblyEngine",
+        ObservedCanonicalOwner,
+    )
+    observed = []
+    ExecutionPackageRuntimeBootstrap(
+        configuration(tmp_path, readiness, environment, feasibility)
+    ).start(lambda: observed.append(os.environ["RP_EXECUTION_PACKAGE_UUID"]))
+
+    assert calls == [canonical]
+    assert observed == [canonical.execution_package_uuid]
+    assert len(tuple((tmp_path / "execution_package").glob("*.json"))) == 1
+    assert not (tmp_path / "pr223_execution_package").exists()
 
 
 def test_bootstrap_restart_with_same_exact_inputs_is_idempotent(tmp_path, monkeypatch):

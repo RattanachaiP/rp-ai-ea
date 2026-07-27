@@ -88,6 +88,17 @@ def test_canonical_append_only_repository_and_collision_rejection(tmp_path):
     assert report.repository_digest != package.repository_digest
 
 
+def test_canonical_model_recomputes_and_rejects_tampered_package_uuid(tmp_path):
+    readiness, environment, feasibility, engine = setup_engine(tmp_path)
+    package, _ = engine.run(readiness, environment, feasibility)
+
+    with pytest.raises(ValueError, match="INVALID_EXECUTION_PACKAGE"):
+        replace(
+            package,
+            execution_package_uuid="00000000-0000-5000-8000-000000000000",
+        )
+
+
 def test_policy_engine_repository_and_replay_collisions_fail_closed(tmp_path):
     readiness, environment, feasibility, engine = setup_engine(tmp_path)
     package, _ = engine.run(readiness, environment, feasibility)
