@@ -99,30 +99,61 @@ def test_restricted_modes_wide_spread_and_stale_ticks_are_not_full_quality():
     assert "tick_age_seconds > 5" in text
 
 
-def test_sequence_is_reserved_before_publication_and_partial_failures_only_create_gaps():
+def test_sequence_is_persisted_only_after_atomic_publication():
     text = source()
-    reserve = text.index("if(!PersistSequence(nextSequenceId))")
-    advance = text.index("g_market_state_sequence_id = nextSequenceId;")
-    publish = text.index("if(UseAbsoluteDBridge)")
-    assert reserve < advance < publish
-    assert "GlobalVariablesFlush()" in text
+    publish = text.index("if(UseAbsoluteDBridge)", text.index("void OnTick()"))
+    commit_check = text.index("if(!wrote)", publish)
+    advance = text.index("g_market_state_sequence_id = nextSequenceId;", commit_check)
+    persist = text.index("if(!PersistSequence(nextSequenceId))", advance)
+    assert publish < commit_check < advance < persist
+    assert "WriteTextCommonAtomic(commonPath, json)" in text
+    assert "WriteTextAbsoluteAtomic(path, json)" in text
+    assert "ExpertRemove();" in text
 
-    # State-machine regression for the declared reserve-before-publish policy:
-    # a failed reservation publishes nothing; a failed publication consumes a
-    # durable ID, and the next success therefore cannot duplicate it.
-    durable = 10
-    escaped = []
-    def attempt(reserve_succeeds, publish_succeeds):
-        nonlocal durable
-        candidate = durable + 1
-        if not reserve_succeeds:
-            return
-        durable = candidate
-        if publish_succeeds:
-            escaped.append(candidate)
-    attempt(False, True)   # reservation failure: nothing can escape
-    attempt(True, False)   # publication failure: durable gap 11
-    attempt(True, True)    # next publication is 12, never 11
-    attempt(True, True)
-    assert escaped == [12, 13]
-    assert escaped == sorted(set(escaped))
+
+def _restore(journal, publication):
+    """Executable model of the Writer's restart reconciliation."""
+    if journal is not None and (type(journal) is not int or journal < 0):
+        raise ValueError("corrupt persistent state: fail closed")
+    candidates = [value for value in (journal, publication) if value is not None]
+    previous = max(candidates, default=0)
+    return previous, previous + 1
+
+
+def test_sequence_restart_continues_after_last_committed_publication():
+    assert _restore(394, 394) == (394, 395)
+    # Crash after atomic publication but before journal persistence recovers
+    # from the committed market_state document and still never decreases.
+    assert _restore(393, 394) == (394, 395)
+
+
+def test_sequence_missing_state_starts_or_recovers_safely():
+    assert _restore(None, None) == (0, 1)
+    assert _restore(None, 394) == (394, 395)
+
+
+def test_sequence_corrupt_state_fails_closed():
+    import pytest
+    with pytest.raises(ValueError, match="fail closed"):
+        _restore("394", 394)
+    text = source()
+    assert "SEQUENCE STATE CORRUPT" in text
+    assert "return false; // fail closed" in text
+
+
+def test_duplicate_writer_is_protected_by_terminal_wide_cas_mutex():
+    text = source()
+    assert "GlobalVariableSetOnCondition" in text
+    assert "DUPLICATE WRITER BLOCKED" in text
+    assert "GlobalVariableTemp(g_sequence_global_name)" in text
+    assert text.index("if(!LoadSequence())") < text.index("return INIT_FAILED;", text.index("if(!LoadSequence())"))
+
+
+def test_restore_log_is_explicit_and_identifies_storage_source():
+    text = source()
+    assert 'Print("SEQUENCE RESTORE OK | previous="' in text
+    assert '" next="' in text
+    assert '" source="' in text
+    assert all(source_name in text for source_name in (
+        "FILE_COMMON_JOURNAL", "MARKET_STATE_RECOVERY", "EMPTY_STATE"
+    ))

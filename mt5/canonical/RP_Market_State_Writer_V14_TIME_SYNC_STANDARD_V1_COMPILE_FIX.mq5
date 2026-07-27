@@ -3,7 +3,7 @@
 //|              Writes MA/RSI/MACD/BB + simple scores to JSON       |
 //+------------------------------------------------------------------+
 #property strict
-#property version "1.15"
+#property version "1.16"
 
 // Governed producer identity is owned by this source and cannot be configured.
 #define MARKET_STATE_PRODUCER         "RP_AI_MT5_MARKET_STATE"
@@ -33,6 +33,7 @@ bool ReadFile(long hFile,uchar &lpBuffer[],uint nNumberOfBytesToRead,uint &lpNum
 uint GetFileSize(long hFile,long lpFileSizeHigh);
 bool CloseHandle(long hObject);
 bool CreateDirectoryW(string lpPathName,long lpSecurityAttributes);
+bool MoveFileExW(string lpExistingFileName,string lpNewFileName,uint dwFlags);
 #import
 
 #define GENERIC_READ        0x80000000
@@ -41,6 +42,8 @@ bool CreateDirectoryW(string lpPathName,long lpSecurityAttributes);
 #define OPEN_EXISTING       3
 #define FILE_ATTRIBUTE_NORMAL 0x00000080
 #define INVALID_HANDLE_VALUE -1
+#define MOVEFILE_REPLACE_EXISTING 0x1
+#define MOVEFILE_WRITE_THROUGH    0x8
 
 input bool UseAbsoluteDBridge = false;
 input string AbsoluteBridgeRoot = "D:\\RP_AI_EA\\shared\\";
@@ -132,6 +135,20 @@ bool WriteTextAbsolute(string full_path, string text)
    return true;
 }
 
+bool WriteTextAbsoluteAtomic(string final_path, string text)
+{
+   string tmp_path = final_path + ".tmp";
+   if(!WriteTextAbsolute(tmp_path, text))
+      return false;
+   ResetLastError();
+   if(!MoveFileExW(tmp_path, final_path, MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH))
+   {
+      Print("ABS ATOMIC REPLACE FAIL | ", final_path, " err=", GetLastError());
+      return false;
+   }
+   return true;
+}
+
 bool ReadTextAbsolute(string full_path, string &text)
 {
    text = "";
@@ -194,34 +211,111 @@ int hBB4 = INVALID_HANDLE;
 datetime lastWrite = 0;
 long g_market_state_sequence_id = 0;
 string g_sequence_global_name = "";
+bool WriteTextCommonAtomic(string finalPath, string text);
 double g_previous_tick_mid = 0.0;
 double g_slippage_expectation_ewma = 0.0;
 int g_slippage_model_samples = 0;
 
-string SequenceGlobalName()
+string SequenceStateFile()
 {
-   return "RP_AI.market_state.sequence." + MARKET_STATE_SOURCE_UUID + "." + _Symbol;
+   return BridgeRelativeFile("market_state.sequence");
+}
+
+string WriterOwnerGlobalName()
+{
+   return "RP_AI.market_state.writer." + MARKET_STATE_SOURCE_UUID + "." + _Symbol;
+}
+
+bool ParseUnsignedLong(const string value, long &parsed)
+{
+   if(StringLen(value) <= 0)
+      return false;
+   for(int i=0; i<StringLen(value); i++)
+      if(StringGetCharacter(value, i) < '0' || StringGetCharacter(value, i) > '9')
+         return false;
+   parsed = StringToInteger(value);
+   return parsed >= 0 && IntegerToString(parsed) == value;
+}
+
+bool ReadCommonText(const string path, string &text)
+{
+   text = "";
+   int h = FileOpen(path, FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ);
+   if(h == INVALID_HANDLE)
+      return false;
+   while(!FileIsEnding(h))
+      text += FileReadString(h);
+   FileClose(h);
+   return true;
+}
+
+bool ReadPublishedSequence(long &sequence_id)
+{
+   string json;
+   bool read_ok = false;
+   if(UseAbsoluteDBridge)
+      read_ok = ReadTextAbsolute(BridgeAbsoluteFile("market_state.json"), json);
+   if(!read_ok && FallbackToCommonFiles)
+      read_ok = ReadCommonText(BridgeRelativeFile("market_state.json"), json);
+   if(!read_ok)
+      return false;
+   if(StringFind(json, "\"source_uuid\": \"" + MARKET_STATE_SOURCE_UUID + "\"") < 0 ||
+      StringFind(json, "\"symbol\": \"" + _Symbol + "\"") < 0)
+      return false;
+   string marker = "\"sequence_id\": ";
+   int begin = StringFind(json, marker);
+   if(begin < 0) return false;
+   begin += StringLen(marker);
+   int finish = StringFind(json, ",", begin);
+   if(finish < 0) return false;
+   return ParseUnsignedLong(StringSubstr(json, begin, finish-begin), sequence_id);
 }
 
 bool LoadSequence()
 {
-   g_sequence_global_name = SequenceGlobalName();
-   if(!GlobalVariableCheck(g_sequence_global_name))
-      return GlobalVariableSet(g_sequence_global_name, 0.0) != 0;
-
-   double stored = GlobalVariableGet(g_sequence_global_name);
-   if(stored < 0.0 || stored > 9007199254740991.0)
+   g_sequence_global_name = WriterOwnerGlobalName();
+   // Set-on-condition is the terminal-wide mutex: a second Writer for this
+   // governed producer and symbol cannot initialize concurrently.
+   // A temporary terminal global is automatically discarded on terminal exit,
+   // avoiding a stale owner after a crash while remaining live across charts.
+   if(!GlobalVariableTemp(g_sequence_global_name))
       return false;
-   g_market_state_sequence_id = (long)stored;
+   if(!GlobalVariableSetOnCondition(g_sequence_global_name, (double)ChartID(), 0.0))
+   {
+      Print("DUPLICATE WRITER BLOCKED | owner=", (long)GlobalVariableGet(g_sequence_global_name));
+      return false;
+   }
+
+   string state;
+   long persisted = 0;
+   bool state_exists = ReadCommonText(SequenceStateFile(), state);
+   if(state_exists)
+   {
+      string prefix = "RP_SEQUENCE_V1|" + MARKET_STATE_SOURCE_UUID + "|" + _Symbol + "|";
+      if(StringFind(state, prefix) != 0 ||
+         !ParseUnsignedLong(StringSubstr(state, StringLen(prefix)), persisted))
+      {
+         Print("SEQUENCE STATE CORRUPT | source=FILE_COMMON:", SequenceStateFile());
+         GlobalVariableSet(g_sequence_global_name, 0.0);
+         return false; // fail closed; never guess within the same producer epoch
+      }
+   }
+
+   // Reconcile the journal with the already committed publication.  This
+   // closes the crash window between atomic publication and journal update.
+   long published = 0;
+   bool have_published = ReadPublishedSequence(published);
+   g_market_state_sequence_id = MathMax(persisted, have_published ? published : 0);
+   string storage = state_exists ? "FILE_COMMON_JOURNAL" : (have_published ? "MARKET_STATE_RECOVERY" : "EMPTY_STATE");
+   Print("SEQUENCE RESTORE OK | previous=", g_market_state_sequence_id,
+         " next=", g_market_state_sequence_id+1, " source=", storage);
    return true;
 }
 
 bool PersistSequence(const long sequence_id)
 {
-   if(GlobalVariableSet(g_sequence_global_name, (double)sequence_id) == 0)
-      return false;
-   GlobalVariablesFlush();
-   return true;
+   string state = "RP_SEQUENCE_V1|" + MARKET_STATE_SOURCE_UUID + "|" + _Symbol + "|" + IntegerToString(sequence_id);
+   return WriteTextCommonAtomic(SequenceStateFile(), state);
 }
 
 bool CalculateGovernedTelemetry(double &spread_points,
@@ -310,7 +404,7 @@ bool WriteTextCommonAtomic(string finalPath, string text)
    for(int attempt = 1; attempt <= 3; attempt++)
    {
       ResetLastError();
-      int h = FileOpen(tmpPath, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
+      int h = FileOpen(tmpPath, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ);
       if(h == INVALID_HANDLE)
       {
          Print("MARKET STATE TMP OPEN FAIL | attempt=", attempt, " path=", tmpPath, " err=", GetLastError());
@@ -318,33 +412,27 @@ bool WriteTextCommonAtomic(string finalPath, string text)
          continue;
       }
 
-      FileWriteString(h, text);
+      uint written = FileWriteString(h, text);
       FileFlush(h);
       FileClose(h);
-
-      ResetLastError();
-      bool deleted = FileDelete(finalPath, FILE_COMMON);
-      int delErr = GetLastError();
-
-      // If final file does not exist, FileDelete may fail. That is acceptable.
-      // Error 5004 means the file is still locked, so retry.
-      if(!deleted && delErr == 5004)
+      if(written != (uint)StringLen(text))
       {
-         Print("MARKET STATE RETRY WRITE | delete locked attempt=", attempt, " err=", delErr);
+         Print("MARKET STATE TMP WRITE FAIL | attempt=", attempt, " path=", tmpPath);
          Sleep(50 + attempt * 50);
          continue;
       }
 
+      // Same-directory rename with replacement is the publication commit point;
+      // readers see either the old complete document or the new complete one.
       ResetLastError();
-      if(FileCopy(tmpPath, FILE_COMMON, finalPath, FILE_COMMON))
+      if(FileMove(tmpPath, FILE_COMMON, finalPath, FILE_COMMON|FILE_REWRITE))
       {
-         FileDelete(tmpPath, FILE_COMMON);
          Print("MARKET STATE ATOMIC WRITE OK | attempt=", attempt);
          return true;
       }
 
-      int copyErr = GetLastError();
-      Print("MARKET STATE RETRY WRITE | copy fail attempt=", attempt, " err=", copyErr);
+      Print("MARKET STATE RETRY WRITE | atomic move fail attempt=", attempt,
+            " err=", GetLastError());
       Sleep(50 + attempt * 50);
    }
 
@@ -382,6 +470,9 @@ int OnInit()
 
 void OnDeinit(const int reason)
 {
+   if(StringLen(g_sequence_global_name) > 0 &&
+      (long)GlobalVariableGet(g_sequence_global_name) == ChartID())
+      GlobalVariableSet(g_sequence_global_name, 0.0);
    if(hMA50 != INVALID_HANDLE) IndicatorRelease(hMA50);
    if(hMA90 != INVALID_HANDLE) IndicatorRelease(hMA90);
    if(hMA200 != INVALID_HANDLE) IndicatorRelease(hMA200);
@@ -497,21 +588,11 @@ void OnTick()
    json += "  \"sellScore\": " + IntegerToString(sellScore) + "\n";
    json += "}\n";
 
-   // Reserve durably before publication.  A failed write consumes the sequence
-   // and creates a permitted gap, but no sequence can ever escape twice.
-   if(!PersistSequence(nextSequenceId))
-   {
-      Print("SEQUENCE RESERVATION FAIL | sequence_id=", nextSequenceId,
-            " err=", GetLastError());
-      return;
-   }
-   g_market_state_sequence_id = nextSequenceId;
-
    bool wrote = false;
    string path = BridgeAbsoluteFile("market_state.json");
 
    if(UseAbsoluteDBridge)
-      wrote = WriteTextAbsolute(path, json);
+      wrote = WriteTextAbsoluteAtomic(path, json);
 
    if(!wrote && FallbackToCommonFiles)
    {
@@ -533,6 +614,17 @@ void OnTick()
       return;
    }
 
+   // The publication is the commit point.  Journal only committed IDs.  If
+   // journaling fails, stop this producer; OnInit can recover the committed ID
+   // from market_state.json and will never publish a lower value.
+   g_market_state_sequence_id = nextSequenceId;
+   if(!PersistSequence(nextSequenceId))
+   {
+      Print("SEQUENCE PERSIST FAIL CLOSED | sequence_id=", nextSequenceId,
+            " err=", GetLastError());
+      ExpertRemove();
+      return;
+   }
 
    if(PrintDebug)
       Print("MARKET STATE WRITTEN | ", _Symbol,
