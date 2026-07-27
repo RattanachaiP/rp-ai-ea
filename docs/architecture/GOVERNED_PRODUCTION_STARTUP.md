@@ -32,11 +32,20 @@ The default repositories are `learning_data/decision_intelligence`,
 ## Governed observation collection
 
 Startup samples the canonical MT5 `market_state.json` itself for five seconds before
-constructing PR187 evidence. Read success, ordered sequence IDs, valid quotes, measured
-spread, file freshness, and local read latency produce the governed values. Liquidity
-and consistency are window ratios; executable-price uncertainty is conservatively
-measured as half the maximum observed bid/ask spread. Missing, malformed, stale, or
-partial telemetry fails closed. The operator neither supplies nor edits observations.
+constructing PR187 evidence. The immutable `PR187-OBSERVATION-POLICY.1.0` declares
+each dimension's definition, source field, units, aggregation formula, threshold,
+policy UUID/digest, and source provenance. Freshness is calculated exclusively from
+the payload's `heartbeat_unix`; filesystem timestamps have no authority. Heartbeats
+must not be future or older than five seconds, and at least three unique, strictly
+increasing sequence/heartbeat pairs are required.
+
+The source must identify itself as symbol `XAUUSD`, producer
+`RP_AI_MT5_MARKET_STATE` version `V1`, telemetry schema `1.0`, and the policy-bound
+source UUID. Session quality, liquidity quality, and slippage expectation are direct
+producer observations; startup never manufactures them from quotes or spread. A
+malformed atomic-replacement read is recorded but never counted as an independent
+observation. Missing, mismatched, frozen, decreasing, partial, future, or stale
+telemetry fails closed. The operator neither supplies nor edits observations.
 
 The PR187.2.1 policy requires:
 
