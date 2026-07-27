@@ -138,11 +138,14 @@ class GovernedMarketStateReader:
         if any(type(data[name]) not in ((kind,) if isinstance(kind, type) else kind)
                for name, kind in REQUIRED_FIELDS.items()):
             self._reject("INVALID_JSON_SCHEMA", data)
-        if (data["producer"], data["producer_version"], data["source_uuid"]) != (
-                PRODUCER, PRODUCER_VERSION, SOURCE_UUID):
+        if data["producer"] != PRODUCER:
             self._reject("UNKNOWN_PRODUCER", data)
+        if data["producer_version"] != PRODUCER_VERSION:
+            self._reject("UNSUPPORTED_PRODUCER_VERSION", data)
         if data["schema_version"] != SCHEMA_VERSION:
             self._reject("UNSUPPORTED_SCHEMA_VERSION", data)
+        if data["source_uuid"] != SOURCE_UUID:
+            self._reject("UNKNOWN_SOURCE_UUID", data)
         if not data["symbol"].strip() or not data["timeframe"].strip():
             self._reject("INVALID_REQUIRED_FIELD", data)
         heartbeat, sequence, now = data["heartbeat_unix"], data["sequence_id"], int(self._clock())
@@ -152,7 +155,9 @@ class GovernedMarketStateReader:
             self._reject("FUTURE_HEARTBEAT", data)
         if now - heartbeat > self.maximum_age_seconds:
             self._reject("STALE_HEARTBEAT", data)
-        if self._last_sequence is not None and sequence <= self._last_sequence:
+        if self._last_sequence is not None and sequence == self._last_sequence:
+            self._reject("DUPLICATE_SEQUENCE", data)
+        if self._last_sequence is not None and sequence < self._last_sequence:
             self._reject("SEQUENCE_ROLLBACK", data)
 
         timestamp = datetime.fromtimestamp(heartbeat, timezone.utc).isoformat().replace("+00:00", "Z")
