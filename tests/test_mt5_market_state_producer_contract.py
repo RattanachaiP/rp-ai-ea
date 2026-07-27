@@ -111,6 +111,60 @@ def test_sequence_is_persisted_only_after_atomic_publication():
     assert "ExpertRemove();" in text
 
 
+def test_common_atomic_write_validates_utf8_bytes_not_character_count():
+    text = source()
+    atomic = text[text.index("bool WriteTextCommonAtomic") : text.index("int OnInit()")]
+    payload_builder = text[text.index('string json = "{\\n";') : text.index("bool wrote = false;")]
+    # The observed 1313 - 1272 mismatch is one CR inserted by FILE_TXT for
+    # every LF in the 41-line payload; the binary UTF-8 path does not transform it.
+    assert payload_builder.count('\\n";') == 41
+    assert "StringToCharArray(text, encoded_payload" in atomic
+    assert "file_code_page = CP_UTF8" in atomic
+    assert "encoded_size_with_terminator - 1" in atomic
+    assert "FileOpen(tmpPath, file_flags, '\\t', file_code_page)" in atomic
+    assert "FILE_WRITE | FILE_BIN | FILE_COMMON | FILE_SHARE_READ" in atomic
+    assert "FileWriteArray(h, encoded_payload, 0, expected_encoded_bytes)" in atomic
+    assert "FileWriteString(h, text)" not in atomic
+    assert "written != (uint)expected_encoded_bytes" in atomic
+    assert "file_position != (ulong)expected_encoded_bytes" in atomic
+    assert "temporary_file_size != (ulong)expected_encoded_bytes" in atomic
+    assert "written != (uint)StringLen(text)" not in atomic
+
+
+def test_utf8_size_regressions_and_reader_compatibility(tmp_path):
+    payloads = (
+        {"symbol": "XAUUSD", "status": "ready"},
+        {"symbol": "XAUUSD", "status": "พร้อมใช้งาน"},
+    )
+    for index, payload in enumerate(payloads):
+        serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        encoded = serialized.encode("utf-8")
+        assert len(encoded) >= len(serialized)
+        if index == 0:
+            assert len(encoded) == len(serialized)
+        else:
+            assert len(encoded) > len(serialized)
+
+        temporary = tmp_path / "market_state.json.tmp"
+        final = tmp_path / "market_state.json"
+        temporary.write_bytes(encoded)
+        assert temporary.stat().st_size == len(encoded)
+        temporary.replace(final)
+        assert json.loads(final.read_text(encoding="utf-8")) == payload
+        assert not temporary.exists()
+
+
+def test_common_atomic_write_keeps_bounded_retry_replacement_and_cleanup():
+    text = source()
+    atomic = text[text.index("bool WriteTextCommonAtomic") : text.index("int OnInit()")]
+    assert "for(int attempt = 1; attempt <= 3; attempt++)" in atomic
+    assert "FileMove(tmpPath, FILE_COMMON, finalPath, FILE_COMMON|FILE_REWRITE)" in atomic
+    assert "MARKET STATE ATOMIC WRITE OK" in atomic
+    # Validation failures clean the incomplete candidate immediately, and the
+    # terminal failure path retains its final best-effort cleanup.
+    assert atomic.count("FileDelete(tmpPath, FILE_COMMON)") == 2
+
+
 def _restore(journal, publication):
     """Executable model of the Writer's restart reconciliation."""
     if journal is not None and (type(journal) is not int or journal < 0):
