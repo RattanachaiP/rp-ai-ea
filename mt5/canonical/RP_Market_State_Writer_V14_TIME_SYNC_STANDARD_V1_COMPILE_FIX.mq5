@@ -3,7 +3,21 @@
 //|              Writes MA/RSI/MACD/BB + simple scores to JSON       |
 //+------------------------------------------------------------------+
 #property strict
-#property version "1.14"
+#property version "1.15"
+
+// Governed producer identity is owned by this source and cannot be configured.
+#define MARKET_STATE_PRODUCER         "RP_AI_MT5_MARKET_STATE"
+#define MARKET_STATE_PRODUCER_VERSION "V1"
+#define MARKET_STATE_SCHEMA_VERSION   "1.0"
+#define MARKET_STATE_SOURCE_UUID      "dc3777c6-cf0d-5a7b-bd58-8a5c44568475"
+
+// Versioned model for the additional PR212 telemetry fields.  The digest
+// identifies the exact trade-mode, tick-freshness, spread-quality, and EWMA
+// slippage-expectation rules.  Price granularity is not called slippage.
+#define TELEMETRY_POLICY_VERSION "RP_MT5_MODELED_TELEMETRY_V2"
+#define TELEMETRY_POLICY_UUID    "deb04c7b-be67-5b44-a00c-02ece75326bd"
+#define TELEMETRY_POLICY_DIGEST  "4a94734a04a574ecc58784da93e8dfe6c04e13726d1a7158b634db8d6c29998f"
+#define TELEMETRY_SOURCE         "MT5_SYMBOL_TRADE_MODE_AND_LIVE_TICK_STREAM"
 
 input string BaseFolderCommon = "RP_AI_EA\\shared\\"; // Common Files bridge path
 
@@ -179,6 +193,91 @@ int hBB3 = INVALID_HANDLE;
 int hBB4 = INVALID_HANDLE;
 datetime lastWrite = 0;
 long g_market_state_sequence_id = 0;
+string g_sequence_global_name = "";
+double g_previous_tick_mid = 0.0;
+double g_slippage_expectation_ewma = 0.0;
+int g_slippage_model_samples = 0;
+
+string SequenceGlobalName()
+{
+   return "RP_AI.market_state.sequence." + MARKET_STATE_SOURCE_UUID + "." + _Symbol;
+}
+
+bool LoadSequence()
+{
+   g_sequence_global_name = SequenceGlobalName();
+   if(!GlobalVariableCheck(g_sequence_global_name))
+      return GlobalVariableSet(g_sequence_global_name, 0.0) != 0;
+
+   double stored = GlobalVariableGet(g_sequence_global_name);
+   if(stored < 0.0 || stored > 9007199254740991.0)
+      return false;
+   g_market_state_sequence_id = (long)stored;
+   return true;
+}
+
+bool PersistSequence(const long sequence_id)
+{
+   if(GlobalVariableSet(g_sequence_global_name, (double)sequence_id) == 0)
+      return false;
+   GlobalVariablesFlush();
+   return true;
+}
+
+bool CalculateGovernedTelemetry(double &spread_points,
+                                 double &market_session_quality,
+                                 double &slippage_expectation,
+                                 double &market_liquidity_quality)
+{
+   MqlTick tick;
+   if(!SymbolInfoTick(_Symbol, tick))
+      return false;
+
+   const double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   const long trade_mode = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_MODE);
+   const long tick_age_seconds = (long)TimeCurrent() - (long)tick.time;
+   if(point <= 0.0 || tick.bid <= 0.0 || tick.ask < tick.bid ||
+      tick.time <= 0 || tick_age_seconds < 0 || tick_age_seconds > 5)
+      return false;
+
+   spread_points = MathMax(0.0, (tick.ask - tick.bid) / point);
+   if(trade_mode == SYMBOL_TRADE_MODE_FULL)
+      market_session_quality = 1.0;
+   else if(trade_mode == SYMBOL_TRADE_MODE_LONGONLY || trade_mode == SYMBOL_TRADE_MODE_SHORTONLY)
+      market_session_quality = 0.5;
+   else // CLOSEONLY and DISABLED cannot open an unrestricted new position.
+      market_session_quality = 0.0;
+
+   // Liquidity is full through 20 points, degrades linearly, and is zero at
+   // the PR212 maximum of 50 points.  Invalid/stale ticks already fail closed.
+   if(spread_points <= 20.0)
+      market_liquidity_quality = 1.0;
+   else if(spread_points >= 50.0)
+      market_liquidity_quality = 0.0;
+   else
+      market_liquidity_quality = (50.0 - spread_points) / 30.0;
+   if(market_session_quality <= 0.0)
+      market_liquidity_quality = 0.0;
+
+   // Model expected slippage from live mid-price movement, not from spread or
+   // SYMBOL_TRADE_TICK_SIZE.  At least one transition is required; no numeric
+   // placeholder escapes before the model has an observation.
+   const double current_mid = (tick.bid + tick.ask) / 2.0;
+   if(g_previous_tick_mid <= 0.0)
+   {
+      g_previous_tick_mid = current_mid;
+      return false;
+   }
+   const double movement_points = MathAbs(current_mid - g_previous_tick_mid) / point;
+   g_previous_tick_mid = current_mid;
+   if(g_slippage_model_samples == 0)
+      g_slippage_expectation_ewma = movement_points;
+   else
+      g_slippage_expectation_ewma = 0.2 * movement_points + 0.8 * g_slippage_expectation_ewma;
+   g_slippage_model_samples++;
+   slippage_expectation = g_slippage_expectation_ewma;
+   return true;
+}
 
 bool CopyOne(int handle, int bufferIndex, double &value)
 {
@@ -271,6 +370,11 @@ int OnInit()
       Print("INDICATORS HANDLE FAILED | err=", GetLastError());
       return INIT_FAILED;
    }
+   if(!LoadSequence())
+   {
+      Print("SEQUENCE STATE FAILED | err=", GetLastError());
+      return INIT_FAILED;
+   }
 
    Print("RP Market State Writer V14 TIME SYNC STANDARD V1 started | symbol=", _Symbol, " tf=", TFToString(SignalTF), " | common_market_state_path=", BridgeRelativeFile("market_state.json"));
    return INIT_SUCCEEDED;
@@ -343,8 +447,19 @@ void OnTick()
    datetime barTime = iTime(_Symbol, SignalTF, 0);
    long heartbeatUnix = (long)now;
    long nextSequenceId = g_market_state_sequence_id + 1;
+   double spreadPoints=0, marketSessionQuality=0, slippageExpectation=0, marketLiquidityQuality=0;
+   if(!CalculateGovernedTelemetry(spreadPoints, marketSessionQuality,
+                                   slippageExpectation, marketLiquidityQuality))
+   {
+      Print("BLOCK | governed telemetry unavailable | err=", GetLastError());
+      return;
+   }
 
    string json = "{\n";
+   json += "  \"producer\": \"" + MARKET_STATE_PRODUCER + "\",\n";
+   json += "  \"producer_version\": \"" + MARKET_STATE_PRODUCER_VERSION + "\",\n";
+   json += "  \"schema_version\": \"" + MARKET_STATE_SCHEMA_VERSION + "\",\n";
+   json += "  \"source_uuid\": \"" + MARKET_STATE_SOURCE_UUID + "\",\n";
    json += "  \"symbol\": \"" + _Symbol + "\",\n";
    json += "  \"timeframe\": \"" + TFToString(SignalTF) + "\",\n";
    json += "  \"time_sync\": \"RP_TIME_SYNC_STANDARD_V1\",\n";
@@ -354,6 +469,14 @@ void OnTick()
    json += "  \"bar_time\": \"" + TimeToString(barTime, TIME_DATE|TIME_SECONDS) + "\",\n";
    json += "  \"bid\": " + DoubleToString(bid, _Digits) + ",\n";
    json += "  \"ask\": " + DoubleToString(ask, _Digits) + ",\n";
+   json += "  \"spread_points\": " + DoubleToString(spreadPoints, 3) + ",\n";
+   json += "  \"market_session_quality\": " + DoubleToString(marketSessionQuality, 6) + ",\n";
+   json += "  \"slippage_expectation\": " + DoubleToString(slippageExpectation, 3) + ",\n";
+   json += "  \"market_liquidity_quality\": " + DoubleToString(marketLiquidityQuality, 6) + ",\n";
+   json += "  \"telemetry_policy_uuid\": \"" + TELEMETRY_POLICY_UUID + "\",\n";
+   json += "  \"telemetry_policy_digest\": \"" + TELEMETRY_POLICY_DIGEST + "\",\n";
+   json += "  \"telemetry_policy_version\": \"" + TELEMETRY_POLICY_VERSION + "\",\n";
+   json += "  \"telemetry_source_provenance\": \"" + TELEMETRY_SOURCE + "\",\n";
    json += "  \"ma50\": " + DoubleToString(ma50, _Digits) + ",\n";
    json += "  \"ma90\": " + DoubleToString(ma90, _Digits) + ",\n";
    json += "  \"ma200\": " + DoubleToString(ma200, _Digits) + ",\n";
@@ -373,6 +496,16 @@ void OnTick()
    json += "  \"buyScore\": " + IntegerToString(buyScore) + ",\n";
    json += "  \"sellScore\": " + IntegerToString(sellScore) + "\n";
    json += "}\n";
+
+   // Reserve durably before publication.  A failed write consumes the sequence
+   // and creates a permitted gap, but no sequence can ever escape twice.
+   if(!PersistSequence(nextSequenceId))
+   {
+      Print("SEQUENCE RESERVATION FAIL | sequence_id=", nextSequenceId,
+            " err=", GetLastError());
+      return;
+   }
+   g_market_state_sequence_id = nextSequenceId;
 
    bool wrote = false;
    string path = BridgeAbsoluteFile("market_state.json");
@@ -400,9 +533,6 @@ void OnTick()
       return;
    }
 
-   // RP TIME SYNC STANDARD V1:
-   // sequence_id increments only after a successful market_state write.
-   g_market_state_sequence_id = nextSequenceId;
 
    if(PrintDebug)
       Print("MARKET STATE WRITTEN | ", _Symbol,
