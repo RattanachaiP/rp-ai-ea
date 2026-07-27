@@ -203,3 +203,15 @@ deterministic, SHA-256-bound operational `Pattern` records. Patterns are
 descriptive candidate knowledge only: they make no recommendation, perform no
 optimisation, and grant no Runtime, Strategy, governance, broker, order,
 position, exit, or execution authority.
+
+## PR207 passive knowledge formation rule
+
+**Rule #034 — Evidence-only Knowledge Formation.** PR207 consumes only an
+immutable PR206 `Pattern` and its exact PR205 `OutcomeAttribution`, PR203
+`CompletedTradeEvent`, and PR201 `LiveOutcomeRecord` evidence. It verifies the
+complete integrity and replay lineage before applying declared deterministic
+qualification thresholds and emitting an immutable `CandidateKnowledge` as
+`CANDIDATE`, `THRESHOLD_ELIGIBLE`, or `REJECTED`. Threshold eligibility records
+only declared policy-threshold satisfaction and performs no prediction,
+recommendation, optimisation, or source modification and grants no Runtime,
+Strategy, governance, broker, order, position, exit, or execution authority.
