@@ -3,7 +3,7 @@ import os
 import time
 import uuid
 import atexit
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
 
@@ -60,7 +60,10 @@ from learning.execution_package_consumer import ExecutionPackageConsumer
 SYMBOL = "XAUUSD"
 TIMEFRAME = "M15"
 
-COMMON_SHARED_ROOT = Path(r"C:\Users\rp_fu\AppData\Roaming\MetaQuotes\Terminal\Common\Files\RP_AI_EA\shared")
+COMMON_SHARED_ROOT = Path(os.environ.get(
+    "RP_AI_SHARED_ROOT",
+    r"C:\Users\rp_fu\AppData\Roaming\MetaQuotes\Terminal\Common\Files\RP_AI_EA\shared",
+))
 BASE_PATH = COMMON_SHARED_ROOT / SYMBOL
 FILE_PATH = BASE_PATH / "market_state.json"
 OUTPUT_PATH = BASE_PATH / "decision.json"
@@ -5671,6 +5674,21 @@ def attach_final_write_metadata(data, write_start):
     return data
 
 
+def attach_decision_identity(data):
+    """Attach the four mandatory live-decision identity fields."""
+    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    data["decision_uuid"] = str(uuid.uuid4())
+    data["decision_timestamp"] = timestamp
+    data["timestamp"] = timestamp
+    data["confidence"] = safe_float(
+        data.get("confidence", data.get("execution_confidence_score", 0)), 0.0
+    )
+    data["direction"] = str(
+        data.get("bias", data.get("action", "NEUTRAL"))
+    ).upper()
+    return data
+
+
 def write_decision(data, execution_context=None):
     """
     Safe atomic write for decision.json.
@@ -5802,6 +5820,9 @@ def write_decision(data, execution_context=None):
                     data["ai_intended_be_policy"] = data.get("breakeven_policy", data.get("be_policy", ""))
                     data["ai_intended_trail_policy"] = data.get("trail_policy", data.get("trailing_policy", ""))
                     data["ai_intended_position_size_factor"] = data.get("position_size_factor", data.get("position_size_multiplier", data.get("risk_fraction", 1.0)))
+                # Every publication, including a governed NO_TRADE, is a real
+                # decision and therefore receives its own immutable identity.
+                data = attach_decision_identity(data)
                 data["runtime_branch"] = RUNTIME_BRANCH
                 data["arch_version"] = ARCH_VERSION
                 data["build_tag"] = BUILD_TAG
@@ -10012,6 +10033,7 @@ def build_decision(data):
 
 
 def run():
+    print("BOOT", flush=True)
     print("RP AI Decision Engine XAUUSD V21.2 SOFT DIRECTION LOCK + SPIKE CONTINUATION + EA SCHEMA FIX started")
     print(f"RUNTIME_BRANCH={RUNTIME_BRANCH} | ARCH_VERSION={ARCH_VERSION} | BUILD_TAG={BUILD_TAG} | RUNTIME_SIGNATURE={RUNTIME_SIGNATURE}")
     print(f"BASE_PATH = {BASE_PATH}")
@@ -10029,6 +10051,11 @@ def run():
         raise ExecutionConfidenceIntegrationError("PACKAGE_MISSING")
     execution_context = ExecutionConfidenceIntegration(
         ExecutionPackageConsumer()).consume(package_uuid)
+    print("INITIALIZED", flush=True)
+    print("READER READY", flush=True)
+
+    market_received = False
+    decision_generated = False
 
     while True:
         cycle_start = time.time()
@@ -10044,6 +10071,14 @@ def run():
             write_decision(brain_decision_publication(fallback), execution_context)
             time.sleep(1)
             continue
+        if not market_received:
+            print(
+                "MARKET STATE RECEIVED",
+                f"| sequence={data.get('sequence_id')}",
+                f"| heartbeat={data.get('heartbeat_unix')}",
+                flush=True,
+            )
+            market_received = True
         try:
             # Private Brain context explains observations without changing the
             # original object or authoritative V26 calculations.
@@ -10076,8 +10111,14 @@ def run():
                 blocked_decision["final_decision_build_sec"] = round(time.time() - cycle_start, 6)
                 observe_knowledge(blocked_decision, data)
                 write_decision(brain_decision_publication(blocked_decision), execution_context)
+            if not decision_generated:
+                print("DECISION GENERATED", flush=True)
+                print("WAITING EXECUTOR", flush=True)
+                decision_generated = True
         except Exception as e:
-            print("LOGIC ERROR:", e)
+            print("RUNTIME CYCLE REJECTED", flush=True)
+            print("Stage: Decision Intelligence", flush=True)
+            print(f"Reason: {type(e).__name__}: {e}", flush=True)
             err_decision = no_trade(f"logic error: {e}")
             err_decision["loop_duration_sec"] = round(time.time() - cycle_start, 6)
             err_decision["stale_prevention_timing_sec"] = err_decision["loop_duration_sec"]
@@ -10089,5 +10130,16 @@ def run():
         time.sleep(1)
 
 
+def main():
+    """Canonical V26 process entry point with stage-specific stop reporting."""
+    try:
+        return run()
+    except BaseException as exc:
+        print("RUNTIME STOPPED", flush=True)
+        print("Stage: Runtime Initialization", flush=True)
+        print(f"Reason: {type(exc).__name__}: {exc}", flush=True)
+        raise
+
+
 if __name__ == "__main__":
-    run()
+    main()
