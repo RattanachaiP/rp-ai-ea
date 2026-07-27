@@ -50,7 +50,10 @@ Production initialization is composition only. Emergency-patch authority may not
 automatic Recommendation selection, synthesize environment observations, fabricate or
 accept downstream UUIDs, directly create repository JSON, bypass an owning PR186–PR190
 engine or repository, continue from a non-ready state, or add fallback, repair, trading,
-broker, position-management, exit, or execution behavior.
+broker, position-management, exit, or execution behavior. PR184 input resolution may
+use only a unique owner-emitted repository-complete snapshot and sole ready member
+after full lineage verification; absence or ambiguity fails closed, and timestamp,
+filename-order, and latest-record selection are forbidden.
 
 ## PR192 boundary
 

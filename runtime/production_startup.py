@@ -51,6 +51,70 @@ class ProductionStartupConfiguration:
     feasibility_root: Path = Path("learning_data/execution_feasibility")
     package_root: Path = Path("learning_data/execution_package")
 
+    @classmethod
+    def from_canonical_repository(
+        cls,
+        *,
+        observations,
+        captured_at,
+        intelligence_root=Path("learning_data/decision_intelligence"),
+        **roots,
+    ):
+        """Resolve the sole production-eligible PR184 identity without ordering."""
+        repository = DecisionIntelligenceRepository(intelligence_root)
+        try:
+            records = repository.records()
+            identities = repository.identities()
+            repository_digest = repository.digest()
+            snapshots = tuple(
+                item for item in repository.snapshots()
+                if item.intelligence_identities == identities
+                and item.repository_digest == repository_digest
+            )
+        except DecisionIntelligenceError as exc:
+            raise ProductionStartupError(str(exc)) from exc
+        if len(snapshots) != 1:
+            raise ProductionStartupError("CANONICAL_INTELLIGENCE_SNAPSHOT_MISSING")
+        snapshot = snapshots[0]
+        ready = tuple(
+            item for item in records
+            if item.intelligence_state == "DECISION_INTELLIGENCE_READY"
+            and (item.intelligence_uuid, item.intelligence_digest)
+            in snapshot.intelligence_identities
+        )
+        if len(ready) != 1:
+            raise ProductionStartupError("CANONICAL_DECISION_INTELLIGENCE_MISSING")
+        intelligence = ready[0]
+        try:
+            repository.exact(
+                intelligence_uuid=intelligence.intelligence_uuid,
+                intelligence_digest=intelligence.intelligence_digest,
+                snapshot_uuid=snapshot.snapshot_uuid,
+                snapshot_digest=snapshot.snapshot_digest,
+                repository_digest=snapshot.repository_digest,
+                intelligence_policy_uuid=snapshot.intelligence_policy_uuid,
+                intelligence_policy_digest=snapshot.intelligence_policy_digest,
+                intelligence_policy_version=snapshot.intelligence_policy_version,
+                intelligence_engine_version=snapshot.intelligence_engine_version,
+            )
+        except DecisionIntelligenceError as exc:
+            raise ProductionStartupError(str(exc)) from exc
+        return cls(
+            decision_intelligence_uuid=intelligence.intelligence_uuid,
+            decision_intelligence_digest=intelligence.intelligence_digest,
+            decision_intelligence_snapshot_uuid=snapshot.snapshot_uuid,
+            decision_intelligence_snapshot_digest=snapshot.snapshot_digest,
+            decision_intelligence_repository_digest=snapshot.repository_digest,
+            intelligence_policy_uuid=snapshot.intelligence_policy_uuid,
+            intelligence_policy_digest=snapshot.intelligence_policy_digest,
+            intelligence_policy_version=snapshot.intelligence_policy_version,
+            intelligence_engine_version=snapshot.intelligence_engine_version,
+            observations=observations,
+            captured_at=captured_at,
+            intelligence_root=intelligence_root,
+            **roots,
+        )
+
     def __post_init__(self):
         for value in (
             self.decision_intelligence_uuid,
@@ -181,15 +245,6 @@ def _parser():
     parser = argparse.ArgumentParser(
         description="Create PR185 from an exact PR184 record and start the governed Runtime."
     )
-    parser.add_argument("--decision-intelligence-uuid", required=True)
-    parser.add_argument("--decision-intelligence-digest", required=True)
-    parser.add_argument("--decision-intelligence-snapshot-uuid", required=True)
-    parser.add_argument("--decision-intelligence-snapshot-digest", required=True)
-    parser.add_argument("--decision-intelligence-repository-digest", required=True)
-    parser.add_argument("--intelligence-policy-uuid", required=True)
-    parser.add_argument("--intelligence-policy-digest", required=True)
-    parser.add_argument("--intelligence-policy-version", required=True)
-    parser.add_argument("--intelligence-engine-version", required=True)
     parser.add_argument("--captured-at", required=True)
     for dimension in ENVIRONMENT_DIMENSIONS:
         parser.add_argument("--" + dimension.replace("_", "-"), type=float, required=True)
@@ -208,16 +263,7 @@ def _parser():
 def main(argv: Optional[Sequence[str]] = None):
     arguments = _parser().parse_args(argv)
     return GovernedProductionStartup(
-        ProductionStartupConfiguration(
-            decision_intelligence_uuid=arguments.decision_intelligence_uuid,
-            decision_intelligence_digest=arguments.decision_intelligence_digest,
-            decision_intelligence_snapshot_uuid=arguments.decision_intelligence_snapshot_uuid,
-            decision_intelligence_snapshot_digest=arguments.decision_intelligence_snapshot_digest,
-            decision_intelligence_repository_digest=arguments.decision_intelligence_repository_digest,
-            intelligence_policy_uuid=arguments.intelligence_policy_uuid,
-            intelligence_policy_digest=arguments.intelligence_policy_digest,
-            intelligence_policy_version=arguments.intelligence_policy_version,
-            intelligence_engine_version=arguments.intelligence_engine_version,
+        ProductionStartupConfiguration.from_canonical_repository(
             observations=tuple(
                 (dimension, getattr(arguments, dimension))
                 for dimension in ENVIRONMENT_DIMENSIONS

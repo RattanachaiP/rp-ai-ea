@@ -74,6 +74,29 @@ def test_clean_downstream_state_creates_pr185_and_starts_runtime_once(tmp_path, 
     assert len(tuple((config.environment_root / "evidence").glob("*.json"))) == 1
 
 
+def test_operator_configuration_resolves_identity_without_manual_bundle(tmp_path):
+    explicit = configured(tmp_path)
+    resolved = ProductionStartupConfiguration.from_canonical_repository(
+        observations=explicit.observations, captured_at=explicit.captured_at,
+        intelligence_root=explicit.intelligence_root,
+        recommendation_root=explicit.recommendation_root,
+        readiness_root=explicit.readiness_root,
+        environment_root=explicit.environment_root,
+        feasibility_root=explicit.feasibility_root,
+        package_root=explicit.package_root,
+    )
+    assert resolved == explicit
+
+
+def test_operator_resolution_fails_closed_without_pr184(tmp_path):
+    with pytest.raises(ProductionStartupError, match="CANONICAL_INTELLIGENCE_SNAPSHOT_MISSING"):
+        ProductionStartupConfiguration.from_canonical_repository(
+            observations=tuple(zip(ENVIRONMENT_DIMENSIONS, GOOD)),
+            captured_at="2026-07-27T12:00:00Z",
+            intelligence_root=tmp_path / "decision_intelligence",
+        )
+
+
 def test_missing_malformed_and_duplicate_intelligence_fail_before_runtime(tmp_path, monkeypatch):
     config = configured(tmp_path)
     calls = []

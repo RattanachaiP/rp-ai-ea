@@ -498,7 +498,8 @@ previous `RP_EXECUTION_PACKAGE_UUID` state and re-raises the original failure.
 
 The production repository-initialization path is:
 
-`exact PR185 Recommendation UUID + explicit timestamped environment observations`
+`unique repository-complete PR184 identity resolution -> PR185 Recommendation`
+`+ explicit timestamped environment observations`
 `-> PR186 Execution Readiness -> canonical PR187 evidence -> PR187 Execution Environment`
 `-> PR188 Execution Feasibility -> engine-derived UUID handoff to PR208`
 `-> PR189 assembly -> PR190 consumption -> V26 Runtime`.

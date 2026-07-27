@@ -2,15 +2,17 @@
 
 ## Boundary and prerequisite
 
-`runtime.production_startup` is the operator-facing composition. It resolves one
-operator-supplied **exact PR184 Decision Intelligence identity bundle**, invokes the existing
+`runtime.production_startup` is the operator-facing composition. It automatically
+resolves the **exact PR184 Decision Intelligence identity bundle** from the unique repository-complete owner snapshot, invokes the existing
 `GovernedDecisionRecommendationEngine` (PR185 owner), persists its deterministic
 Recommendation through `DecisionRecommendationRepository`, and passes the returned
 Recommendation UUID to PR209. It never chooses a latest record and never constructs
 an identity.
 
 PR185's canonical input is an immutable PR184 `DecisionIntelligence`, report, or
-snapshot backed by its canonical repository and snapshot lineage. Consequently, a
+snapshot backed by its canonical repository and snapshot lineage. Resolution requires exactly one repository-complete snapshot and exactly one ready
+member; absence or ambiguity fails closed without timestamp, filename-order, or
+latest-record selection. Consequently, a
 machine with no PR184 or upstream records cannot truthfully create PR185; the startup
 fails closed with `DECISION_INTELLIGENCE_MISSING`. “Clean production state” for this
 entrypoint means the PR184 governed chain is present while PR185–PR190 repositories
@@ -45,34 +47,15 @@ observations. Values outside the ready thresholds produce a non-ready environmen
 and startup stops before PR188/Runtime. Operators must use measured values; the
 command supplies no observation defaults.
 
-## PowerShell operator command
+## Single PowerShell production command
 
-Supply the UUID, digest, exact snapshot UUID/digest, repository digest, and policy
-partition emitted together by the already-governed PR184 production process. None may
-be invented or selected from repository ordering. The variables below represent that
-single owner-emitted bundle.
+The installed governed `learning_data/decision_intelligence` repository supplies the
+identity bundle. The operator supplies only timestamped measurements from production
+monitoring; no UUID, digest, JSON edit, or manual package environment variable is used.
 
 ```powershell
 cd D:\RP_AI_EA
-$DecisionIntelligenceUuid = Read-Host "Exact PR184 Decision Intelligence UUID"
-$DecisionIntelligenceDigest = Read-Host "Exact PR184 Decision Intelligence digest"
-$IntelligenceSnapshotUuid = Read-Host "Exact PR184 snapshot UUID"
-$IntelligenceSnapshotDigest = Read-Host "Exact PR184 snapshot digest"
-$IntelligenceRepositoryDigest = Read-Host "Exact PR184 repository digest"
-$IntelligencePolicyUuid = Read-Host "Exact PR184 policy UUID"
-$IntelligencePolicyDigest = Read-Host "Exact PR184 policy digest"
-$IntelligencePolicyVersion = Read-Host "Exact PR184 policy version"
-$IntelligenceEngineVersion = Read-Host "Exact PR184 engine version"
 python -m runtime.production_startup `
-  --decision-intelligence-uuid $DecisionIntelligenceUuid `
-  --decision-intelligence-digest $DecisionIntelligenceDigest `
-  --decision-intelligence-snapshot-uuid $IntelligenceSnapshotUuid `
-  --decision-intelligence-snapshot-digest $IntelligenceSnapshotDigest `
-  --decision-intelligence-repository-digest $IntelligenceRepositoryDigest `
-  --intelligence-policy-uuid $IntelligencePolicyUuid `
-  --intelligence-policy-digest $IntelligencePolicyDigest `
-  --intelligence-policy-version $IntelligencePolicyVersion `
-  --intelligence-engine-version $IntelligenceEngineVersion `
   --captured-at "2026-07-27T12:00:00Z" `
   --feed-stability 0.99 `
   --price-stream-continuity 0.999 `
