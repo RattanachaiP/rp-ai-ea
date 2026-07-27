@@ -110,9 +110,9 @@ class ExecutionPackageRuntimeBootstrap:
         existed = variable in os.environ
         os.environ[variable] = consumed.execution_package_uuid
         print(
-            "PACKAGE CREATED",
-            f"| uuid={consumed.execution_package_uuid}",
-            f"| digest={consumed.execution_package_digest}",
+            "EXECUTION PACKAGE CONSUMED",
+            f"| execution_package_uuid={consumed.execution_package_uuid}",
+            f"| execution_package_digest={consumed.execution_package_digest}",
             f"| repository={config.package_root}",
             flush=True,
         )

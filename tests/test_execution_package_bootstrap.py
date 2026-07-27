@@ -30,7 +30,7 @@ def configuration(root, readiness, environment, feasibility):
     )
 
 
-def test_bootstrap_assembles_persists_exports_then_starts(tmp_path, monkeypatch):
+def test_bootstrap_assembles_persists_exports_then_starts(tmp_path, monkeypatch, capsys):
     readiness, environment, feasibility, _ = setup_engine(tmp_path)
     monkeypatch.delenv("RP_EXECUTION_PACKAGE_UUID", raising=False)
     observed = []
@@ -44,6 +44,12 @@ def test_bootstrap_assembles_persists_exports_then_starts(tmp_path, monkeypatch)
     package_files = tuple((tmp_path / "execution_package").glob("*.json"))
     assert len(package_files) == 1
     assert observed[0] == package_files[0].stem
+    output = capsys.readouterr().out
+    assert "EXECUTION PACKAGE CONSUMED" in output
+    assert "PACKAGE CREATED" not in output
+    assert f"execution_package_uuid={observed[0]}" in output
+    assert "execution_package_digest=" in output
+    assert f"repository={tmp_path / 'execution_package'}" in output
 
 
 def test_bootstrap_delegates_to_pr189_and_exports_its_unchanged_uuid(tmp_path, monkeypatch):
