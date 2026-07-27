@@ -620,11 +620,28 @@ string TFToString(ENUM_TIMEFRAMES tf)
 bool WriteTextCommonAtomic(string finalPath, string text)
 {
    string tmpPath = finalPath + ".tmp";
+   const int file_flags = FILE_WRITE | FILE_BIN | FILE_COMMON | FILE_SHARE_READ;
+   const uint file_code_page = CP_UTF8;
+
+   // The former FILE_TXT/FileWriteString path expanded each JSON LF to CRLF,
+   // while StringLen() counted the unexpanded characters.  Encode once and
+   // write binary so the validated bytes are exactly the published UTF-8 JSON.
+   uchar encoded_payload[];
+   int encoded_size_with_terminator = StringToCharArray(text, encoded_payload,
+                                                         0, WHOLE_ARRAY,
+                                                         file_code_page);
+   if(encoded_size_with_terminator <= 0)
+   {
+      Print("MARKET STATE ENCODING FAIL | path=", tmpPath,
+            " chars=", StringLen(text), " code_page=", file_code_page);
+      return false;
+   }
+   int expected_encoded_bytes = encoded_size_with_terminator - 1;
 
    for(int attempt = 1; attempt <= 3; attempt++)
    {
       ResetLastError();
-      int h = FileOpen(tmpPath, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ);
+      int h = FileOpen(tmpPath, file_flags, '\t', file_code_page);
       int open_error = GetLastError();
       Print("MARKET STATE TMP OPEN DIAGNOSTIC | attempt=", attempt,
             " handle=", h, " path=", tmpPath, " err=", open_error);
@@ -636,14 +653,13 @@ bool WriteTextCommonAtomic(string finalPath, string text)
       }
 
       ResetLastError();
-      uint written = FileWriteString(h, text);
+      uint written = FileWriteArray(h, encoded_payload, 0, expected_encoded_bytes);
       int write_error = GetLastError();
-      int expected_length = StringLen(text);
       ResetLastError();
       ulong file_position = FileTell(h);
       int tell_error = GetLastError();
       Print("MARKET STATE TMP WRITE DIAGNOSTIC | attempt=", attempt,
-            " written=", written, " expected=", expected_length,
+            " written=", written, " expected_encoded_bytes=", expected_encoded_bytes,
             " position=", file_position, " write_err=", write_error,
             " tell_err=", tell_error);
 
@@ -654,16 +670,34 @@ bool WriteTextCommonAtomic(string finalPath, string text)
             " completed=true err=", flush_error);
 
       ResetLastError();
+      ulong temporary_file_size = FileSize(h);
+      int size_error = GetLastError();
+      Print("MARKET STATE SIZE DIAGNOSTIC | attempt=", attempt,
+            " payload_char_count=", StringLen(text),
+            " payload_encoded_byte_count=", expected_encoded_bytes,
+            " write_return_value=", written,
+            " file_position=", file_position,
+            " temporary_file_size=", temporary_file_size,
+            " selected_file_flags=FILE_WRITE|FILE_BIN|FILE_COMMON|FILE_SHARE_READ",
+            " selected_code_page=CP_UTF8(", file_code_page, ")",
+            " size_err=", size_error);
+
+      ResetLastError();
       FileClose(h);
       int close_error = GetLastError();
       Print("MARKET STATE TMP CLOSE DIAGNOSTIC | attempt=", attempt,
             " completed=true err=", close_error);
 
-      if(written != (uint)StringLen(text))
+      if(write_error != 0 || tell_error != 0 || flush_error != 0 || size_error != 0 ||
+         written != (uint)expected_encoded_bytes || file_position != (ulong)expected_encoded_bytes ||
+         temporary_file_size != (ulong)expected_encoded_bytes)
       {
          Print("MARKET STATE TMP VALIDATION FAIL | attempt=", attempt,
                " path=", tmpPath, " written=", written,
-               " expected=", expected_length);
+               " expected_encoded_bytes=", expected_encoded_bytes,
+               " position=", file_position, " file_size=", temporary_file_size);
+         ResetLastError();
+         FileDelete(tmpPath, FILE_COMMON);
          Sleep(50 + attempt * 50);
          continue;
       }
