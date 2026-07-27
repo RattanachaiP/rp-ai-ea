@@ -2,6 +2,15 @@
 
 ## Boundary and prerequisite
 
+The production PR184 producer must invoke
+`GovernedDecisionIntelligenceBootstrap.run(context_report)`. The bootstrap runs the
+construction-only Decision Intelligence engine, persists its record and snapshot,
+then uses `DecisionIntelligenceRepository.activate` to establish and verify exactly
+one immutable activation. Replaying the same bootstrap is idempotent; an attempt to
+replace an existing selection fails closed. Calling the lower-level engine directly
+intentionally remains useful for non-production construction and does not grant
+production authority.
+
 `runtime.production_startup` is the operator-facing composition. It automatically
 resolves the **exact PR184 Decision Intelligence identity bundle** from the sole
 immutable owner-governed production-input activation record, invokes the existing
