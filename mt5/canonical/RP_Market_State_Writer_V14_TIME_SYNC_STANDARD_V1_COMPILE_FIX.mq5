@@ -3,7 +3,7 @@
 //|              Writes MA/RSI/MACD/BB + simple scores to JSON       |
 //+------------------------------------------------------------------+
 #property strict
-#property version "1.18"
+#property version "1.20"
 
 // Governed producer identity is owned by this source and cannot be configured.
 #define MARKET_STATE_PRODUCER         "RP_AI_MT5_MARKET_STATE"
@@ -239,7 +239,7 @@ string SequenceStateFile()
 
 string WriterOwnerGlobalName()
 {
-   return "RP_AI.market_state.writer." + MARKET_STATE_SOURCE_UUID + "." + _Symbol;
+   return "RP_AI.msw." + MARKET_STATE_SOURCE_UUID + "." + _Symbol;
 }
 
 bool ParseUnsignedLong(const string value, long &parsed)
@@ -454,7 +454,16 @@ bool LoadSequence()
    g_sequence_load_failure = SEQUENCE_LOAD_NONE;
    g_writer_owner_acquired = false;
    g_sequence_global_name = WriterOwnerGlobalName();
-   g_writer_heartbeat_global_name = g_sequence_global_name + ".heartbeat";
+   g_writer_heartbeat_global_name = g_sequence_global_name + ".hb";
+   if(StringLen(g_sequence_global_name) > 63 ||
+      StringLen(g_writer_heartbeat_global_name) > 63)
+   {
+      g_sequence_load_failure = SEQUENCE_LOAD_MUTEX_CREATION;
+      Print("MUTEX CREATION FAILURE | owner_name_length=", StringLen(g_sequence_global_name),
+            " heartbeat_name_length=", StringLen(g_writer_heartbeat_global_name),
+            " | MT5 terminal global-variable names must not exceed 63 characters");
+      return false;
+   }
    // Set-on-condition is the terminal-wide mutex: a second Writer for this
    // governed producer and symbol cannot initialize concurrently.
    // A temporary terminal global is automatically discarded on terminal exit,
@@ -616,19 +625,45 @@ bool WriteTextCommonAtomic(string finalPath, string text)
    {
       ResetLastError();
       int h = FileOpen(tmpPath, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ);
+      int open_error = GetLastError();
+      Print("MARKET STATE TMP OPEN DIAGNOSTIC | attempt=", attempt,
+            " handle=", h, " path=", tmpPath, " err=", open_error);
       if(h == INVALID_HANDLE)
       {
-         Print("MARKET STATE TMP OPEN FAIL | attempt=", attempt, " path=", tmpPath, " err=", GetLastError());
+         Print("MARKET STATE TMP OPEN FAIL | attempt=", attempt, " path=", tmpPath, " err=", open_error);
          Sleep(50 + attempt * 50);
          continue;
       }
 
+      ResetLastError();
       uint written = FileWriteString(h, text);
+      int write_error = GetLastError();
+      int expected_length = StringLen(text);
+      ResetLastError();
+      ulong file_position = FileTell(h);
+      int tell_error = GetLastError();
+      Print("MARKET STATE TMP WRITE DIAGNOSTIC | attempt=", attempt,
+            " written=", written, " expected=", expected_length,
+            " position=", file_position, " write_err=", write_error,
+            " tell_err=", tell_error);
+
+      ResetLastError();
       FileFlush(h);
+      int flush_error = GetLastError();
+      Print("MARKET STATE TMP FLUSH DIAGNOSTIC | attempt=", attempt,
+            " completed=true err=", flush_error);
+
+      ResetLastError();
       FileClose(h);
+      int close_error = GetLastError();
+      Print("MARKET STATE TMP CLOSE DIAGNOSTIC | attempt=", attempt,
+            " completed=true err=", close_error);
+
       if(written != (uint)StringLen(text))
       {
-         Print("MARKET STATE TMP WRITE FAIL | attempt=", attempt, " path=", tmpPath);
+         Print("MARKET STATE TMP VALIDATION FAIL | attempt=", attempt,
+               " path=", tmpPath, " written=", written,
+               " expected=", expected_length);
          Sleep(50 + attempt * 50);
          continue;
       }
@@ -636,19 +671,45 @@ bool WriteTextCommonAtomic(string finalPath, string text)
       // Same-directory rename with replacement is the publication commit point;
       // readers see either the old complete document or the new complete one.
       ResetLastError();
-      if(FileMove(tmpPath, FILE_COMMON, finalPath, FILE_COMMON|FILE_REWRITE))
+      bool tmp_exists_before_move = FileIsExist(tmpPath, FILE_COMMON);
+      int exists_before_error = GetLastError();
+      Print("MARKET STATE TMP EXISTENCE BEFORE MOVE | attempt=", attempt,
+            " path=", tmpPath, " exists=", tmp_exists_before_move,
+            " err=", exists_before_error);
+
+      ResetLastError();
+      Print("MARKET STATE ATOMIC MOVE BEGIN | attempt=", attempt,
+            " source=", tmpPath, " destination=", finalPath);
+      bool moved = FileMove(tmpPath, FILE_COMMON, finalPath, FILE_COMMON|FILE_REWRITE);
+      int move_error = GetLastError();
+      Print("MARKET STATE ATOMIC MOVE RESULT | attempt=", attempt,
+            " moved=", moved, " err=", move_error);
+
+      ResetLastError();
+      bool tmp_exists_after_move = FileIsExist(tmpPath, FILE_COMMON);
+      int exists_after_error = GetLastError();
+      Print("MARKET STATE TMP EXISTENCE AFTER MOVE | attempt=", attempt,
+            " path=", tmpPath, " exists=", tmp_exists_after_move,
+            " err=", exists_after_error);
+
+      if(moved)
       {
          Print("MARKET STATE ATOMIC WRITE OK | attempt=", attempt);
          return true;
       }
 
       Print("MARKET STATE RETRY WRITE | atomic move fail attempt=", attempt,
-            " err=", GetLastError());
+            " err=", move_error);
       Sleep(50 + attempt * 50);
    }
 
+   ResetLastError();
    FileDelete(tmpPath, FILE_COMMON);
-   Print("MARKET STATE FINAL FAIL | path=", finalPath, " err=", GetLastError());
+   int delete_error = GetLastError();
+   Print("MARKET STATE TMP CLEANUP DIAGNOSTIC | path=", tmpPath,
+         " completed=true err=", delete_error);
+   Print("MARKET STATE FINAL FAIL | path=", finalPath,
+         " cleanup_err=", delete_error);
    return false;
 }
 // =====================================================================
