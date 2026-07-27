@@ -26,15 +26,33 @@ fields. `tests/test_mt5_market_state_producer_contract.py` extracts the actual
 builder keys and enforces the ordered-subset and no-duplicate-key properties.
 It also pins all 15 indicator reads and every pre-existing score formula.
 
-## Governance and restart contract
+## Governance, telemetry, and restart contract
 
-Producer identity is compile-time owned. Telemetry is passed through typed
-outputs from `RP_MT5_DIRECT_TELEMETRY_V1`; its canonical policy descriptor has
-SHA-256 `15f8246a13a1dac279fd9c765ef7a57e527f3dd9999798f88a42c6bb9000571e`
-and UUID `d479c5d4-fc15-5dad-911c-40fa8729aa50`. Slippage expectation is the
-broker-authored execution tick granularity (`SYMBOL_TRADE_TICK_SIZE / SYMBOL_POINT`),
-not spread. Sequence state is terminal-global, source-and-symbol scoped,
-flushed durably, and advanced only after successful publication.
+Producer identity is compile-time owned. Review of the unchanged PR212 consumer
+shows that `slippage_expectation` must be a finite, non-negative numeric producer
+observation; the consumer does not authorize execution tick granularity as a
+slippage proxy. The integration therefore no longer uses
+`SYMBOL_TRADE_TICK_SIZE / SYMBOL_POINT`. `RP_MT5_MODELED_TELEMETRY_V2` models
+expected slippage as an EWMA (alpha 0.2) of absolute successive live-tick
+mid-price movements in points and publishes nothing until at least one observed
+transition exists. Its canonical policy descriptor has SHA-256
+`4a94734a04a574ecc58784da93e8dfe6c04e13726d1a7158b634db8d6c29998f` and UUID
+`deb04c7b-be67-5b44-a00c-02ece75326bd`.
+
+Tick validity fails closed for inverted/non-positive prices and tick ages outside
+0..5 seconds. Session quality is `1.0` only for `FULL`, `0.5` for `LONGONLY` or
+`SHORTONLY`, and `0.0` for `CLOSEONLY` or `DISABLED`. Liquidity quality is `1.0`
+through 20 spread points, degrades linearly, is `0.0` at 50 points, and is also
+`0.0` when the session cannot open positions.
+
+The explicit sequence failure policy is **durable reservation before
+publication, with gaps permitted**. If reservation fails, publication does not
+start. If publication fails after reservation, that ID remains consumed and the
+next attempt uses a greater ID. Thus an escaped ID cannot be reused. The
+regression suite checks source ordering and exercises reservation failure,
+publication failure, subsequent success, uniqueness, and monotonicity in the
+policy state machine. Terminal-global state remains source-and-symbol scoped and
+is flushed on every reservation.
 
 ## MetaEditor compile evidence
 

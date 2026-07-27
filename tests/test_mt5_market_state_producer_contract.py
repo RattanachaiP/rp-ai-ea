@@ -20,12 +20,13 @@ IDENTITY = {
     "MARKET_STATE_SOURCE_UUID": "dc3777c6-cf0d-5a7b-bd58-8a5c44568475",
 }
 POLICY = {
-    "market_liquidity_quality": "tradeable && ask > bid ? 1.0 : 0.0",
-    "market_session_quality": "SYMBOL_TRADE_MODE != SYMBOL_TRADE_MODE_DISABLED ? 1.0 : 0.0",
-    "policy_version": "RP_MT5_DIRECT_TELEMETRY_V1",
-    "slippage_expectation": "SYMBOL_TRADE_TICK_SIZE/SYMBOL_POINT",
-    "source_provenance": "MT5_SYMBOL_TRADE_MODE_TICK_AND_TICK_SIZE",
-    "spread_points": "max(0,(ask-bid)/SYMBOL_POINT)",
+    "market_liquidity_quality": "1.0 at spread<=20; linear to 0.0 at spread>=50; 0.0 when session quality is 0.0",
+    "market_session_quality": "FULL=1.0; LONGONLY=0.5; SHORTONLY=0.5; CLOSEONLY=0.0; DISABLED=0.0",
+    "policy_version": "RP_MT5_MODELED_TELEMETRY_V2",
+    "slippage_expectation": "EWMA(alpha=0.2) of absolute successive live-tick mid-price movement in points; unavailable before first transition",
+    "source_provenance": "MT5_SYMBOL_TRADE_MODE_AND_LIVE_TICK_STREAM",
+    "spread_points": "max(0,(live_tick.ask-live_tick.bid)/SYMBOL_POINT)",
+    "tick_validity": "bid>0; ask>=bid; tick age 0..5 seconds",
 }
 
 
@@ -80,15 +81,48 @@ def test_typed_governed_telemetry_has_bound_policy_and_never_uses_spread_as_slip
     policy_uuid = str(uuid5(UUID(IDENTITY["MARKET_STATE_SOURCE_UUID"]), digest))
     assert define(text, "TELEMETRY_POLICY_DIGEST") == digest
     assert define(text, "TELEMETRY_POLICY_UUID") == policy_uuid
-    assert "slippage_expectation = tick_size / point;" in text
+    assert "g_slippage_expectation_ewma = 0.2 * movement_points" in text
+    assert "slippage_expectation = g_slippage_expectation_ewma;" in text
     assert "slippage_expectation = spread_points" not in text
+    assert "SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE)" not in text
     assert "const double &" not in text  # typed outputs, no raw JSON extension point
 
 
-def test_sequence_is_durable_and_advances_only_after_successful_publication():
+def test_restricted_modes_wide_spread_and_stale_ticks_are_not_full_quality():
     text = source()
-    write = text.index("if(!wrote)")
-    persist = text.index("if(!PersistSequence(nextSequenceId))")
+    assert "trade_mode == SYMBOL_TRADE_MODE_FULL" in text
+    assert "SYMBOL_TRADE_MODE_LONGONLY || trade_mode == SYMBOL_TRADE_MODE_SHORTONLY" in text
+    assert "market_session_quality = 0.5;" in text
+    assert "CLOSEONLY and DISABLED" in text
+    assert "spread_points >= 50.0" in text
+    assert "market_liquidity_quality = 0.0;" in text
+    assert "tick_age_seconds > 5" in text
+
+
+def test_sequence_is_reserved_before_publication_and_partial_failures_only_create_gaps():
+    text = source()
+    reserve = text.index("if(!PersistSequence(nextSequenceId))")
     advance = text.index("g_market_state_sequence_id = nextSequenceId;")
-    assert write < persist < advance
+    publish = text.index("if(UseAbsoluteDBridge)")
+    assert reserve < advance < publish
     assert "GlobalVariablesFlush()" in text
+
+    # State-machine regression for the declared reserve-before-publish policy:
+    # a failed reservation publishes nothing; a failed publication consumes a
+    # durable ID, and the next success therefore cannot duplicate it.
+    durable = 10
+    escaped = []
+    def attempt(reserve_succeeds, publish_succeeds):
+        nonlocal durable
+        candidate = durable + 1
+        if not reserve_succeeds:
+            return
+        durable = candidate
+        if publish_succeeds:
+            escaped.append(candidate)
+    attempt(False, True)   # reservation failure: nothing can escape
+    attempt(True, False)   # publication failure: durable gap 11
+    attempt(True, True)    # next publication is 12, never 11
+    attempt(True, True)
+    assert escaped == [12, 13]
+    assert escaped == sorted(set(escaped))

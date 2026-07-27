@@ -11,13 +11,13 @@
 #define MARKET_STATE_SCHEMA_VERSION   "1.0"
 #define MARKET_STATE_SOURCE_UUID      "dc3777c6-cf0d-5a7b-bd58-8a5c44568475"
 
-// Direct-observation policy for the additional PR212 telemetry fields.  The
-// digest identifies this exact policy: session trade mode, tick validity, and
-// execution tick granularity.  Spread is deliberately not used as slippage.
-#define TELEMETRY_POLICY_VERSION "RP_MT5_DIRECT_TELEMETRY_V1"
-#define TELEMETRY_POLICY_UUID    "d479c5d4-fc15-5dad-911c-40fa8729aa50"
-#define TELEMETRY_POLICY_DIGEST  "15f8246a13a1dac279fd9c765ef7a57e527f3dd9999798f88a42c6bb9000571e"
-#define TELEMETRY_SOURCE         "MT5_SYMBOL_TRADE_MODE_TICK_AND_TICK_SIZE"
+// Versioned model for the additional PR212 telemetry fields.  The digest
+// identifies the exact trade-mode, tick-freshness, spread-quality, and EWMA
+// slippage-expectation rules.  Price granularity is not called slippage.
+#define TELEMETRY_POLICY_VERSION "RP_MT5_MODELED_TELEMETRY_V2"
+#define TELEMETRY_POLICY_UUID    "deb04c7b-be67-5b44-a00c-02ece75326bd"
+#define TELEMETRY_POLICY_DIGEST  "4a94734a04a574ecc58784da93e8dfe6c04e13726d1a7158b634db8d6c29998f"
+#define TELEMETRY_SOURCE         "MT5_SYMBOL_TRADE_MODE_AND_LIVE_TICK_STREAM"
 
 input string BaseFolderCommon = "RP_AI_EA\\shared\\"; // Common Files bridge path
 
@@ -194,6 +194,9 @@ int hBB4 = INVALID_HANDLE;
 datetime lastWrite = 0;
 long g_market_state_sequence_id = 0;
 string g_sequence_global_name = "";
+double g_previous_tick_mid = 0.0;
+double g_slippage_expectation_ewma = 0.0;
+int g_slippage_model_samples = 0;
 
 string SequenceGlobalName()
 {
@@ -221,26 +224,58 @@ bool PersistSequence(const long sequence_id)
    return true;
 }
 
-bool CalculateGovernedTelemetry(const double bid,
-                                 const double ask,
-                                 double &spread_points,
+bool CalculateGovernedTelemetry(double &spread_points,
                                  double &market_session_quality,
                                  double &slippage_expectation,
                                  double &market_liquidity_quality)
 {
-   const double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   const double tick_size = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-   const long trade_mode = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_MODE);
-   const bool tradeable = (trade_mode != SYMBOL_TRADE_MODE_DISABLED);
-   if(point <= 0.0 || tick_size <= 0.0 || bid <= 0.0 || ask < bid)
+   MqlTick tick;
+   if(!SymbolInfoTick(_Symbol, tick))
       return false;
 
-   spread_points = MathMax(0.0, (ask - bid) / point);
-   market_session_quality = tradeable ? 1.0 : 0.0;
-   // Expected execution granularity is a broker-authored symbol property, not
-   // a spread-derived or fabricated observation.
-   slippage_expectation = tick_size / point;
-   market_liquidity_quality = (tradeable && ask > bid) ? 1.0 : 0.0;
+   const double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   const long trade_mode = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_MODE);
+   const long tick_age_seconds = (long)TimeCurrent() - (long)tick.time;
+   if(point <= 0.0 || tick.bid <= 0.0 || tick.ask < tick.bid ||
+      tick.time <= 0 || tick_age_seconds < 0 || tick_age_seconds > 5)
+      return false;
+
+   spread_points = MathMax(0.0, (tick.ask - tick.bid) / point);
+   if(trade_mode == SYMBOL_TRADE_MODE_FULL)
+      market_session_quality = 1.0;
+   else if(trade_mode == SYMBOL_TRADE_MODE_LONGONLY || trade_mode == SYMBOL_TRADE_MODE_SHORTONLY)
+      market_session_quality = 0.5;
+   else // CLOSEONLY and DISABLED cannot open an unrestricted new position.
+      market_session_quality = 0.0;
+
+   // Liquidity is full through 20 points, degrades linearly, and is zero at
+   // the PR212 maximum of 50 points.  Invalid/stale ticks already fail closed.
+   if(spread_points <= 20.0)
+      market_liquidity_quality = 1.0;
+   else if(spread_points >= 50.0)
+      market_liquidity_quality = 0.0;
+   else
+      market_liquidity_quality = (50.0 - spread_points) / 30.0;
+   if(market_session_quality <= 0.0)
+      market_liquidity_quality = 0.0;
+
+   // Model expected slippage from live mid-price movement, not from spread or
+   // SYMBOL_TRADE_TICK_SIZE.  At least one transition is required; no numeric
+   // placeholder escapes before the model has an observation.
+   const double current_mid = (tick.bid + tick.ask) / 2.0;
+   if(g_previous_tick_mid <= 0.0)
+   {
+      g_previous_tick_mid = current_mid;
+      return false;
+   }
+   const double movement_points = MathAbs(current_mid - g_previous_tick_mid) / point;
+   g_previous_tick_mid = current_mid;
+   if(g_slippage_model_samples == 0)
+      g_slippage_expectation_ewma = movement_points;
+   else
+      g_slippage_expectation_ewma = 0.2 * movement_points + 0.8 * g_slippage_expectation_ewma;
+   g_slippage_model_samples++;
+   slippage_expectation = g_slippage_expectation_ewma;
    return true;
 }
 
@@ -413,7 +448,7 @@ void OnTick()
    long heartbeatUnix = (long)now;
    long nextSequenceId = g_market_state_sequence_id + 1;
    double spreadPoints=0, marketSessionQuality=0, slippageExpectation=0, marketLiquidityQuality=0;
-   if(!CalculateGovernedTelemetry(bid, ask, spreadPoints, marketSessionQuality,
+   if(!CalculateGovernedTelemetry(spreadPoints, marketSessionQuality,
                                    slippageExpectation, marketLiquidityQuality))
    {
       Print("BLOCK | governed telemetry unavailable | err=", GetLastError());
@@ -462,6 +497,16 @@ void OnTick()
    json += "  \"sellScore\": " + IntegerToString(sellScore) + "\n";
    json += "}\n";
 
+   // Reserve durably before publication.  A failed write consumes the sequence
+   // and creates a permitted gap, but no sequence can ever escape twice.
+   if(!PersistSequence(nextSequenceId))
+   {
+      Print("SEQUENCE RESERVATION FAIL | sequence_id=", nextSequenceId,
+            " err=", GetLastError());
+      return;
+   }
+   g_market_state_sequence_id = nextSequenceId;
+
    bool wrote = false;
    string path = BridgeAbsoluteFile("market_state.json");
 
@@ -488,15 +533,6 @@ void OnTick()
       return;
    }
 
-   // RP TIME SYNC STANDARD V1: the durable sequence advances only after a
-   // successful market_state write, preserving monotonicity across EA restarts.
-   if(!PersistSequence(nextSequenceId))
-   {
-      Print("SEQUENCE PERSIST FAIL | published sequence_id=", nextSequenceId,
-            " err=", GetLastError());
-      return;
-   }
-   g_market_state_sequence_id = nextSequenceId;
 
    if(PrintDebug)
       Print("MARKET STATE WRITTEN | ", _Symbol,
