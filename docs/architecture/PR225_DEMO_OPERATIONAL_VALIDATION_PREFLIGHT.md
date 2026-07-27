@@ -1,8 +1,12 @@
-# PR225 — Demo Operational Execution Validation
+# PR225 — Demo Operational Validation Preflight
 
 ## Verdict
 
-**NOT EXECUTED — DEMO OPERATION NOT VERIFIED.**
+**PREFLIGHT COMPLETED**
+
+**DEMO OPERATIONAL VALIDATION BLOCKED**
+
+Evidence collection is pending on the designated MT5 Demo environment.
 
 This repository checkout cannot truthfully produce the requested operational
 certification.  The validation host has no MT5 terminal (or Wine executable),
@@ -225,13 +229,28 @@ DEMO OPERATION NOT VERIFIED
 
 ## Acceptance decision and evidence handoff
 
-PR225 is **not accepted** by this environment.  The report may be changed to
-`DEMO OPERATION VERIFIED` only after all of the following are attached and
-reviewed together: raw append-only events, Writer publication captures,
-repository inventories/hashes, UUID lineage table, three package byte hashes,
-redacted `OrderSend` request/result, broker history and position lifecycle,
-three restart transcripts, six failure-injection transcripts, and raw latency
-checkpoints.  Every item must refer to the same run ID and baseline.
+Preflight status:
+
+* ✓ Preflight completed
+* ✓ Evidence protocol established
+* ✓ Runtime governance preserved
+
+Pending:
+
+* MT5 Demo execution
+* `OrderSend`
+* Position lifecycle
+* Restart recovery
+* Failure injection
+* Latency validation
+
+The report may be changed to `DEMO OPERATION VERIFIED` only after all of the
+following are attached and reviewed together: raw append-only events, Writer
+publication captures, repository inventories/hashes, UUID lineage table, three
+package byte hashes, redacted `OrderSend` request/result, broker history and
+position lifecycle, three restart transcripts, six failure-injection
+transcripts, and raw latency checkpoints.  Every item must refer to the same
+run ID and baseline.
 
 PR226 must not begin on the strength of this report: its 24–72 hour stability
 window is gated on a successful, evidence-backed PR225 Demo certification.
