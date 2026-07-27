@@ -1,12 +1,14 @@
-# PR228 Repository Digest Evidence
+# PR228 Runtime Component and Artifact Identity Evidence
 
-**Result:** **FAIL for operational repositories.**
+**Result:** **FAIL — authenticated runtime identities and digests are missing.**
 
 The source baseline was Git commit
-`e0ac5429cce777b7cc0f74916c1ef7465a73d0c0`.  This identifies the reviewed
-code tree; it is **not** a substitute for runtime artifact repository digests.
+`e0ac5429cce777b7cc0f74916c1ef7465a73d0c0`. This identifies the reviewed
+source tree only; it is **not** a substitute for runtime component identity,
+persisted artifact digests, package digests, configuration digests, or the
+repository commit actually reported by each running component.
 
-| Repository | Authenticated runtime digest |
+| Governed component or artifact | Required authenticated identity or digest |
 |---|---|
 | Decision Context | MISSING |
 | Decision Intelligence | MISSING |
@@ -17,5 +19,6 @@ code tree; it is **not** a substitute for runtime artifact repository digests.
 | Feasibility | MISSING |
 | Execution Package | MISSING |
 
-No repository consistency or restore claim can be supported without the exact
-operational repositories before and after the run and restart.
+No runtime consistency, artifact-integrity, or restart-restoration claim can be
+supported without the exact identities and digests captured before, during,
+and after the authenticated Demo run and controlled restart.
