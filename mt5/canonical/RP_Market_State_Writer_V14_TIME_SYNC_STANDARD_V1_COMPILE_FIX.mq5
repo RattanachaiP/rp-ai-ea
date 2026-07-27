@@ -3,7 +3,7 @@
 //|              Writes MA/RSI/MACD/BB + simple scores to JSON       |
 //+------------------------------------------------------------------+
 #property strict
-#property version "1.16"
+#property version "1.17"
 
 // Governed producer identity is owned by this source and cannot be configured.
 #define MARKET_STATE_PRODUCER         "RP_AI_MT5_MARKET_STATE"
@@ -216,6 +216,19 @@ double g_previous_tick_mid = 0.0;
 double g_slippage_expectation_ewma = 0.0;
 int g_slippage_model_samples = 0;
 
+enum ENUM_SEQUENCE_LOAD_FAILURE
+{
+   SEQUENCE_LOAD_NONE = 0,
+   SEQUENCE_LOAD_DUPLICATE_WRITER,
+   SEQUENCE_LOAD_MUTEX_CREATION,
+   SEQUENCE_LOAD_JOURNAL_CORRUPTION,
+   SEQUENCE_LOAD_PUBLISHED_RECOVERY
+};
+ENUM_SEQUENCE_LOAD_FAILURE g_sequence_load_failure = SEQUENCE_LOAD_NONE;
+bool g_writer_owner_acquired = false;
+string g_writer_heartbeat_global_name = "";
+#define WRITER_OWNER_LEASE_SECONDS 30
+
 string SequenceStateFile()
 {
    return BridgeRelativeFile("market_state.sequence");
@@ -249,54 +262,140 @@ bool ReadCommonText(const string path, string &text)
    return true;
 }
 
-bool ReadPublishedSequence(long &sequence_id)
+void ReleaseWriterOwnership()
+{
+   if(g_writer_owner_acquired && StringLen(g_sequence_global_name) > 0 &&
+      GlobalVariableCheck(g_sequence_global_name) &&
+      (long)GlobalVariableGet(g_sequence_global_name) == ChartID())
+   {
+      GlobalVariableSet(g_sequence_global_name, 0.0);
+      if(StringLen(g_writer_heartbeat_global_name) > 0)
+         GlobalVariableDel(g_writer_heartbeat_global_name);
+   }
+   g_writer_owner_acquired = false;
+}
+
+bool OwnerChartExists(const long owner_chart)
+{
+   for(long chart = ChartFirst(); chart >= 0; chart = ChartNext(chart))
+      if(chart != owner_chart)
+         continue;
+      else
+         return true;
+   return false;
+}
+
+// Returns 1 for a valid publication, 0 when no publication exists, and -1
+// when an existing publication cannot safely be used for recovery.
+int ReadPublishedSequence(long &sequence_id, string &reason, string &path)
 {
    string json;
    bool read_ok = false;
+   bool expected = false;
+   path = UseAbsoluteDBridge ? BridgeAbsoluteFile("market_state.json") : BridgeRelativeFile("market_state.json");
    if(UseAbsoluteDBridge)
+   {
       read_ok = ReadTextAbsolute(BridgeAbsoluteFile("market_state.json"), json);
+   }
    if(!read_ok && FallbackToCommonFiles)
+   {
+      path = BridgeRelativeFile("market_state.json");
+      expected = FileIsExist(path, FILE_COMMON);
       read_ok = ReadCommonText(BridgeRelativeFile("market_state.json"), json);
+   }
    if(!read_ok)
-      return false;
+   {
+      if(expected)
+      {
+         reason = "publication exists but cannot be read";
+         return -1;
+      }
+      return 0;
+   }
    if(StringFind(json, "\"source_uuid\": \"" + MARKET_STATE_SOURCE_UUID + "\"") < 0 ||
       StringFind(json, "\"symbol\": \"" + _Symbol + "\"") < 0)
-      return false;
+   {
+      reason = "source_uuid or symbol does not match this governed Writer";
+      return -1;
+   }
    string marker = "\"sequence_id\": ";
    int begin = StringFind(json, marker);
-   if(begin < 0) return false;
+   if(begin < 0) { reason = "sequence_id is missing"; return -1; }
    begin += StringLen(marker);
    int finish = StringFind(json, ",", begin);
-   if(finish < 0) return false;
-   return ParseUnsignedLong(StringSubstr(json, begin, finish-begin), sequence_id);
+   if(finish < 0) { reason = "sequence_id has no terminating comma"; return -1; }
+   if(!ParseUnsignedLong(StringSubstr(json, begin, finish-begin), sequence_id))
+   {
+      reason = "sequence_id is not a canonical unsigned integer";
+      return -1;
+   }
+   return 1;
 }
 
 bool LoadSequence()
 {
+   g_sequence_load_failure = SEQUENCE_LOAD_NONE;
+   g_writer_owner_acquired = false;
    g_sequence_global_name = WriterOwnerGlobalName();
+   g_writer_heartbeat_global_name = g_sequence_global_name + ".heartbeat";
    // Set-on-condition is the terminal-wide mutex: a second Writer for this
    // governed producer and symbol cannot initialize concurrently.
    // A temporary terminal global is automatically discarded on terminal exit,
    // avoiding a stale owner after a crash while remaining live across charts.
    if(!GlobalVariableTemp(g_sequence_global_name))
-      return false;
-   if(!GlobalVariableSetOnCondition(g_sequence_global_name, (double)ChartID(), 0.0))
    {
-      Print("DUPLICATE WRITER BLOCKED | owner=", (long)GlobalVariableGet(g_sequence_global_name));
+      g_sequence_load_failure = SEQUENCE_LOAD_MUTEX_CREATION;
+      Print("MUTEX CREATION FAILURE | name=", g_sequence_global_name,
+            " err=", GetLastError(), " | verify terminal global-variable storage is writable");
       return false;
    }
+   if(!GlobalVariableSetOnCondition(g_sequence_global_name, (double)ChartID(), 0.0))
+   {
+      long owner = (long)GlobalVariableGet(g_sequence_global_name);
+      double last_heartbeat = GlobalVariableCheck(g_writer_heartbeat_global_name) ?
+                              GlobalVariableGet(g_writer_heartbeat_global_name) : 0.0;
+      bool lease_expired = (last_heartbeat <= 0.0 ||
+                            (double)TimeLocal() - last_heartbeat > WRITER_OWNER_LEASE_SECONDS);
+      bool abandoned = (owner == ChartID() || !OwnerChartExists(owner) || lease_expired);
+      if(!abandoned || !GlobalVariableSetOnCondition(g_sequence_global_name, (double)ChartID(), (double)owner))
+      {
+         g_sequence_load_failure = SEQUENCE_LOAD_DUPLICATE_WRITER;
+         Print("DUPLICATE WRITER BLOCKED | owner=", owner, " contender=", ChartID(),
+               " mutex=", g_sequence_global_name);
+         return false;
+      }
+      Print("ABANDONED OWNER LOCK RECOVERED | previous_owner=", owner,
+            " new_owner=", ChartID(), " mutex=", g_sequence_global_name);
+   }
+   g_writer_owner_acquired = true;
+   GlobalVariableTemp(g_writer_heartbeat_global_name);
+   GlobalVariableSet(g_writer_heartbeat_global_name, (double)TimeLocal());
 
    string state;
    long persisted = 0;
+   bool journal_expected = FileIsExist(SequenceStateFile(), FILE_COMMON);
    bool state_exists = ReadCommonText(SequenceStateFile(), state);
+   if(journal_expected && !state_exists)
+   {
+      g_sequence_load_failure = SEQUENCE_LOAD_JOURNAL_CORRUPTION;
+      Print("SEQUENCE STATE CORRUPT | path=FILE_COMMON:", SequenceStateFile(),
+            " | content=<unreadable> | validation=journal exists but cannot be read",
+            " | recovery=restore read access or repair the journal after reconciling market_state.json; then reattach the Writer");
+      ReleaseWriterOwnership();
+      return false; // fail closed
+   }
    if(state_exists)
    {
       string prefix = "RP_SEQUENCE_V1|" + MARKET_STATE_SOURCE_UUID + "|" + _Symbol + "|";
       if(StringFind(state, prefix) != 0 ||
          !ParseUnsignedLong(StringSubstr(state, StringLen(prefix)), persisted))
       {
-         Print("SEQUENCE STATE CORRUPT | source=FILE_COMMON:", SequenceStateFile());
-         GlobalVariableSet(g_sequence_global_name, 0.0);
+         g_sequence_load_failure = SEQUENCE_LOAD_JOURNAL_CORRUPTION;
+         Print("SEQUENCE STATE CORRUPT | path=FILE_COMMON:", SequenceStateFile(),
+               " | content=\"", state, "\" | validation=expected exact prefix ", prefix,
+               " followed by a canonical unsigned integer",
+               " | recovery=remove or repair this journal only after reconciling market_state.json; then reattach the Writer");
+         ReleaseWriterOwnership();
          return false; // fail closed; never guess within the same producer epoch
       }
    }
@@ -304,7 +403,18 @@ bool LoadSequence()
    // Reconcile the journal with the already committed publication.  This
    // closes the crash window between atomic publication and journal update.
    long published = 0;
-   bool have_published = ReadPublishedSequence(published);
+   string recovery_reason, recovery_path;
+   int published_status = ReadPublishedSequence(published, recovery_reason, recovery_path);
+   if(published_status < 0)
+   {
+      g_sequence_load_failure = SEQUENCE_LOAD_PUBLISHED_RECOVERY;
+      Print("PUBLISHED-STATE RECOVERY FAILURE | path=", recovery_path,
+            " | validation=", recovery_reason,
+            " | recovery=restore a valid publication or remove it only after reconciling the durable sequence journal; then reattach the Writer");
+      ReleaseWriterOwnership();
+      return false;
+   }
+   bool have_published = published_status > 0;
    g_market_state_sequence_id = MathMax(persisted, have_published ? published : 0);
    string storage = state_exists ? "FILE_COMMON_JOURNAL" : (have_published ? "MARKET_STATE_RECOVERY" : "EMPTY_STATE");
    Print("SEQUENCE RESTORE OK | previous=", g_market_state_sequence_id,
@@ -455,24 +565,37 @@ int OnInit()
 
    if(hMA50 == INVALID_HANDLE || hMA90 == INVALID_HANDLE || hMA200 == INVALID_HANDLE || hRSI == INVALID_HANDLE || hMACD == INVALID_HANDLE || hBB == INVALID_HANDLE || hBB3 == INVALID_HANDLE || hBB4 == INVALID_HANDLE)
    {
-      Print("INDICATORS HANDLE FAILED | err=", GetLastError());
+      Print("INIT FAILED | category=INDICATOR_CREATION_FAILURE | err=", GetLastError());
       return INIT_FAILED;
    }
    if(!LoadSequence())
    {
-      Print("SEQUENCE STATE FAILED | err=", GetLastError());
+      string category = "UNKNOWN_SEQUENCE_FAILURE";
+      if(g_sequence_load_failure == SEQUENCE_LOAD_DUPLICATE_WRITER) category = "DUPLICATE_WRITER";
+      else if(g_sequence_load_failure == SEQUENCE_LOAD_MUTEX_CREATION) category = "MUTEX_CREATION_FAILURE";
+      else if(g_sequence_load_failure == SEQUENCE_LOAD_JOURNAL_CORRUPTION) category = "SEQUENCE_JOURNAL_CORRUPTION";
+      else if(g_sequence_load_failure == SEQUENCE_LOAD_PUBLISHED_RECOVERY) category = "PUBLISHED_STATE_RECOVERY_FAILURE";
+      ReleaseWriterOwnership(); // required even when LoadSequence acquired before failing
+      Print("INIT FAILED | category=", category, " | err=", GetLastError());
       return INIT_FAILED;
    }
 
    Print("RP Market State Writer V14 TIME SYNC STANDARD V1 started | symbol=", _Symbol, " tf=", TFToString(SignalTF), " | common_market_state_path=", BridgeRelativeFile("market_state.json"));
+   EventSetTimer(5);
    return INIT_SUCCEEDED;
+}
+
+void OnTimer()
+{
+   if(g_writer_owner_acquired &&
+      (long)GlobalVariableGet(g_sequence_global_name) == ChartID())
+      GlobalVariableSet(g_writer_heartbeat_global_name, (double)TimeLocal());
 }
 
 void OnDeinit(const int reason)
 {
-   if(StringLen(g_sequence_global_name) > 0 &&
-      (long)GlobalVariableGet(g_sequence_global_name) == ChartID())
-      GlobalVariableSet(g_sequence_global_name, 0.0);
+   EventKillTimer();
+   ReleaseWriterOwnership();
    if(hMA50 != INVALID_HANDLE) IndicatorRelease(hMA50);
    if(hMA90 != INVALID_HANDLE) IndicatorRelease(hMA90);
    if(hMA200 != INVALID_HANDLE) IndicatorRelease(hMA200);

@@ -157,3 +157,37 @@ def test_restore_log_is_explicit_and_identifies_storage_source():
     assert all(source_name in text for source_name in (
         "FILE_COMMON_JOURNAL", "MARKET_STATE_RECOVERY", "EMPTY_STATE"
     ))
+
+
+def test_init_failures_are_explicitly_categorized_and_release_ownership():
+    text = source()
+    on_init = text[text.index("int OnInit()") : text.index("void OnTimer()")]
+    assert on_init.count("return INIT_FAILED;") == 2
+    assert on_init.count('Print("INIT FAILED | category=') == 2
+    assert all(category in on_init for category in (
+        "DUPLICATE_WRITER", "MUTEX_CREATION_FAILURE",
+        "SEQUENCE_JOURNAL_CORRUPTION", "PUBLISHED_STATE_RECOVERY_FAILURE",
+    ))
+    sequence_failure = on_init[on_init.index("if(!LoadSequence())") :]
+    assert sequence_failure.index("ReleaseWriterOwnership();") < sequence_failure.index("return INIT_FAILED;")
+
+
+def test_owner_lock_supports_clean_release_and_abandoned_lease_recovery():
+    text = source()
+    assert "owner == ChartID()" in text  # same-chart EX5 replacement/recompile
+    assert "!OwnerChartExists(owner)" in text  # closed/replaced chart
+    assert "lease_expired" in text  # live chart left behind without its Writer
+    assert "ABANDONED OWNER LOCK RECOVERED" in text
+    assert "EventSetTimer(5);" in text
+    assert "GlobalVariableSet(g_writer_heartbeat_global_name, (double)TimeLocal())" in text
+    deinit = text[text.index("void OnDeinit") : text.index("void OnTick")]
+    assert "EventKillTimer();" in deinit
+    assert "ReleaseWriterOwnership();" in deinit
+
+
+def test_corrupt_journal_log_is_actionable_and_fail_closed():
+    text = source()
+    assert 'Print("SEQUENCE STATE CORRUPT | path=FILE_COMMON:"' in text
+    assert '" | content=\\\"", state, "\\\" | validation=' in text
+    assert "reconciling market_state.json; then reattach the Writer" in text
+    assert "PUBLISHED-STATE RECOVERY FAILURE | path=" in text
