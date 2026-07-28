@@ -3,6 +3,16 @@
 Date: 2026-07-28 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR254 end-to-end production runtime validation — VALIDATION ONLY
+
+The offline PR254 validator consumes one operator-selected JSON Lines Demo trace,
+checks unique lifecycle IDs across every production stage, classifies all
+explicit and missing-stage failures, and atomically emits only
+`pipeline_validation_report.json`. It is observational and has no production or
+trading authority. Reports contain privacy-preserving report-local lifecycle
+references and neutral observations only, with no threshold or pass/fail claim.
+See `docs/architecture/PR254_PRODUCTION_PIPELINE_VALIDATION.md`.
+
 ## PR253 trading performance analytics — ANALYSIS ONLY
 
 The governed offline analyzer reads explicit PR252 telemetry snapshots, completed

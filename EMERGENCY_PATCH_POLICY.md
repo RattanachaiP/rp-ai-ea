@@ -1,5 +1,12 @@
 # EMERGENCY_PATCH_POLICY — V27
 
+## PR254 boundary
+
+Pipeline validation reports are evidence only. Emergency-patch authority may
+not connect PR254 lifecycle traces, success criteria, or failure classifications
+to any trading subsystem or automated remediation, and may not fabricate
+missing evidence.
+
 ## PR253 boundary
 
 Trading-performance reports are evidence only. Emergency-patch authority may not
