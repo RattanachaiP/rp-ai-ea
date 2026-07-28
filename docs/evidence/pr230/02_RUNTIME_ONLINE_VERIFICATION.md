@@ -1,8 +1,8 @@
-# PR230 — Runtime Online Verification
+# PR230 — Governed Production Startup Stop
 
 ## Result
 
-**SYSTEM OFFLINE — WAITING FOR MT5 WRITER PUBLICATION**
+**GOVERNED STARTUP STOP — MT5 WRITER PUBLICATION NOT RECEIVED**
 
 The canonical runtime was started from baseline `e4ca004` with:
 
@@ -10,8 +10,9 @@ The canonical runtime was started from baseline `e4ca004` with:
 python -m runtime.production_startup
 ```
 
-Startup did not complete. No claim of a live decision, online status, or executor
-readiness is made.
+Runtime startup was attempted, but startup did not complete. No Production or Live
+readiness claim, live-decision claim, online-runtime claim, or executor-readiness
+claim is made.
 
 ## Exact governed stop
 
@@ -68,7 +69,11 @@ for the missing real Writer publication.
 | `execution_package` | NOT CREATED |
 | Runtime health log | CAPTURED in `01_RUNTIME_HEALTH.log` |
 
-The success state `SYSTEM ONLINE / WAITING FOR EXECUTOR` was not reached. The next
-operational action is to run the canonical MT5 Writer (and its shared-file transport)
-on a host where the configured publication path is accessible, then repeat the same
-canonical startup command without synthesizing or manually editing telemetry.
+Production startup terminated during Environment Observation Collection. No authentic
+MT5 Writer publication was received, the Reader never entered, and the decision
+pipeline never executed. Consequently, no `decision.json` or execution package was
+created.
+
+The next operational action is to run the canonical MT5 Writer (and its shared-file
+transport) on a host where the configured publication path is accessible, then repeat
+the same canonical startup command without synthesizing or manually editing telemetry.
