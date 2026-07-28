@@ -1,4 +1,4 @@
-"""Operator-visible health for the V28 process; never trading authority."""
+"""Log-only operator health; it grants no runtime or trading authority."""
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -11,6 +11,23 @@ class RuntimeHealth:
     freshness_state: str = "NOT_CHECKED"
     last_publish_timestamp: str | None = None
     runtime_version: str = "V28.PR-A"
+    cycle_state: str = "NOT_STARTED"
+    last_error: str | None = None
+    authority: str = "LOG_ONLY"
+
+    def begin_cycle(self) -> None:
+        self.heartbeat_age = None
+        self.schema_state = "NOT_CHECKED"
+        self.freshness_state = "NOT_CHECKED"
+        self.cycle_state = "VALIDATING"
+        self.last_error = None
+
+    def fail(self, code: str, *, schema: str = "UNKNOWN", freshness: str = "UNKNOWN") -> None:
+        self.startup_state = "DEGRADED"
+        self.schema_state = schema
+        self.freshness_state = freshness
+        self.cycle_state = "FAILED"
+        self.last_error = code
 
     def snapshot(self) -> dict[str, Any]:
         return asdict(self)
