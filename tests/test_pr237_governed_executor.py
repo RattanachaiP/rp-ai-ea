@@ -85,7 +85,9 @@ def test_mql_enforces_freshness_duplicates_monotonicity_and_corruption():
     for token in ("STALE_PACKAGE", "DUPLICATE_EXECUTION_UUID", "NON_MONOTONIC_MARKET_SEQUENCE",
                   "EXECUTOR_STATE_CORRUPT_OR_INACCESSIBLE", "EXECUTOR_JOURNAL_CORRUPT_OR_INACCESSIBLE"):
         assert token in source
-    assert "ERR_FILE_NOT_FOUND" in source and "5004" not in source
+    assert "GetLastError()==ERR_FILE_NOT_FOUND" not in source
+    assert "#define RP_ERR_FILE_CANNOT_OPEN 5004" in source
+    assert source.count("GetLastError()==RP_ERR_FILE_CANNOT_OPEN") == 2
     assert 'execution_package.json"' in source and 'decision.json"' not in source
 
 

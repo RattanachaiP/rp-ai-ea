@@ -10,7 +10,7 @@
 #define EXECUTION_PACKAGE_PATH "RP_AI_EA\\shared\\XAUUSD\\execution_package.json"
 
 input bool   InpEmergencyDisable          = false;
-input long   InpMagic                     = 2800001;
+input ulong  InpMagic                     = 2800001;
 
 
 bool IsPayloadTrimCharacter(const ushort character)
@@ -135,11 +135,11 @@ bool ReadExecutionPackage(string &payload)
    }
 
    uchar bytes[];
-   int bytes_read = FileReadArray(handle, bytes, 0, (int)file_size);
+   uint bytes_read = FileReadArray(handle, bytes, 0, (int)file_size);
    FileClose(handle);
-   if(bytes_read != (int)file_size || !DecodePackagePayload(bytes, payload))
+   if((long)bytes_read != file_size || !DecodePackagePayload(bytes, payload))
    {
-      Print("PACKAGE_PAYLOAD_DECODE_FAIL | bytes_read=", bytes_read, " | file_size=", file_size);
+      PrintFormat("PACKAGE_PAYLOAD_DECODE_FAIL | bytes_read=%u | file_size=%I64d",bytes_read,file_size);
       return false;
    }
 
@@ -264,6 +264,9 @@ bool ParseCanonicalPackage(const string json,string &values[],string &reason)
 #define EXECUTOR_JOURNAL_PATH "RP_AI_EA\\shared\\XAUUSD\\executor_journal.log"
 #define EXECUTION_RESULT_PATH "RP_AI_EA\\shared\\XAUUSD\\execution_result.json"
 #define EXECUTOR_TRACE_PATH "RP_AI_EA\\shared\\XAUUSD\\executor_trace.log"
+// MQL5 runtime error 5004 is returned when FileOpen cannot open a file.  MQL5
+// does not provide ERR_FILE_NOT_FOUND as a built-in identifier.
+#define RP_ERR_FILE_CANNOT_OPEN 5004
 
 string JsonEscape(string value)
 {
@@ -296,7 +299,8 @@ void Trace(const string stage, const string status, const string execution_uuid,
    FileSeek(handle, 0, SEEK_END);
    string record=StringFormat("{\"timestamp\":\"%s\",\"stage\":\"%s\",\"status\":\"%s\",\"execution_uuid\":\"%s\",\"failure_owner\":\"%s\",\"failure_reason\":\"%s\"}",
       UtcTimestamp(),JsonEscape(stage),JsonEscape(status),JsonEscape(execution_uuid),JsonEscape(owner),JsonEscape(reason));
-   FileWriteString(handle, record+"\r\n"); FileFlush(handle); FileClose(handle);
+   string line=record+"\r\n";
+   FileWriteString(handle,line); FileFlush(handle); FileClose(handle);
 }
 
 bool IsCanonicalUuid(const string value)
@@ -338,7 +342,7 @@ bool LoadExecutorState(bool &exists,long &sequence,string &execution_uuid,string
 {
    exists=false; ResetLastError();
    int handle=FileOpen(EXECUTOR_STATE_PATH,FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ);
-   if(handle==INVALID_HANDLE) return GetLastError()==ERR_FILE_NOT_FOUND;
+   if(handle==INVALID_HANDLE) return GetLastError()==RP_ERR_FILE_CANNOT_OPEN;
    exists=true; string json=""; while(!FileIsEnding(handle)) json+=FileReadString(handle); FileClose(handle);
    return ParseExecutorState(json,sequence,execution_uuid,decision_uuid,status);
 }
@@ -349,14 +353,14 @@ bool AppendJournal(const string status,const string execution_uuid,const string 
    if(handle==INVALID_HANDLE) return false;
    FileSeek(handle,0,SEEK_END);
    string line=StringFormat("%I64d\t%s\t%s\t%s\t%s\t%s\r\n",sequence,execution_uuid,decision_uuid,status,UtcTimestamp(),reason);
-   bool okay=FileWriteString(handle,line)==StringLen(line); FileFlush(handle); FileClose(handle); return okay;
+   bool okay=FileWriteString(handle,line)==(uint)StringLen(line); FileFlush(handle); FileClose(handle); return okay;
 }
 
 bool InspectJournal(const string candidate_uuid,bool &duplicate,long &maximum_sequence,string &last_status)
 {
    duplicate=false; maximum_sequence=0; last_status=""; ResetLastError();
    int handle=FileOpen(EXECUTOR_JOURNAL_PATH,FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ);
-   if(handle==INVALID_HANDLE) return GetLastError()==ERR_FILE_NOT_FOUND;
+   if(handle==INVALID_HANDLE) return GetLastError()==RP_ERR_FILE_CANNOT_OPEN;
    while(!FileIsEnding(handle))
    {
       string line=FileReadString(handle); if(line=="") continue;
@@ -384,7 +388,7 @@ bool ReplaceTextFailClosed(const string path,const string value,const string pub
    }
    int handle=FileOpen(temporary,FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
    if(handle==INVALID_HANDLE) return false;
-   bool okay=FileWriteString(handle,value)==StringLen(value);
+   bool okay=FileWriteString(handle,value)==(uint)StringLen(value);
    FileFlush(handle); FileClose(handle);
    if(!okay) { FileDelete(temporary,FILE_COMMON); return false; }
    // Source and destination are in the same Common/Files directory. FileMove
@@ -478,7 +482,7 @@ bool ValidatePackage(const string json,string &execution_uuid,string &decision_u
    if(values[5]!=RP_PACKAGE_PRODUCER_VERSION) { reason="INVALID_PRODUCER_VERSION"; return false; }
    if(values[6]!=RP_PACKAGE_SCHEMA_VERSION) { reason="INVALID_SCHEMA_VERSION"; return false; }
    if(!IsCanonicalUuid(values[7])) { reason="INVALID_SOURCE_UUID"; return false; }
-   if(heartbeat<=0 || MathAbs((long)TimeGMT()-heartbeat)>RP_EXECUTOR_PACKAGE_MAX_AGE_SECONDS) { reason="STALE_PACKAGE"; return false; }
+   if(heartbeat<=0 || MathAbs((double)((long)TimeGMT()-heartbeat))>(double)RP_EXECUTOR_PACKAGE_MAX_AGE_SECONDS) { reason="STALE_PACKAGE"; return false; }
    if(market_sequence<1) { reason="INVALID_MARKET_SEQUENCE"; return false; }
    if(symbol=="") { reason="ENTRY_PERMISSION_UNVERIFIED"; return false; }
    if(direction!="BUY" && direction!="SELL") { reason="ORDERSEND_PERMISSION_UNVERIFIED"; return false; }
