@@ -3,6 +3,15 @@
 Date: 2026-07-28 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR266 V28 Operational Qualification — IMPLEMENTED, NOT PRODUCTION-ACTIVE
+
+The immutable PR266 layer runs identity-bound, expiring, explicitly lineaged long-duration
+qualification campaigns over PR265 evidence. It checks runtime and replay stability, repeated
+BUY/SELL/HOLD shadow equality, delivery reliability, certification stability, and append-only
+campaign history. Instability, corruption, inconsistency, or recovery attempts fail closed. Its
+highest recommendation is READY FOR HUMAN REVIEW; it never grants production authority and
+V27 remains the sole production execution authority.
+
 ## PR263 V28 Risk Construction — IMPLEMENTED, NOT PRODUCTION-ACTIVE
 
 The immutable PR263 layer consumes an already-authorized PR262 DecisionContext plus
