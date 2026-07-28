@@ -13,6 +13,7 @@ class RuntimeHealth:
     runtime_version: str = "V28.PR-A"
     cycle_state: str = "NOT_STARTED"
     last_error: str | None = None
+    intelligence_state: str = "NOT_EVALUATED"
     authority: str = "LOG_ONLY"
 
     def begin_cycle(self) -> None:
@@ -21,6 +22,7 @@ class RuntimeHealth:
         self.freshness_state = "NOT_CHECKED"
         self.cycle_state = "VALIDATING"
         self.last_error = None
+        self.intelligence_state = "NOT_EVALUATED"
 
     def fail(self, code: str, *, schema: str = "UNKNOWN", freshness: str = "UNKNOWN") -> None:
         self.startup_state = "DEGRADED"

@@ -74,6 +74,12 @@ class V28DecisionEngine:
             sequence = market["sequence_id"]
             normalized = normalize_market_state(market)
             context = construct_runtime_context(normalized, now=now)
+            qualities = {item.data_quality for item in (context.structure, context.regime, context.trend,
+                                                         context.momentum, context.volatility, context.liquidity,
+                                                         context.opportunity)}
+            self.health.intelligence_state = ("FAILED_VALIDATION" if "FAIL_CLOSED" in qualities else
+                                              "DEGRADED" if "DEGRADED" in qualities else
+                                              "INSUFFICIENT" if "INSUFFICIENT" in qualities else "COMPLETED")
             self.health.heartbeat_age = context.heartbeat_age_seconds
             if self.last_published_sequence is not None:
                 if sequence == self.last_published_sequence:

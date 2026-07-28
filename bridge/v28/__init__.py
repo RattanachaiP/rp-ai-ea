@@ -1,1 +1,1 @@
-"""V28 decision-engine foundation package."""
+"""V28 runtime foundation and descriptive market-intelligence package."""
