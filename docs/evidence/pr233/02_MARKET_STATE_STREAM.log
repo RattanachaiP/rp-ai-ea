@@ -1,0 +1,14 @@
+PR233_MARKET_STATE_STREAM_MONITOR
+STARTED_AT=2026-07-28T04:24:44Z
+HOST=Linux 6.12.13 x86_64
+RP_AI_SHARED_ROOT=<UNSET>
+MT5_PROCESS_COUNT=0
+WINE_BINARY=<NOT_FOUND>
+TERMINAL64_BINARY=<NOT_FOUND>
+sample=1 observed_at=2026-07-28T04:24:44.724Z exists=false heartbeat_unix=null sequence_id=null candidates=0
+sample=2 observed_at=2026-07-28T04:24:46.378Z exists=false heartbeat_unix=null sequence_id=null candidates=0
+sample=3 observed_at=2026-07-28T04:24:48.022Z exists=false heartbeat_unix=null sequence_id=null candidates=0
+sample=4 observed_at=2026-07-28T04:24:49.738Z exists=false heartbeat_unix=null sequence_id=null candidates=0
+sample=5 observed_at=2026-07-28T04:24:51.430Z exists=false heartbeat_unix=null sequence_id=null candidates=0
+sample=6 observed_at=2026-07-28T04:24:53.084Z exists=false heartbeat_unix=null sequence_id=null candidates=0
+FINISHED_AT=2026-07-28T04:24:54Z
