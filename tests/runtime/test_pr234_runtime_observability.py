@@ -66,9 +66,9 @@ def test_degraded_fallback_is_preserved_until_normal_recovery(tmp_path):
     assert degraded["status"] == "STARTING"
     assert degraded["health_state"] == "DEGRADED"
     assert degraded["runtime_started"] is False
-    assert degraded["current_stage"] == "READER"
-    assert degraded["failure_owner"] == "READER"
-    assert degraded["failure_reason"] == "MARKET_STATE_READ_REJECTED"
+    assert degraded["current_stage"] == "NO_MARKET_STATE"
+    assert degraded["failure_owner"] == "NO_MARKET_STATE"
+    assert degraded["failure_reason"] == "NO_MARKET_STATE"
     assert not (tmp_path / "first_decision.json").exists()
     assert "RUNTIME LOOP" not in (tmp_path / "runtime_startup.log").read_text()
 
@@ -94,8 +94,8 @@ def test_publication_metrics_are_separate(tmp_path):
     assert before_start["status"] == "STARTING"
     assert before_start["health_state"] == "DEGRADED"
     assert before_start["runtime_started"] is False
-    assert before_start["current_stage"] == "ANALYSIS"
-    assert before_start["failure_owner"] == "ANALYSIS"
+    assert before_start["current_stage"] == "ANALYSIS_FAILED"
+    assert before_start["failure_owner"] == "ANALYSIS_FAILED"
     assert before_start["rejected_loop_count"] == 1
     observer.publication(decision(3), 1, PublicationOutcome.NORMAL)
     state = health(tmp_path)
@@ -132,7 +132,7 @@ def test_fallback_after_start_degrades_and_normal_recovery_retains_history(tmp_p
     assert degraded["status"] == "RUNNING"
     assert degraded["runtime_started"] is True
     assert degraded["health_state"] == "DEGRADED"
-    assert degraded["failure_owner"] == "READER"
+    assert degraded["failure_owner"] == "NO_MARKET_STATE"
 
     observer.publication(decision(3), 1, PublicationOutcome.NORMAL)
     recovered = health(tmp_path)
@@ -172,7 +172,13 @@ def test_failure_ownership_is_exact(tmp_path, owner):
     observer = RuntimeObservability(tmp_path)
     observer.failure(owner, RuntimeError(f"{owner}_FAILED"))
     state = health(tmp_path)
-    assert state["failure_owner"] == owner
+    expected = {
+        "CONFIG": "CONTEXT_BUILD_FAILED", "READER": "NO_MARKET_STATE",
+        "DECISION_CONTEXT": "CONTEXT_BUILD_FAILED", "ANALYSIS": "ANALYSIS_FAILED",
+        "RISK": "RISK_REJECTED", "PUBLISHER": "PUBLICATION_FAILED",
+        "HEALTH": "PUBLICATION_FAILED",
+    }[owner]
+    assert state["failure_owner"] == expected
     assert state["health_state"] == "DEGRADED"
     with pytest.raises(ValueError, match="INVALID_FAILURE_OWNER"):
         observer.failure("GENERIC", RuntimeError("bad"))
@@ -196,7 +202,7 @@ def test_canonical_write_path_attributes_risk_failure(tmp_path, monkeypatch):
     assert engine.write_decision(engine_decision(), observer=observer) is False
     observer.failure(engine._last_write_failure_owner,
                      RuntimeError("DECISION_ATOMIC_PUBLICATION_FAILED"))
-    assert health(tmp_path)["failure_owner"] == "RISK"
+    assert health(tmp_path)["failure_owner"] == "RISK_REJECTED"
 
 
 def test_canonical_write_path_attributes_publisher_failure(tmp_path, monkeypatch):
@@ -213,4 +219,4 @@ def test_canonical_write_path_attributes_publisher_failure(tmp_path, monkeypatch
     monkeypatch.setattr(engine.os, "replace", replace)
     observer.failure(engine._last_write_failure_owner,
                      RuntimeError("DECISION_ATOMIC_PUBLICATION_FAILED"))
-    assert health(tmp_path)["failure_owner"] == "PUBLISHER"
+    assert health(tmp_path)["failure_owner"] == "PUBLICATION_FAILED"

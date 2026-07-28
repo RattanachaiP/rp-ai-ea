@@ -5905,6 +5905,8 @@ def write_decision(data, execution_context=None, observer=None):
                 _trace_before = dict(data)
                 data = enforce_final_execution_state_v28(data)
                 data = record_final_decision_trace_stage(data, "final_execution_state", _trace_before)
+                if observer is not None:
+                    observer.stage("DECISION CLASSIFICATION")
                 if str(data.get("decision", "")).upper() == "TRADE":
                     data["final_veto_owner"] = "NONE"
                     data["effective_veto_code"] = "NONE"
