@@ -9,7 +9,9 @@ PR254 is an offline, read-only consumer of an explicitly selected continuous
 Demo pipeline trace snapshot. It may produce only
 `pipeline_validation_report.json`. It cannot import, invoke, delay, retry,
 modify, or authorize any trading subsystem. Missing stages and failures remain
-explicit classified evidence.
+explicit classified evidence. Raw lifecycle identifiers are input-only and the
+report exposes report-local references. PR254 owns no threshold, pass/fail claim,
+production approval, or promotion gate.
 
 ## PR253 governed trading-performance analytics rule
 

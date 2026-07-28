@@ -13,7 +13,7 @@ import os
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Sequence
 
 
 SCHEMA_VERSION = "PR254.PIPELINE_VALIDATION_REPORT.1.0"
@@ -27,11 +27,16 @@ FAILURE_CLASSES = (
     "WRITER", "AI_ENGINE", "DECISION", "PACKAGE", "EXECUTOR", "BROKER",
     "ORDER", "POSITION", "TELEMETRY", "ANALYTICS", "UNKNOWN",
 )
-STAGE_FAILURE_CLASS = {
-    "MARKET_STATE": "WRITER", "DECISION": "DECISION", "PACKAGE": "PACKAGE",
-    "EXECUTOR_ACCEPTED": "EXECUTOR", "ORDER_SENT": "ORDER",
-    "ORDER_FILLED": "BROKER", "POSITION_CLOSED": "POSITION",
-    "TELEMETRY": "TELEMETRY", "ANALYTICS": "ANALYTICS",
+ALLOWED_FAILURE_CLASSES_BY_STAGE = {
+    "MARKET_STATE": frozenset(("WRITER",)),
+    "DECISION": frozenset(("AI_ENGINE", "DECISION")),
+    "PACKAGE": frozenset(("PACKAGE",)),
+    "EXECUTOR_ACCEPTED": frozenset(("EXECUTOR",)),
+    "ORDER_SENT": frozenset(("ORDER",)),
+    "ORDER_FILLED": frozenset(("BROKER",)),
+    "POSITION_CLOSED": frozenset(("POSITION",)),
+    "TELEMETRY": frozenset(("TELEMETRY",)),
+    "ANALYTICS": frozenset(("ANALYTICS",)),
 }
 
 
@@ -74,6 +79,8 @@ def _read_events(path: Path) -> list[dict[str, object]]:
         failure_class = event.get("failure_class")
         if status == "FAILED" and failure_class not in FAILURE_CLASSES:
             raise ValueError(f"FAILED_EVENT_REQUIRES_ONE_FAILURE_CLASS:line={line_number}")
+        if status == "FAILED" and failure_class not in ALLOWED_FAILURE_CLASSES_BY_STAGE[stage]:
+            raise ValueError(f"FAILURE_CLASS_NOT_ALLOWED_FOR_STAGE:line={line_number}")
         if status == "SUCCEEDED" and failure_class is not None:
             raise ValueError(f"SUCCESS_EVENT_HAS_FAILURE_CLASS:line={line_number}")
         timestamp = _timestamp(event.get("timestamp_utc"), line=line_number)
@@ -90,21 +97,29 @@ def generate_report(*, trace_events: Path | str, output_directory: Path | str,
     """Validate an immutable trace and write only pipeline_validation_report.json."""
     source = Path(trace_events)
     events = _read_events(source)
+    if not events:
+        raise ValueError("EMPTY_PIPELINE_TRACE")
+    source_digest = hashlib.sha256(source.read_bytes()).hexdigest()
     grouped: dict[str, list[dict[str, object]]] = defaultdict(list)
     for event in events:
         grouped[str(event["lifecycle_id"])].append(event)
 
-    failure_counts: Counter[str] = Counter()
+    failure_events: Counter[str] = Counter()
+    failure_lifecycles: Counter[str] = Counter()
     traces: list[dict[str, object]] = []
     successful = missing_count = 0
     stage_success = Counter()
     latencies: list[float] = []
-    for lifecycle_id in sorted(grouped):
+    for lifecycle_number, lifecycle_id in enumerate(sorted(grouped), start=1):
         lifecycle = sorted(grouped[lifecycle_id], key=lambda item: (item["_timestamp"], item["_line"]))
         by_stage: dict[str, dict[str, object]] = {}
         failures: list[dict[str, str]] = []
+        failed_stage: str | None = None
+        lifecycle_failure_classes: set[str] = set()
         for event in lifecycle:
             stage = str(event["stage"])
+            if failed_stage is not None:
+                raise ValueError(f"STAGE_AFTER_TERMINAL_FAILURE:{lifecycle_id}:{stage}")
             if stage in by_stage:
                 raise ValueError(f"DUPLICATE_LIFECYCLE_STAGE:{lifecycle_id}:{stage}")
             by_stage[stage] = event
@@ -112,26 +127,39 @@ def generate_report(*, trace_events: Path | str, output_directory: Path | str,
                 stage_success[stage] += 1
             else:
                 classification = str(event["failure_class"])
-                failure_counts[classification] += 1
+                failure_events[classification] += 1
+                lifecycle_failure_classes.add(classification)
+                failed_stage = stage
                 failures.append({"stage": stage, "classification": classification,
-                                 "reason": str(event.get("failure_reason") or "UNSPECIFIED")})
+                                 "reason": "EXPLICIT_FAILURE"})
         present = [stage for stage in STAGES if stage in by_stage]
+        expected_prefix = list(STAGES[:len(present)])
+        if present != expected_prefix:
+            first_gap = next(stage for stage in STAGES if stage not in by_stage)
+            raise ValueError(f"DOWNSTREAM_STAGE_WITH_MISSING_UPSTREAM:{lifecycle_id}:{first_gap}")
         timestamps = [by_stage[stage]["_timestamp"] for stage in present]
         if timestamps != sorted(timestamps):
             raise ValueError(f"INVALID_LIFECYCLE_CHRONOLOGY:{lifecycle_id}")
         missing = [stage for stage in STAGES if stage not in by_stage]
         missing_count += len(missing)
         for stage in missing:
-            classification = STAGE_FAILURE_CLASS[stage]
-            failure_counts[classification] += 1
+            # Absence proves the location of an interruption, not its owner.
+            # Attribution without an explicit failure event remains UNKNOWN.
+            classification = "UNKNOWN"
+            failure_events[classification] += 1
+            lifecycle_failure_classes.add(classification)
             failures.append({"stage": stage, "classification": classification,
                              "reason": "MISSING_STAGE"})
         complete = not missing and not failures
         if complete:
             successful += 1
             latencies.append((by_stage["ANALYTICS"]["_timestamp"] - by_stage["MARKET_STATE"]["_timestamp"]).total_seconds() * 1000)
+        for classification in lifecycle_failure_classes:
+            failure_lifecycles[classification] += 1
         traces.append({
-            "lifecycle_id": lifecycle_id,
+            # A stable report-local ordinal prevents trade/order/decision IDs
+            # from crossing the offline reporting boundary.
+            "lifecycle_ref": f"L{lifecycle_number:06d}",
             "complete": complete,
             "stage_times_utc": {stage: _iso(by_stage[stage]["_timestamp"]) if stage in by_stage else None for stage in STAGES},
             "missing_stages": missing,
@@ -142,14 +170,13 @@ def generate_report(*, trace_events: Path | str, output_directory: Path | str,
     now = generated_at_utc or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     # Validate caller-supplied report time using the same explicit-offset contract.
     generated = _iso(_timestamp(now, line=0))
-    digest = hashlib.sha256(source.read_bytes()).hexdigest()
     report = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated,
         "validation_only": True,
-        "source_evidence": {"basename": source.name, "sha256": digest, "event_count": len(events)},
+        "source_evidence": {"basename": source.name, "sha256": source_digest, "event_count": len(events)},
         "metrics": {
-            "total_signals": total,
+            "total_lifecycles": total,
             "valid_decisions": stage_success["DECISION"],
             "packages_created": stage_success["PACKAGE"],
             "executor_acceptances": stage_success["EXECUTOR_ACCEPTED"],
@@ -157,13 +184,12 @@ def generate_report(*, trace_events: Path | str, output_directory: Path | str,
             "orders_filled": stage_success["ORDER_FILLED"],
             "orders_closed": stage_success["POSITION_CLOSED"],
             "pipeline_success_rate": round(successful / total, 6) if total else None,
-            "failure_rate_by_stage": {name: round(failure_counts[name] / total, 6) if total else None for name in FAILURE_CLASSES},
+            "lifecycle_failure_rate_by_class": {
+                name: round(failure_lifecycles[name] / total, 6) for name in FAILURE_CLASSES},
+            "failure_events_per_lifecycle_by_class": {
+                name: round(failure_events[name] / total, 6) for name in FAILURE_CLASSES},
             "average_end_to_end_latency_ms": round(sum(latencies) / len(latencies), 6) if latencies else None,
             "missing_stage_count": missing_count,
-        },
-        "exit_criteria": {
-            "minimum_pipeline_success_rate": 0.99,
-            "passed": bool(total and successful / total >= 0.99 and missing_count == 0 and not failure_counts),
         },
         "lifecycles": traces,
     }
@@ -172,11 +198,17 @@ def generate_report(*, trace_events: Path | str, output_directory: Path | str,
     destination = output / "pipeline_validation_report.json"
     temporary = destination.with_name(destination.name + ".tmp")
     payload = (json.dumps(report, indent=2, sort_keys=True) + "\n").encode()
-    with temporary.open("wb") as stream:
-        stream.write(payload)
-        stream.flush()
-        os.fsync(stream.fileno())
-    os.replace(temporary, destination)
+    try:
+        with temporary.open("wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, destination)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
     return report
 
 
