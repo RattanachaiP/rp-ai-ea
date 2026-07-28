@@ -7,6 +7,7 @@ record or constructs an identity itself.
 """
 
 import argparse
+import logging
 from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path
@@ -26,9 +27,9 @@ from runtime.production_execution_initialization import (
     ProductionExecutionInitializer,
 )
 from runtime.environment_observation import (
-    DEFAULT_MARKET_STATE_PATH,
     EnvironmentObservationError,
     GovernedEnvironmentObservationProducer,
+    canonical_market_state_path,
 )
 
 
@@ -238,7 +239,8 @@ def _parser():
     parser = argparse.ArgumentParser(
         description="Create PR185 from an exact PR184 record and start the governed Runtime."
     )
-    parser.add_argument("--market-state", type=Path, default=DEFAULT_MARKET_STATE_PATH)
+    parser.add_argument("--market-state", type=Path, default=None,
+                        help="canonical publication (default: RP_AI_SHARED_ROOT/XAUUSD/market_state.json)")
     parser.add_argument("--observation-window", type=float, default=5.0)
     for name, directory in (
         ("intelligence", "decision_intelligence"),
@@ -254,9 +256,10 @@ def _parser():
 
 def main(argv: Optional[Sequence[str]] = None):
     arguments = _parser().parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     try:
         evidence = GovernedEnvironmentObservationProducer(
-            arguments.market_state,
+            arguments.market_state or canonical_market_state_path(),
             window_seconds=arguments.observation_window,
         ).collect()
     except EnvironmentObservationError as exc:
