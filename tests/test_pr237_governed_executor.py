@@ -58,6 +58,13 @@ def test_generated_contract_is_reproducible_and_has_one_authority():
     assert "RP_EXECUTOR_PACKAGE_MAX_AGE_SECONDS" in source
 
 
+def test_unicode_decoding_uses_ushort_preserving_conversion():
+    source = SOURCE.read_text()
+    assert "CharToString(" not in source
+    assert source.count("ShortToString(") == 11
+    assert "input ulong  InpMagic" in source
+
+
 @pytest.mark.parametrize("payload", [
     '{"execution_uuid":"a","execution_uuid":"b"}',
     json.dumps(package()) + " trailing",

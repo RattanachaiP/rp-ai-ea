@@ -35,13 +35,13 @@ bool AppendUnicodeCodePoint(string &text, const uint code_point)
    if(code_point > 0x10FFFF || (code_point >= 0xD800 && code_point <= 0xDFFF)) return false;
    if(code_point <= 0xFFFF)
    {
-      text += CharToString((ushort)code_point);
+      text += ShortToString((ushort)code_point);
       return true;
    }
 
    uint value = code_point - 0x10000;
-   text += CharToString((ushort)(0xD800 + (value >> 10)));
-   text += CharToString((ushort)(0xDC00 + (value & 0x3FF)));
+   text += ShortToString((ushort)(0xD800 + (value >> 10)));
+   text += ShortToString((ushort)(0xDC00 + (value & 0x3FF)));
    return true;
 }
 
@@ -94,7 +94,7 @@ bool DecodeUtf16(const uchar &bytes[], const int start, const bool little_endian
          index += 2;
       }
       else if(unit >= 0xDC00 && unit <= 0xDFFF) return false;
-      else text += CharToString(unit);
+      else text += ShortToString(unit);
    }
    return true;
 }
@@ -173,12 +173,12 @@ bool ParseJsonString(const string json,int &cursor,string &value)
       ushort c=StringGetCharacter(json,cursor++);
       if(c=='"') return true;
       if(c<0x20) return false;
-      if(c!='\\') { value+=CharToString(c); continue; }
+      if(c!='\\') { value+=ShortToString(c); continue; }
       if(cursor>=StringLen(json)) return false;
       ushort escape=StringGetCharacter(json,cursor++);
-      if(escape=='"' || escape=='\\' || escape=='/') value+=CharToString(escape);
-      else if(escape=='b') value+=CharToString(8);
-      else if(escape=='f') value+=CharToString(12);
+      if(escape=='"' || escape=='\\' || escape=='/') value+=ShortToString(escape);
+      else if(escape=='b') value+=ShortToString(8);
+      else if(escape=='f') value+=ShortToString(12);
       else if(escape=='n') value+="\n";
       else if(escape=='r') value+="\r";
       else if(escape=='t') value+="\t";
@@ -189,10 +189,10 @@ bool ParseJsonString(const string json,int &cursor,string &value)
          {
             if(cursor+2>StringLen(json) || StringGetCharacter(json,cursor++)!='\\' || StringGetCharacter(json,cursor++)!='u') return false;
             ushort low=0; if(!ParseHexUnit(json,cursor,low) || low<0xDC00 || low>0xDFFF) return false;
-            value+=CharToString(high)+CharToString(low);
+            value+=ShortToString(high)+ShortToString(low);
          }
          else if(high>=0xDC00 && high<=0xDFFF) return false;
-         else value+=CharToString(high);
+         else value+=ShortToString(high);
       }
       else return false;
    }
