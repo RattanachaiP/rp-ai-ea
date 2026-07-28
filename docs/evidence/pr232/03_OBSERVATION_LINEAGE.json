@@ -1,0 +1,21 @@
+{
+  "schema": "PR232_OBSERVATION_LINEAGE_1",
+  "evidence_generated_at": "2026-07-28T04:16:23Z",
+  "source_uuid_expected": "dc3777c6-cf0d-5a7b-bd58-8a5c44568475",
+  "producer_expected": "RP_AI_MT5_MARKET_STATE",
+  "producer_version_expected": "V1",
+  "schema_version_expected": "1.0",
+  "resolved_path": "C:\\Users\\rp_fu\\AppData\\Roaming\\MetaQuotes\\Terminal\\Common\\Files\\RP_AI_EA\\shared\\XAUUSD\\market_state.json",
+  "minimum_unique_publications": 3,
+  "accepted_observation_count": 0,
+  "accepted_observations": [],
+  "verification": {
+    "heartbeat_advances": "NOT_OBSERVED",
+    "sequence_monotonic": "NOT_OBSERVED",
+    "digests_unique": "NOT_OBSERVED",
+    "producer_identity_canonical": "NOT_OBSERVED",
+    "heartbeat_fresh_and_not_future": "NOT_OBSERVED"
+  },
+  "terminal_error": "INSUFFICIENT_UNIQUE_ENVIRONMENT_OBSERVATIONS",
+  "status": "GOVERNED_STOP"
+}
