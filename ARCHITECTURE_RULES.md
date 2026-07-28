@@ -3,6 +3,18 @@
 ## Sole authority
 This document, `CURRENT_SYSTEM_STATE.md`, `DECISION_FLOW_MAP.md`, and `EMERGENCY_PATCH_POLICY.md` are the authoritative architecture documents for V27 changes.
 
+## PR255 evidence-review backlog rule
+
+PR255 is an offline, advisory-only consumer of explicitly selected authoritative
+production evidence. It may emit only `production_improvement_backlog.json` and
+may create items only from measured adverse observations supported by a governed
+schema rule. Every item remains `PENDING_HUMAN_REVIEW`. Priority is triage order,
+maps from severity only, and is not change approval. Items have snapshot-scoped
+identity and evidence references an explicit digested source record. Missing-stage
+evidence never assigns failure ownership. PR255 cannot modify, tune, invoke,
+activate, or authorize AI, Strategy, Runtime, execution, position management,
+learning, or production.
+
 ## PR254 production pipeline validation rule
 
 PR254 is an offline, read-only consumer of an explicitly selected continuous
