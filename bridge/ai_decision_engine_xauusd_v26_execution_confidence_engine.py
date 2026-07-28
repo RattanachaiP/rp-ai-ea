@@ -24,6 +24,8 @@ from bridge.execution_confidence_integration import (
 )
 from learning.execution_package_consumer import ExecutionPackageConsumer
 from runtime.decision_publication import (
+    DECISION_PRODUCER,
+    GOVERNED_DECISION_LIFECYCLES,
     PUBLISHED_SCHEMA_VERSION as DECISION_SCHEMA_VERSION,
     RUNTIME_VERSION as DECISION_PRODUCER_VERSION,
 )
@@ -74,7 +76,6 @@ BASE_PATH = COMMON_SHARED_ROOT / SYMBOL
 FILE_PATH = BASE_PATH / "market_state.json"
 OUTPUT_PATH = BASE_PATH / "decision.json"
 
-DECISION_PRODUCER = "RP_AI_RUNTIME"
 _last_write_failure_owner = "PUBLISHER"
 
 
@@ -5693,10 +5694,7 @@ def attach_final_write_metadata(data, write_start):
 
 DECISION_DIRECTIONS = frozenset({"BUY", "SELL"})
 NON_TRADE_DIRECTION = "NONE"
-DECISION_LIFECYCLES = frozenset({
-    "NORMAL_TRADE", "GOVERNED_NO_TRADE", "STALE_INPUT_FALLBACK",
-    "LOGIC_ERROR_REJECTION",
-})
+DECISION_LIFECYCLES = GOVERNED_DECISION_LIFECYCLES
 
 
 def attach_decision_identity(data, *, lifecycle="GOVERNED_NO_TRADE"):
@@ -5905,6 +5903,8 @@ def write_decision(data, execution_context=None, observer=None):
                 _trace_before = dict(data)
                 data = enforce_final_execution_state_v28(data)
                 data = record_final_decision_trace_stage(data, "final_execution_state", _trace_before)
+                if observer is not None:
+                    observer.stage("DECISION CLASSIFICATION")
                 if str(data.get("decision", "")).upper() == "TRADE":
                     data["final_veto_owner"] = "NONE"
                     data["effective_veto_code"] = "NONE"

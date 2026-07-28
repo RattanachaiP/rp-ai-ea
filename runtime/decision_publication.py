@@ -21,6 +21,15 @@ from runtime.writer_adapter import RuntimeDecisionPayload
 PUBLISHED_SCHEMA_VERSION = "2.0"
 BRAIN_VERSION = "27.4"
 RUNTIME_VERSION = "27.5"
+# Canonical identity and freshness contract consumed by live publication
+# verification.  This module owns decision.json, so observers import rather
+# than duplicate these values.
+DECISION_PRODUCER = "RP_AI_RUNTIME"
+DECISION_HEARTBEAT_MAXIMUM_AGE_SECONDS = 120
+GOVERNED_DECISION_LIFECYCLES = frozenset({
+    "NORMAL_TRADE", "GOVERNED_NO_TRADE", "STALE_INPUT_FALLBACK",
+    "LOGIC_ERROR_REJECTION",
+})
 _NUMERIC_FIELDS = (
     "confidence", "probability", "expected_value", "location_score",
     "position_budget_total", "position_budget_used", "position_budget_remaining",
