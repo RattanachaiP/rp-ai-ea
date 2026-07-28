@@ -10,7 +10,8 @@ import pytest
 
 from learning.outcome_evidence import (OutcomeEvidenceError, OutcomeEvidenceManifest,
                                        OutcomeEvidenceRepository, SCHEMA_VERSION,
-                                       manifest_digest, row_replay_digest)
+                                       build_evidence_record, manifest_digest,
+                                       row_replay_digest)
 from learning.outcome_evidence.operator_acquisition import (construct_pr173, import_evidence,
                                                              inspect, validate)
 
@@ -113,6 +114,23 @@ def test_validate_and_inspect_are_non_mutating_and_no_latest_api(tmp_path):
     assert not hasattr(OutcomeEvidenceRepository(tmp_path), "latest")
 
 
+def test_validate_never_constructs_repository(monkeypatch, tmp_path):
+    source = _write(tmp_path / "source.json", _manifest())
+    import learning.outcome_evidence.operator_acquisition as module
+    monkeypatch.setattr(module, "OutcomeEvidenceRepository",
+                        lambda *_: (_ for _ in ()).throw(AssertionError("repository constructed")))
+    result = module.validate(source)
+    assert result["mutation_occurred"] is False
+
+
+def test_record_identity_construction_is_repository_path_independent(tmp_path):
+    manifest = OutcomeEvidenceManifest.from_dict(_manifest())
+    preview = validate(_write(tmp_path / "source.json", _manifest()))
+    a = build_evidence_record(manifest, preview["source_digest"], preview["replay_digest"])
+    b = build_evidence_record(manifest, preview["source_digest"], preview["replay_digest"])
+    assert a == b
+
+
 def test_import_idempotency_exact_lookup_and_raw_pr175_handoff(tmp_path):
     source = _write(tmp_path / "source.json", _manifest())
     first = import_evidence(source, tmp_path); second = import_evidence(source, tmp_path)
@@ -148,6 +166,59 @@ def test_exact_pr173_construction_source_replay_and_duplicate(tmp_path):
     assert first["source_digest"] == imported["source_digest"]
     assert first["replay_digest"] == imported["replay_digest"]
     assert first["mutation_occurred"] and second["duplicate_replay"]
+
+
+def test_prospective_mismatch_fails_before_pr173_persistence(monkeypatch, tmp_path):
+    from dataclasses import replace
+    import learning.outcome_evidence.operator_acquisition as module
+    source = _write(tmp_path / "source.json", _manifest())
+    imported = import_evidence(source, tmp_path)
+    original = module.KnowledgeOutcomeAttributionEngine.analyze
+
+    def mismatch(self, rows):
+        report = original(self, rows)
+        return replace(report, source_digest="f" * 64)
+
+    monkeypatch.setattr(module.KnowledgeOutcomeAttributionEngine, "analyze", mismatch)
+    with pytest.raises(OutcomeEvidenceError, match="PR173_RESULT_PROVENANCE_MISMATCH") as error:
+        construct_pr173(tmp_path, imported["evidence_uuid"])
+    assert error.value.mutation_occurred is False
+    assert not (tmp_path / "outcome_attribution").exists()
+
+
+def test_persisted_report_is_reloaded_and_exactly_verified(monkeypatch, tmp_path):
+    import learning.outcome_evidence.operator_acquisition as module
+    source = _write(tmp_path / "source.json", _manifest())
+    imported = import_evidence(source, tmp_path)
+    original = module.KnowledgeOutcomeAttributionRepository.load
+    loaded = []
+
+    def observed_load(self, identity):
+        loaded.append(identity)
+        return original(self, identity)
+
+    monkeypatch.setattr(module.KnowledgeOutcomeAttributionRepository, "load", observed_load)
+    result = construct_pr173(tmp_path, imported["evidence_uuid"])
+    assert loaded == [result["attribution_uuid"]]
+    assert result["mutation_occurred"] is True and result["duplicate_replay"] is False
+
+
+def test_post_persistence_corruption_fails_closed(monkeypatch, tmp_path):
+    import learning.outcome_evidence.operator_acquisition as module
+    source = _write(tmp_path / "source.json", _manifest())
+    imported = import_evidence(source, tmp_path)
+    original = module.KnowledgeOutcomeAttributionEngine.analyze
+
+    def corrupt_after_owner_save(self, rows):
+        report = original(self, rows)
+        if self._repository is not None:
+            self._repository.path_for(report.attribution_uuid).write_text("{}", encoding="utf-8")
+        return report
+
+    monkeypatch.setattr(module.KnowledgeOutcomeAttributionEngine, "analyze", corrupt_after_owner_save)
+    with pytest.raises(OutcomeEvidenceError, match="PR173_RESULT_PROVENANCE_MISMATCH") as error:
+        construct_pr173(tmp_path, imported["evidence_uuid"])
+    assert error.value.mutation_occurred is True
 
 
 def test_interrupted_import_retry_safe(monkeypatch, tmp_path):

@@ -13,19 +13,21 @@ from .models import (OutcomeEvidenceError, OutcomeEvidenceManifest, RECORD_NAMES
                      canonical_json)
 
 
+def build_evidence_record(manifest: OutcomeEvidenceManifest, source_digest: str,
+                          replay_digest: str) -> dict[str, Any]:
+    """Construct canonical record identity without creating a repository instance."""
+    evidence_uuid = str(uuid5(RECORD_NAMESPACE, manifest.manifest_digest))
+    payload = {"evidence_uuid": evidence_uuid, "manifest": manifest.to_dict(),
+               "source_digest": source_digest, "replay_digest": replay_digest}
+    return {**payload, "record_digest": sha256(canonical_json(payload)).hexdigest()}
+
+
 class OutcomeEvidenceRepository:
     def __init__(self, root: str | Path = "learning_data"):
         self.root = Path(root) / "outcome_evidence"
 
     def path_for(self, evidence_uuid: str) -> Path:
         return self.root / f"evidence_{evidence_uuid}.json"
-
-    def make_record(self, manifest: OutcomeEvidenceManifest, source_digest: str,
-                    replay_digest: str) -> dict[str, Any]:
-        evidence_uuid = str(uuid5(RECORD_NAMESPACE, manifest.manifest_digest))
-        payload = {"evidence_uuid": evidence_uuid, "manifest": manifest.to_dict(),
-                   "source_digest": source_digest, "replay_digest": replay_digest}
-        return {**payload, "record_digest": sha256(canonical_json(payload)).hexdigest()}
 
     def save(self, record: dict[str, Any]) -> tuple[Path, bool]:
         data = canonical_json(record)

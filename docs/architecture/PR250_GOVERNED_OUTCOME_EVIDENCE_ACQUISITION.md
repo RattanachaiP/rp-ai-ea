@@ -39,6 +39,13 @@ python -m learning.outcome_evidence.operator_acquisition construct-pr173 --evide
 
 `validate` computes prospective identities without creating `learning_data`. `inspect` verifies all records or one exact record without writes. `import` writes only raw evidence. `construct-pr173` verifies exactly one record, reconstructs exact rows, invokes the existing PR173 engine, persists through its repository, verifies source/replay digests, and returns the deterministic attribution UUID. Both mutations are idempotent. Put `--base <exact-learning-data-root>` before the subcommand for a non-default root.
 
+Canonical evidence-record construction is a pure operation independent of repository
+location. PR173 construction verifies prospective source and replay provenance before
+the owner repository is invoked. After owner persistence, it reloads the exact
+attribution UUID through that repository and verifies canonical bytes, UUID, source
+digest, replay digest, and equality with the owner result. Mutation and duplicate
+flags are derived only from the verified post-persistence canonical state.
+
 ## Failure and recovery
 
 Every diagnostic reports `mutation_occurred`, `rerun_safe`, and exact `next_action`.
