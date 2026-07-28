@@ -20,7 +20,8 @@ DEFAULT_MARKET_STATE_PATH = Path(
 )
 SHARED_ROOT_ENVIRONMENT_VARIABLE = "RP_AI_SHARED_ROOT"
 _LOGGER = logging.getLogger("runtime.environment_observation")
-OBSERVATION_POLICY_VERSION = "PR187-OBSERVATION-POLICY.1.0"
+OBSERVATION_POLICY_VERSION = "PR187-OBSERVATION-POLICY.1.1"
+DEFAULT_MAX_CLOCK_SKEW_SECONDS = 2.0
 EXPECTED_SYMBOL = "XAUUSD"
 EXPECTED_PRODUCER = "RP_AI_MT5_MARKET_STATE"
 EXPECTED_PRODUCER_VERSION = "V1"
@@ -82,6 +83,7 @@ class EnvironmentObservationPolicy:
     heartbeat_field: str = "heartbeat_unix"
     sequence_field: str = "sequence_id"
     stale_limit_seconds: float = 5.0
+    max_clock_skew_seconds: float = DEFAULT_MAX_CLOCK_SKEW_SECONDS
     minimum_unique_observations: int = 3
     dimensions: tuple = _DIMENSIONS
 
@@ -97,6 +99,9 @@ class EnvironmentObservationPolicy:
             or self.sequence_field != "sequence_id"
             or type(self.stale_limit_seconds) is not float
             or self.stale_limit_seconds <= 0.0
+            or type(self.max_clock_skew_seconds) is not float
+            or not isfinite(self.max_clock_skew_seconds)
+            or self.max_clock_skew_seconds < 0.0
             or type(self.minimum_unique_observations) is not int
             or self.minimum_unique_observations < 2
             or tuple(row[0] for row in self.dimensions) != ENVIRONMENT_DIMENSIONS
@@ -203,9 +208,10 @@ class GovernedEnvironmentObservationProducer:
                 self._validate_identity(data)
                 now = self.clock()
                 heartbeat = self._number(data, self.policy.heartbeat_field)
-                age = now - heartbeat
-                if age < 0.0:
+                clock_delta = now - heartbeat
+                if heartbeat > now + self.policy.max_clock_skew_seconds:
                     raise EnvironmentObservationError("MARKET_STATE_HEARTBEAT_FUTURE")
+                age = max(0.0, clock_delta)
                 if age > self.policy.stale_limit_seconds:
                     raise EnvironmentObservationError("MARKET_STATE_HEARTBEAT_STALE")
                 sequence_value = self._number(data, self.policy.sequence_field)

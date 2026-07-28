@@ -19,7 +19,9 @@ constructing `ProductionStartupConfiguration`; therefore the decision reader,
 recommendation pipeline, executor, and broker cannot run when collection fails. The
 collector samples for five seconds at 50 ms intervals and requires **three** unique
 sequence IDs. Every accepted publication must have the exact XAUUSD producer,
-producer-version, schema and source UUID; a heartbeat age in `0..5` seconds; a
+producer-version, schema and source UUID; a heartbeat no more than five seconds old
+and no more than the immutable policy's `max_clock_skew_seconds` ahead of the host
+clock; a
 non-negative integer sequence; a positive bid; non-negative spread and slippage; and
 session/liquidity quality in `0..1`. Unique samples must be strictly sequence-ordered.
 The readiness thresholds remain owned by PR187 and are unchanged.
@@ -43,7 +45,7 @@ cache.
 | slippage expectation | Writer live-tick EWMA policy | maximum points |
 | market-liquidity quality | Writer governed telemetry | minimum |
 | environment consistency | Writer sequence/heartbeat pairs | progressing pairs / transitions |
-| data freshness | Writer `heartbeat_unix` and collector wall clock | maximum age |
+| data freshness | Writer `heartbeat_unix` and collector wall clock | maximum non-negative age; accepted clock skew reports zero age |
 | environment completeness | collector required-field validation | complete reads / attempts |
 
 ## Root cause and correction

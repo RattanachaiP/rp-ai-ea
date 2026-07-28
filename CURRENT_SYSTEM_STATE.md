@@ -4,6 +4,19 @@ Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
 
+## PR242 Runtime Clock Skew Policy — IMPLEMENTED, PENDING ACCEPTANCE
+
+- Environment Observation now declares an immutable, digest- and UUID-bound
+  `max_clock_skew_seconds` policy field with a governed two-second default.
+- MT5 broker-clock heartbeats at or below host time plus the declared tolerance are
+  accepted; only heartbeats strictly beyond that boundary fail closed as future.
+  Stale, duplicate, producer-identity, telemetry, sequence, and lineage behaviour is
+  unchanged.
+- The change is isolated to Environment Observation policy and collection. It adds
+  no decision, strategy, risk, publication, execution-package, Writer, Executor,
+  broker-safety, `OrderSend`, or execution-confidence behaviour.
+
+
 ## Production Execution Initialization — IMPLEMENTED, PENDING ACCEPTANCE
 
 - `runtime.production_startup` is the canonical operator-facing entrypoint. It resolves
