@@ -21,12 +21,24 @@ class RuntimeContext:
     observed_at: float
     heartbeat_age_seconds: float
     source_heartbeat_unix: float
+    structure: Mapping[str, Any]
+    regime: Mapping[str, Any]
+    trend: Mapping[str, Any]
+    momentum: Mapping[str, Any]
+    volatility: Mapping[str, Any]
+    liquidity: Mapping[str, Any]
+    opportunity: Mapping[str, Any]
     runtime_version: str = "V28.PR-A"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "market", deep_freeze(self.market))
+        for field in ("structure", "regime", "trend", "momentum", "volatility", "liquidity", "opportunity"):
+            object.__setattr__(self, field, deep_freeze(getattr(self, field)))
 
 
 def construct_runtime_context(market: Mapping[str, Any], *, now: float) -> RuntimeContext:
+    from .market_snapshot import build_market_intelligence
+
     heartbeat = float(market["heartbeat_unix"])
-    return RuntimeContext(market, now, max(0.0, now - heartbeat), heartbeat)
+    intelligence = build_market_intelligence(market)
+    return RuntimeContext(market, now, max(0.0, now - heartbeat), heartbeat, **intelligence)
