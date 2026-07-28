@@ -1,50 +1,85 @@
 # Production Demo Certification (PR256)
 
-## Scope and authority
+## Authority and boundary
 
-Certification is an offline, read-only evaluation. It cannot change the
-Runtime, AI, execution, strategy, risk, learning, promotion, or live-trading
-state. A `READY FOR LIVE REVIEW` result is advisory and **never authorizes live
-trading**; human approval remains mandatory.
+Certification is offline, read-only, advisory-only, and incapable of changing
+Runtime, AI, Strategy, Execution, Learning, promotion, or live-trading state.
+`READY FOR LIVE REVIEW` authorizes only human review. Human approval remains
+mandatory before live trading.
 
-## Authoritative evidence
+## Governed policy
 
-The certifier accepts only `runtime_metrics.json`,
-`runtime_daily_summary.json`, `production_trading_report.json`,
-`pipeline_validation_report.json`, `production_improvement_backlog.json`,
-`trade_statistics.csv`, and one or more MT5 `ReportHistory` exports. The
-production report's SHA-256 provenance must match every selected raw runtime
-and trade snapshot. Every selected input digest is recorded in the result.
+Every run explicitly selects an immutable
+`PR256.PRODUCTION_DEMO_CERTIFICATION_POLICY.1.0` JSON document. It declares
+`policy_id`, `policy_version`, `owner`, `approver`, `effective_at_utc`, and
+`approved_thresholds`. Each threshold is a typed numeric `value` with a `unit`.
+The output records the policy identity, authority, effective time, and SHA-256.
+
+Architecture safety bounds cannot be weakened by policy: the completed-trade
+sample is an integer of at least 300, minimum Profit Factor is at least 1.1
+ratio, and maximum equity drawdown is no more than 25 percent. Booleans,
+strings, NaN, infinity, missing units, and fractional trade samples fail closed.
+
+## Cohort manifest and temporal proof
+
+Every run explicitly selects an immutable
+`PR256.CERTIFICATION_EVIDENCE_MANIFEST.1.0`. Its `evidence_batch_id`, observation
+window, freshness limit, and exact `(basename, SHA-256)` snapshot set bind one
+cohort. Aggregate reports must repeat the batch and exact window, be generated
+within the permitted post-window range, and use a policy effective before the
+window.
+
+Continuous operation is proven from a window of at least 604,800 seconds,
+runtime start/update coverage, and one `runtime_daily_summary.json` for every
+UTC date in the window. Dates must be contiguous and daily generation times
+must be in-cohort. Any daily restart or exception fails the continuous-window
+gate. Cumulative uptime alone is not used as continuity proof.
+
+## Evidence authority and reconciliation
+
+Runtime execution accepted/rejected counts must equal PR253 execution counts.
+PR254 lifecycle totals, successful counts, missing-stage counts, and reported
+rate are recomputed from its lifecycle records. Missing or contradictory
+metrics fail closed.
+
+`trade_statistics.csv` and MT5 `ReportHistory` are immutable,
+manifest-bound **provenance-only** inputs. Their hashes must occur in PR253
+provenance. PR253 is the sole governed analytics authority for completed-trade
+counts and totals; the certification does not imply independent raw-row
+validation.
+
+The canonical drawdown metric is `maximum_equity_drawdown_percent`, unit
+`percent`, basis `equity_peak_to_trough`. A different metric, unit, or basis
+fails closed.
 
 ## Objective gates
 
 | Domain | Gate | Acceptance |
 |---|---|---|
-| Runtime | Continuous operation | At least 604,800 seconds (7 days) |
-| Runtime | Unexplained crash | Zero recorded restarts and runtime exceptions |
-| Pipeline | Interruption | Zero missing lifecycle stages |
-| Pipeline | Success rate | At least 99%, with at least one lifecycle |
-| Execution | Order submission | Accepted / (accepted + rejected) at least 99%, with at least one submission |
-| Execution | Unresolved failures | Zero non-resolved execution-reliability backlog items |
-| Execution | Duplicate lifecycle | Zero duplicate decision/lifecycle observations |
-| Trading | Sample | At least 300 completed trades, or a higher human-selected statistically required sample |
-| Trading | Expectancy | Strictly positive |
-| Trading | Profit Factor | At least the human-supplied team acceptance threshold |
-| Trading | Maximum drawdown | At most the human-supplied approved risk limit |
+| Runtime | Continuous seven-day observation window | At least 604,800 seconds, all UTC daily summaries present, no restart or exception gap |
+| Pipeline | Lifecycle success | Reconciled success rate at least 99%, nonzero cohort, zero missing stages |
+| Execution | Order submission | Reconciled accepted / total submissions at least 99%, nonzero denominator |
+| Execution | Duplicate publication | Zero `duplicate_decision_count`; no claim is made that this is lifecycle duplication |
+| Operations | Blocking backlog | Zero unresolved Runtime Stability, Pipeline Completeness, Execution Reliability, or Decision Delivery items; all unresolved P0/P1 items also block |
+| Trading | Sample | At least the governed sample, never below 300 completed trades |
+| Trading | Expectancy | Strictly positive report-currency expectancy per trade |
+| Trading | Profit Factor | At least the governed ratio, never below 1.1 |
+| Trading | Drawdown | At most the governed equity peak-to-trough percentage, never above 25% |
 
-The sample requirement cannot be configured below 300. Profit Factor and
-drawdown limits have no embedded strategy defaults: the team must supply its
-approved values for every certification run.
+Backlog statuses are limited to `PENDING_HUMAN_REVIEW`, `IN_PROGRESS`, and
+`RESOLVED`. Resolution requires `approved_by`, `verified_by`,
+`resolved_at_utc`, `evidence_reference`, and an
+`implementation_or_verification_artifact`; a bare `RESOLVED` never passes.
 
-## Result policy
+## Results
 
-* **NOT READY** — any Runtime, Pipeline, or Execution gate fails. Operational
-  integrity failures cannot be overridden by trading performance.
-* **READY FOR EXTENDED DEMO** — every operational gate passes, but one or more
-  Trading gates has not yet passed. More demo evidence or human review is
-  required; this is not live readiness.
-* **READY FOR LIVE REVIEW** — every gate passes. This permits only mandatory
-  human review, not a transition to live trading.
+* **NOT READY** — a Runtime, Pipeline, Execution, or operational gate fails.
+* **READY FOR EXTENDED DEMO** — all operational gates pass but a Trading gate
+  remains unmet.
+* **READY FOR LIVE REVIEW** — every gate passes; human approval is still
+  mandatory and no automatic live transition occurs.
 
-Invalid, missing, mismatched, non-finite, or non-authoritative evidence fails
-closed without producing a new certification report.
+Invalid, stale, mixed, incomplete, inconsistent, or non-authoritative evidence
+fails closed. The sole output is atomically replaced
+`production_demo_certification.json`; sources are never modified and no
+latest-file discovery occurs.
