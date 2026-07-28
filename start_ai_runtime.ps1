@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 # This file lives at the repository root. Resolve it rather than relying on the
 # operator's current directory so module imports and learning_data roots are stable.
 $RepositoryRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-if (-not (Test-Path -LiteralPath (Join-Path $RepositoryRoot "runtime\production_startup.py") -PathType Leaf)) {
+if (-not (Test-Path -LiteralPath (Join-Path $RepositoryRoot "bridge\ai_decision_engine_xauusd_v26_execution_confidence_engine.py") -PathType Leaf)) {
     throw "Unable to detect the RP AI EA repository root from launcher path: $RepositoryRoot"
 }
 
@@ -17,8 +17,8 @@ if ($null -eq $Python) {
 
 Push-Location $RepositoryRoot
 try {
-    # Ask the governed resolver for the exact path that production startup will read.
-    $MarketStatePath = & $Python.Source -c "from runtime.environment_observation import canonical_market_state_path; print(canonical_market_state_path())"
+    # Resolve the exact path used by the established Demo decision engine.
+    $MarketStatePath = & $Python.Source -c "from bridge.ai_decision_engine_xauusd_v26_execution_confidence_engine import FILE_PATH; print(FILE_PATH)"
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($MarketStatePath)) {
         throw "Unable to resolve the canonical market_state.json path."
     }
@@ -27,9 +27,9 @@ try {
         throw "Required market_state.json does not exist: $MarketStatePath"
     }
 
-    python -m runtime.dev_startup
+    & $Python.Source -m bridge.ai_decision_engine_xauusd_v26_execution_confidence_engine
     if ($LASTEXITCODE -ne 0) {
-        throw "Governed AI Runtime startup failed with exit code $LASTEXITCODE."
+        throw "AI Demo Runtime startup failed with exit code $LASTEXITCODE."
     }
 }
 finally {

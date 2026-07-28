@@ -20,7 +20,6 @@ from bridge.knowledge_observer import KnowledgeObserver, VerifiedKnowledgeReader
 from bridge.knowledge_observation_audit import KnowledgeObservationAuditSink
 from bridge.execution_confidence_integration import (
     ExecutionConfidenceContext, ExecutionConfidenceIntegration,
-    ExecutionConfidenceIntegrationError,
 )
 from learning.execution_package_consumer import ExecutionPackageConsumer
 from runtime.decision_publication import (
@@ -10175,23 +10174,26 @@ def run():
     print(f"MAX_SIGNALS_PER_BAR = {MAX_SIGNALS_PER_BAR} | COOLDOWN_SECONDS = {COOLDOWN_SECONDS}")
 
     package_uuid = os.environ.get("RP_EXECUTION_PACKAGE_UUID", "").strip()
-    if not package_uuid:
-        error = ExecutionConfidenceIntegrationError("PACKAGE_MISSING")
-        observer.failure("CONFIG", error, terminal=True)
-        raise error
     observer.stage("CONFIGURATION")
     if FILE_PATH.name != "market_state.json" or OUTPUT_PATH.name != "decision.json":
         error = RuntimeError("NON_CANONICAL_RUNTIME_PATH")
         observer.failure("CONFIG", error, terminal=True)
         raise error
     observer.stage("PATH RESOLUTION")
-    try:
-        execution_context = ExecutionConfidenceIntegration(
-            ExecutionPackageConsumer()).consume(package_uuid)
-    except Exception as exc:
-        observer.failure("CONFIG", exc, terminal=True)
-        raise
-    print("EXECUTION CONTEXT CONSUMED", flush=True)
+    execution_context = None
+    if package_uuid:
+        try:
+            execution_context = ExecutionConfidenceIntegration(
+                ExecutionPackageConsumer()).consume(package_uuid)
+        except Exception as exc:
+            observer.failure("CONFIG", exc, terminal=True)
+            raise
+        print("EXECUTION CONTEXT CONSUMED", flush=True)
+    else:
+        # The established Demo path predates the optional governed confidence
+        # enrichment.  Absence of an offline package must not stop market-state
+        # consumption or decision publication to the existing MT5 Executor.
+        print("DEMO RUNTIME DIRECT PATH | EXECUTION PACKAGE NOT REQUIRED", flush=True)
     observer.stage("ENVIRONMENT OBSERVATION")
 
     market_received = False
