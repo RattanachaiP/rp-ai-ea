@@ -31,6 +31,7 @@ from runtime.environment_observation import (
     GovernedEnvironmentObservationProducer,
     canonical_market_state_path,
 )
+from runtime.stage_lifecycle import RuntimeStageLifecycle
 
 
 class ProductionStartupError(ValueError):
@@ -265,25 +266,38 @@ def _parser():
 def main(argv: Optional[Sequence[str]] = None):
     arguments = _parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    lifecycle = RuntimeStageLifecycle()
+    current_stage = "Environment Observation"
     try:
-        evidence = GovernedEnvironmentObservationProducer(
-            arguments.market_state or canonical_market_state_path(),
-            window_seconds=arguments.observation_window,
-        ).collect()
-    except EnvironmentObservationError as exc:
-        raise ProductionStartupError(str(exc)) from exc
-    return GovernedProductionStartup(
-        ProductionStartupConfiguration.from_canonical_repository(
-            observations=evidence.observations,
-            captured_at=evidence.captured_at,
-            intelligence_root=arguments.intelligence_root,
-            recommendation_root=arguments.recommendation_root,
-            readiness_root=arguments.readiness_root,
-            environment_root=arguments.environment_root,
-            feasibility_root=arguments.feasibility_root,
-            package_root=arguments.package_root,
+        with lifecycle.stage("Environment Observation", "Market State Publication"):
+            try:
+                evidence = GovernedEnvironmentObservationProducer(
+                    arguments.market_state or canonical_market_state_path(),
+                    window_seconds=arguments.observation_window,
+                ).collect()
+            except EnvironmentObservationError as exc:
+                raise ProductionStartupError(str(exc)) from exc
+        current_stage = "Decision Engine"
+        with lifecycle.stage("Decision Engine", "Environment Observation"):
+            configuration = ProductionStartupConfiguration.from_canonical_repository(
+                observations=evidence.observations,
+                captured_at=evidence.captured_at,
+                intelligence_root=arguments.intelligence_root,
+                recommendation_root=arguments.recommendation_root,
+                readiness_root=arguments.readiness_root,
+                environment_root=arguments.environment_root,
+                feasibility_root=arguments.feasibility_root,
+                package_root=arguments.package_root,
+            )
+            return GovernedProductionStartup(configuration).start()
+    except BaseException as exc:
+        dependency = (
+            "Market State Publication"
+            if current_stage == "Environment Observation"
+            else "Environment Observation"
         )
-    ).start()
+        lifecycle.termination(exc, (current_stage, dependency, "Runtime"))
+        raise
 
 
 if __name__ == "__main__":
