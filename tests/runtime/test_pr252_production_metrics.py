@@ -2,7 +2,8 @@ import json
 
 import pytest
 
-from runtime.production_metrics import ProductionMetrics, SCHEMA_VERSION
+from runtime.production_metrics import DAILY_SCHEMA_VERSION, ProductionMetrics, SCHEMA_VERSION
+from runtime.runtime_observability import PublicationOutcome, RuntimeObservability
 
 
 def read(root, name):
@@ -41,6 +42,7 @@ def test_writes_complete_metrics_and_daily_summary_atomically(tmp_path):
     assert document["runtime_exception_count"] == 1
     summary = read(tmp_path, "runtime_daily_summary.json")
     assert summary["summary_date_utc"] == "2026-07-28"
+    assert summary["schema_version"] == DAILY_SCHEMA_VERSION
     assert summary["execution_rejection_count"] == 1
     assert not tuple(tmp_path.glob("*.tmp"))
 
@@ -49,6 +51,89 @@ def test_restart_count_survives_process_lifecycle(tmp_path):
     ProductionMetrics(tmp_path, clock=lambda: 1_785_196_800.0)
     restarted = ProductionMetrics(tmp_path, clock=lambda: 1_785_196_900.0)
     assert restarted.snapshot()["runtime_restart_count"] == 1
+
+
+def test_daily_counts_and_series_survive_same_day_restart(tmp_path):
+    timestamp = 1_785_196_800.0
+    first = ProductionMetrics(tmp_path, clock=lambda: timestamp)
+    first.decision_published({}, decision_latency_ms=10, json_publish_latency_ms=2)
+    restarted = ProductionMetrics(tmp_path, clock=lambda: timestamp + 60)
+    restarted.decision_published({}, decision_latency_ms=30, json_publish_latency_ms=4)
+
+    daily = read(tmp_path, "runtime_daily_summary.json")
+    assert daily["summary_date_utc"] == "2026-07-28"
+    assert daily["runtime_restart_count"] == 1
+    assert daily["decision_publish_count"] == 2
+    assert daily["decision_latency_ms"]["average"] == 20
+    assert daily["json_publish_latency_ms"]["count"] == 2
+
+
+def test_daily_aggregate_resets_on_utc_date_change(tmp_path):
+    first = ProductionMetrics(tmp_path, clock=lambda: 1_785_196_800.0)
+    first.decision_published({}, decision_latency_ms=10)
+    next_day = ProductionMetrics(tmp_path, clock=lambda: 1_785_283_200.0)
+
+    daily = read(tmp_path, "runtime_daily_summary.json")
+    assert daily["summary_date_utc"] == "2026-07-29"
+    assert daily["decision_publish_count"] == 0
+    assert daily["decision_latency_ms"]["count"] == 0
+    # A canonical prior runtime existed, so this new process is the first
+    # restart observed during the new UTC day.
+    assert daily["runtime_restart_count"] == 1
+
+
+def test_running_collector_rotates_daily_aggregate_at_utc_midnight(tmp_path):
+    now = [1_785_196_800.0]
+    metrics = ProductionMetrics(tmp_path, clock=lambda: now[0])
+    metrics.decision_published({}, decision_latency_ms=10)
+    now[0] = 1_785_283_200.0
+    metrics.decision_published({}, decision_latency_ms=30)
+
+    daily = read(tmp_path, "runtime_daily_summary.json")
+    assert daily["summary_date_utc"] == "2026-07-29"
+    assert daily["runtime_restart_count"] == 0
+    assert daily["decision_publish_count"] == 1
+    assert daily["decision_latency_ms"]["average"] == 30
+
+
+def test_metrics_initialization_failure_does_not_prevent_runtime_startup(tmp_path, monkeypatch):
+    import runtime.runtime_observability as module
+
+    def directory_failure(*_args, **_kwargs):
+        raise OSError("TELEMETRY_DIRECTORY_UNAVAILABLE")
+
+    monkeypatch.setattr(module, "ProductionMetrics", directory_failure)
+    observer = RuntimeObservability(tmp_path)
+    assert observer.snapshot()["status"] == "STARTING"
+    assert observer.metrics is None
+    assert "TELEMETRY_DIRECTORY_UNAVAILABLE" in observer._telemetry_diagnostics[0]
+
+
+def test_atomic_metrics_write_failure_does_not_fail_publication(tmp_path, monkeypatch):
+    observer = RuntimeObservability(tmp_path)
+    monkeypatch.setattr(
+        observer.metrics, "_atomic_write",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("METRICS_DISK_FULL")),
+    )
+    observer.publication({}, 5, PublicationOutcome.STALE_INPUT_FALLBACK)
+    assert observer.snapshot()["publication_count"] == 1
+    assert observer.snapshot()["fallback_count"] == 1
+    assert any("METRICS_DISK_FULL" in item for item in observer._telemetry_diagnostics)
+
+
+def test_telemetry_failure_does_not_mask_primary_failure_or_health(tmp_path, monkeypatch):
+    observer = RuntimeObservability(tmp_path)
+    monkeypatch.setattr(
+        observer.metrics, "runtime_exception",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("TELEMETRY_FAILED")),
+    )
+    primary = RuntimeError("PRIMARY_RUNTIME_FAILURE")
+    observer.failure("ANALYSIS", primary, detail=str(primary))
+    health = observer.snapshot()
+    assert health["health_state"] == "DEGRADED"
+    assert health["failure_owner"] == "ANALYSIS"
+    assert health["failure_detail"] == "PRIMARY_RUNTIME_FAILURE"
+    assert any("TELEMETRY_FAILED" in item for item in observer._telemetry_diagnostics)
 
 
 @pytest.mark.parametrize("value", [-1, float("nan"), float("inf"), "slow"])
