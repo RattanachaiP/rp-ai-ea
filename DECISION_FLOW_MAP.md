@@ -3,11 +3,12 @@
 ## PR262 V28 Decision Intelligence flow (non-production)
 
 `StructureContext + RegimeContext + TrendContext + MomentumContext + VolatilityContext`
-`+ LiquidityContext + OpportunityContext -> explicit expectancy verification`
-`-> risk eligibility -> deterministic confidence -> BUY / SELL / HOLD DecisionContext`.
+`+ LiquidityContext + advisory OpportunityContext + ExpectancyEvidenceRecord`
+`-> scope-bound DecisionCandidate -> expectancy verification -> decision-risk precheck`
+`-> categorical confidence -> BUY / SELL / HOLD DecisionContext`.
 
 The layer never reads raw market or indicator input. BUY or SELL requires every gate;
-missing, degraded, inconsistent, or non-executable evidence returns HOLD. The decision
+missing, degraded, mismatched, expired, or methodologically incomplete evidence returns HOLD. The decision
 is immutable, policy-versioned, explained, lineage-bound, and replay-identified.
 
 ## PR254 read-only validation flow

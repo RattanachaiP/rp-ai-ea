@@ -1,16 +1,16 @@
-"""Determine risk eligibility without reconstructing market analysis."""
-from .decision_contract import RiskEligibility
+"""Decision-risk precheck only; this module does not claim full risk eligibility."""
+from .decision_contract import DecisionRiskPrecheck
 
 
-def evaluate_risk_eligibility(expectancy, opportunity, *contexts):
-    all_contexts = (opportunity,) + contexts
-    if any(c.data_quality != "VALID" for c in all_contexts):
-        return RiskEligibility("RISK_REJECTED", ("CONTEXT_QUALITY_NOT_VALID",), "degraded evidence fails closed")
-    if opportunity.state != "PRESENT":
-        return RiskEligibility("RISK_DEFERRED", ("OPPORTUNITY_NOT_PRESENT",), "opportunity is not mature")
+def evaluate_risk_precheck(expectancy, candidate, opportunity, *contexts):
+    if any(context.data_quality != "VALID" for context in (opportunity,) + contexts):
+        return DecisionRiskPrecheck("DECISION_RISK_PRECHECK_REJECTED", ("CONTEXT_QUALITY_NOT_VALID",),
+                                    "degraded Market Intelligence fails closed")
+    if not candidate.authorized:
+        return DecisionRiskPrecheck("DECISION_RISK_PRECHECK_REJECTED", candidate.authorization_reasons,
+                                    "candidate scope or authority is incomplete")
     if expectancy.status != "POSITIVE_EXPECTANCY":
-        return RiskEligibility("RISK_REJECTED", ("POSITIVE_EXPECTANCY_REQUIRED",), "risk cannot rescue an unverified edge")
-    if opportunity.evidence.get("evidence_quality") != "VALID":
-        return RiskEligibility("RISK_REJECTED", ("EVIDENCE_QUALITY_NOT_VALID",), "evidence quality is insufficient")
-    return RiskEligibility("RISK_ELIGIBLE", ("EDGE_VERIFIED", "CONTEXTS_CONSISTENT", "OPPORTUNITY_MATURE"),
-                           "verified edge and consistent contexts justify risk review")
+        return DecisionRiskPrecheck("DECISION_RISK_PRECHECK_REJECTED", ("POSITIVE_EXPECTANCY_REQUIRED",),
+                                    "risk review cannot rescue an unverified edge")
+    return DecisionRiskPrecheck("RISK_REVIEW_READY", ("EXPECTANCY_VERIFIED", "CANDIDATE_AUTHORIZED"),
+                                "candidate may proceed to separately governed full risk review")

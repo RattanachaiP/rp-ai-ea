@@ -43,7 +43,7 @@ PR262 is authorized to implement deterministic Decision Intelligence over the se
 immutable PR261 Market Intelligence contexts. It may verify explicit historical
 expectancy evidence and construct BUY, SELL, or HOLD, but may not read market data or
 indicators, reconstruct market context, or grant broker authority. Missing, degraded,
-inconsistent, or non-executable input fails closed to HOLD. V27 remains unchanged.
+inconsistent evidence or unauthorized DecisionCandidate fails closed to HOLD; OpportunityContext remains advisory with executable=false. V27 remains unchanged.
 
 V28 is a proposal-stage replacement of the AI Decision Engine's thinking model,
 not a V27 optimization. Its authoritative philosophy is documented in

@@ -6,8 +6,8 @@ Authoritative branch policy: `codex-dev`
 ## PR262 V28 Decision Intelligence — IMPLEMENTED, NOT PRODUCTION-ACTIVE
 
 The immutable PR262 layer consumes only PR261 contexts, verifies explicit historical
-net-expectancy evidence, evaluates risk eligibility and explainable confidence, and
-constructs deterministic BUY, SELL, or HOLD. It is not wired into V27 production or
+net-expectancy evidence, performs an explicitly limited decision-risk precheck and categorical
+confidence assessment, and constructs deterministic BUY, SELL, or HOLD. It is not wired into V27 production or
 broker execution. Missing or degraded evidence returns HOLD.
 
 ## PR255 evidence review and improvement backlog — ADVISORY ONLY

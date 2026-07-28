@@ -1,43 +1,51 @@
 # PR262 V28 Decision Intelligence
 
-## Architecture
+## Architecture and ownership
 
-Decision Intelligence consumes the seven immutable PR261 contexts and never consumes
-bars, ticks, prices, or indicators. `expectancy_engine` validates an opportunity's
-explicit historical edge record; `risk_eligibility` decides whether accepting risk is
-justified; `confidence_engine` describes agreement, consistency, maturity, reliability,
-and quality; and `decision_engine` applies the final all-gates rule. Risk cannot create
-or rescue expectancy.
+PR261 continues to own `OpportunityContext`. It remains advisory and always carries
+`executable=false`. PR262 neither replaces nor mutates it. A separately owned, immutable
+`ExpectancyEvidenceRecord` carries canonical historical evidence. PR262 binds that record
+and the current opportunity into a `DecisionCandidate`; candidate authorization is not
+broker or execution authority.
 
-The layer is deterministic and pure. It has no clock, filesystem, network, learning,
-configuration mutation, publisher, Executor, or broker dependency.
+The evidence contract binds source authority, symbol, timeframe, archetype, market side,
+regime, Market policy, execution and cost models, sample period, outcome distribution,
+method, quality, recency, and expiry. Its evidence ID and replay identity are derived from
+all canonical content and verified at construction and use.
 
-## DecisionContext schema
+## Governance gates
 
-`DecisionContext` is an immutable `V28.DECISION_CONTEXT.1.0` value containing decision,
-direction, expectancy, confidence, risk eligibility, human reason, supporting evidence,
-conflicting/rejected evidence, context and evidence lineage, policy references, policy
-version, and a SHA-256 replay identity over its canonical decision payload.
+Expectancy requires exact current-scope matching plus costs, slippage, duplicate exclusion,
+a minimum 90-day/100-observation sample, out-of-sample evidence, current/unexpired status,
+a supported bootstrap method, a positive lower confidence bound, dispersion, drawdown, and
+sample-scope consistency. Missing or mismatched evidence fails closed.
 
-BUY or SELL requires positive expectancy, `RISK_ELIGIBLE`, confidence of at least 0.75,
-an explicitly executable opportunity, valid evidence quality, and an unambiguous market
-side. Every other combination is HOLD/NONE.
+Confidence is categorical (`GOVERNED_EVIDENCE_SUFFICIENT` or
+`GOVERNED_EVIDENCE_INSUFFICIENT`) and retains the governed evidence confidence measure; it
+does not average duplicated scores. `DecisionRiskPrecheck` reports only whether the
+candidate is `RISK_REVIEW_READY`. It does not claim stop, exposure, budget, broker, or full
+risk eligibility.
 
-## Replay validation
+Direction is authorized by the intersection of opportunity archetype, market-side scope,
+and the evidence record's historical direction profile. Market side alone never creates an
+action.
 
-Identical immutable contexts produce the same domain-separated SHA-256 replay identity.
-Context evidence identifiers, historical edge identifiers, and both policy versions are
-retained in lineage. Mutation attempts fail.
+## DecisionContext and replay
 
-## Examples and runtime log representation
+`DecisionContext` is immutable `V28.DECISION_CONTEXT.1.1`. Its own validator rejects BUY or
+SELL unless expectancy is positive, the risk precheck is ready, categorical confidence is
+sufficient, lineage is complete, and the candidate is authorized for the same direction.
+The replay identity hashes the complete canonical decision—nested expectancy, confidence,
+risk precheck, candidate, lineage, explanations, evidence summaries, policy references,
+and schema/policy versions—excluding only the replay identity itself.
 
-The unit suite constructs all outcomes solely from context contracts:
+## Diagnostic examples
 
 ```text
-DECISION_INTELLIGENCE decision=BUY direction=BUY expectancy=POSITIVE_EXPECTANCY risk=RISK_ELIGIBLE confidence=0.983333 executable=true
-DECISION_INTELLIGENCE decision=SELL direction=SELL expectancy=POSITIVE_EXPECTANCY risk=RISK_ELIGIBLE confidence=0.983333 executable=true
-DECISION_INTELLIGENCE decision=HOLD direction=NONE expectancy=EXPECTANCY_NOT_ESTABLISHED risk=RISK_REJECTED confidence=0.833333 executable=true
+DECISION_INTELLIGENCE decision=BUY candidate=AUTHORIZED expectancy=POSITIVE_EXPECTANCY risk_precheck=RISK_REVIEW_READY confidence=GOVERNED_EVIDENCE_SUFFICIENT
+DECISION_INTELLIGENCE decision=SELL candidate=AUTHORIZED expectancy=POSITIVE_EXPECTANCY risk_precheck=RISK_REVIEW_READY confidence=GOVERNED_EVIDENCE_SUFFICIENT
+DECISION_INTELLIGENCE decision=HOLD candidate=UNAUTHORIZED expectancy=EXPECTANCY_NOT_ESTABLISHED risk_precheck=DECISION_RISK_PRECHECK_REJECTED
 ```
 
-These are deterministic diagnostic representations, not production publication or broker
-logs. PR262 deliberately introduces no runtime side effect.
+These are deterministic diagnostics, not production logs. PR262 has no raw-indicator,
+publisher, Executor, broker, order, sizing, activation, learning, or runtime authority.
