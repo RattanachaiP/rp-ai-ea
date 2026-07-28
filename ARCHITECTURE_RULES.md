@@ -58,6 +58,15 @@ Risk Engine.
 
 **Rule #018 — Executive decision preparation.** Every Executive Decision Package must be deterministic, explainable, fully traceable, and governance-approved before presentation. The Executive Domain is advisory-only and may not modify the Trading or Intelligence domains, runtime payloads, deployment, or learning behavior.
 
+## PR183 governed advisory Decision Context construction rule
+
+PR183 Decision Context construction may occur only through the PR183 owner engine from
+an exact canonical PR182 confidence artifact and its verified repository/snapshot
+lineage. The operator construction command may compose exact snapshot lookup with that
+engine and the PR183 append-only repository only. It may not select a latest artifact,
+fabricate an identity, write repository JSON directly, construct or activate PR184, or
+invoke Runtime, Strategy, or Executor behavior.
+
 ## PR184 governed advisory Decision Intelligence rule
 
 **Rule #019 — Advisory Decision Intelligence.** PR184 may consume only immutable,

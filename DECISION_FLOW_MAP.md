@@ -431,6 +431,12 @@ PR180 is a fail-closed verification and advisory packaging boundary only. It own
 
 PR183 prepares context only. `CONTEXT_PREPARED` has no trading or operational meaning and cannot influence Market Analysis, strategy, bias, direction, risk, decision publication, Runtime or knowledge activation, broker safety, `OrderSend`, position management, exit authority, or execution. Only future PR184 may consume a `DecisionContext` to derive advisory Decision Intelligence.
 
+The explicit PR183 construction path is `operator-supplied exact PR182 confidence
+snapshot UUID -> learning.decision_context.operator_construction -> existing PR183
+owner engine -> existing append-only PR183 repository`. The CLI performs exact lookup
+only: it neither chooses a latest source nor creates UUIDs or repository JSON. Missing
+or invalid source state fails closed before target initialization.
+
 
 ## PR184 governed advisory Decision Intelligence flow
 
