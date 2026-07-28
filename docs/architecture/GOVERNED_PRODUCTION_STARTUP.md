@@ -149,3 +149,13 @@ test/runtime callback is injected. Before import, it sets
 runtime markers include `RP AI Decision Engine ... started`, `RUNTIME_BRANCH=`,
 `BASE_PATH =`, followed by decision writes (or the explicit market-state read-failed
 loop output). `PACKAGE_MISSING` is not expected.
+
+## PR248 fresh-install prerequisite
+
+Production initialization does not bootstrap learning evidence. Before initialization,
+use the governed PR248 inspection/plan/exact-construction workflow documented in
+`PR248_END_TO_END_GOVERNED_BOOTSTRAP.md`. A fresh clone requires real external PR173
+outcome evidence and a separately approved PR175 evidence envelope; empty directories,
+test fixtures, inferred latest identities, automatic approval, and automatic activation
+are invalid. PR248 verification is read-only and does not replace the existing explicit
+PR184 activation or production startup gates.

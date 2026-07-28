@@ -60,6 +60,19 @@ Risk Engine.
 
 ## PR183 governed advisory Decision Context construction rule
 
+## PR248 governed bootstrap composition rule
+
+The canonical learning lineage is PR173 outcome attribution, PR174 learning
+policy, PR175 approved-evidence pattern mining, PR176 pattern memory, PR177
+validation, PR178 promotion assessment, PR179 knowledge registry, PR180 runtime
+knowledge packaging, PR181 eligibility, PR182 confidence, PR183 context, and
+PR184 intelligence. PR173's operator-supplied immutable outcome evidence and
+PR175's separately approved evidence envelope are the external genesis boundary;
+neither may be synthesized from an empty clone. Bootstrap inspection, planning,
+and verification are read-only. Construction accepts an exact operator-selected
+upstream snapshot and delegates persistence to the downstream owner engine. It
+must not select latest evidence, approve, activate, or grant trading authority.
+
 PR183 Decision Context construction may occur only through the PR183 owner engine from
 an exact canonical PR182 confidence artifact and its verified repository/snapshot
 lineage. The operator construction command may compose exact snapshot lookup with that

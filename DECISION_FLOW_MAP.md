@@ -415,6 +415,14 @@ PR179 records offline historical governance metadata only. It owns its admission
 
 ## PR180 governed advisory Runtime knowledge packaging flow
 
+## PR248 fresh-install learning bootstrap flow
+
+`external immutable outcome evidence -> PR173 -> PR174 -> separately approved PR175 evidence envelope -> PR175 -> PR176 -> PR177 -> PR178 -> PR179 -> exact PR179 snapshot -> PR180 -> exact PR180 snapshot -> PR181 -> exact PR181 snapshot -> PR182 -> exact PR182 snapshot -> PR183 -> exact PR183 snapshot -> PR184 -> human review -> explicit owner activation -> production startup verification`.
+
+An empty clone cannot cross the external evidence boundary. Inspection and
+planning expose identities for visibility, but mutation always requires the
+operator to pass one exact snapshot UUID and never derives it from “latest”.
+
 `PR179 canonical Knowledge Registry -> registry/snapshot/repository/replay/governance verification -> immutable advisory RuntimeKnowledgePackage -> future PR181 selector`.
 
 PR180 is a fail-closed verification and advisory packaging boundary only. It owns exact canonical PR179 report/record binding, historical snapshot membership verification, complete governance provenance retention, packaging-policy and package identities, replay verification, append-only history, and package-repository integrity. It reads no raw trades, mining, Pattern Memory, Pattern Validation, or Pattern Promotion repositories. It has no Runtime decision use, selection, ranking, weighting, activation, inference, confidence, bias, scoring, direction, risk, decision-publication, position-management, broker, exit, or execution authority, and the existing Runtime Decision Engine remains unchanged. `ADVISORY_PACKAGE_PREPARED` denotes preparation for a future separately governed stage only.
