@@ -43,7 +43,7 @@ def test_not_running_until_first_atomic_publication_and_real_stage_order(tmp_pat
         "BOOT", "CONFIGURATION", "PATH RESOLUTION", "ENVIRONMENT OBSERVATION",
         "MARKET STATE READER", "MARKET STATE ACCEPTED", "DECISION CONTEXT",
         "DECISION INTELLIGENCE", "RISK", "DECISION PUBLISHER",
-        "FIRST DECISION PERSISTED", "RUNTIME LOOP",
+        "FIRST NORMAL DECISION PERSISTED", "RUNTIME LOOP",
     )
     log = (tmp_path / "runtime_startup.log").read_text()
     positions = tuple(log.index(stage) for stage in expected)
@@ -63,15 +63,24 @@ def test_degraded_fallback_is_preserved_until_normal_recovery(tmp_path):
     observer.stage("DECISION PUBLISHER")
     observer.publication(decision(), 2.0, PublicationOutcome.STALE_INPUT_FALLBACK)
     degraded = health(tmp_path)
-    assert degraded["status"] == "RUNNING"
+    assert degraded["status"] == "STARTING"
     assert degraded["health_state"] == "DEGRADED"
+    assert degraded["runtime_started"] is False
+    assert degraded["current_stage"] == "READER"
     assert degraded["failure_owner"] == "READER"
     assert degraded["failure_reason"] == "MARKET_STATE_READ_REJECTED"
+    assert not (tmp_path / "first_decision.json").exists()
+    assert "RUNTIME LOOP" not in (tmp_path / "runtime_startup.log").read_text()
 
     reach_publication(observer)
     observer.publication(decision(10), 1.0, PublicationOutcome.NORMAL)
     recovered = health(tmp_path)
     assert recovered["health_state"] == "HEALTHY"
+    assert recovered["status"] == "RUNNING"
+    assert recovered["runtime_started"] is True
+    assert recovered["first_publication_at"] is not None
+    assert recovered["first_normal_decision_at"] is not None
+    assert recovered["fallback_count"] == 1
     assert recovered["failure_owner"] is None
     assert recovered["failure_reason"] is None
 
@@ -81,6 +90,13 @@ def test_publication_metrics_are_separate(tmp_path):
     observer.publication(decision(1), 1, PublicationOutcome.STALE_INPUT_FALLBACK)
     observer.failure("ANALYSIS", RuntimeError("BUILD_DECISION_FAILED"))
     observer.publication(decision(2), 1, PublicationOutcome.LOGIC_ERROR_REJECTION)
+    before_start = health(tmp_path)
+    assert before_start["status"] == "STARTING"
+    assert before_start["health_state"] == "DEGRADED"
+    assert before_start["runtime_started"] is False
+    assert before_start["current_stage"] == "ANALYSIS"
+    assert before_start["failure_owner"] == "ANALYSIS"
+    assert before_start["rejected_loop_count"] == 1
     observer.publication(decision(3), 1, PublicationOutcome.NORMAL)
     state = health(tmp_path)
     assert state["publication_count"] == 3
@@ -89,6 +105,63 @@ def test_publication_metrics_are_separate(tmp_path):
     assert state["fallback_count"] == 1
     assert state["rejected_loop_count"] == 1
     assert len((tmp_path / "decision.log").read_text().splitlines()) == 3
+
+
+def test_repeated_fallbacks_never_activate_runtime(tmp_path):
+    observer = RuntimeObservability(tmp_path)
+    observer.failure("READER", RuntimeError("MARKET_STATE_READ_REJECTED"))
+    observer.publication(decision(1), 1, PublicationOutcome.STALE_INPUT_FALLBACK)
+    observer.failure("READER", RuntimeError("MARKET_STATE_READ_REJECTED"))
+    observer.publication(decision(2), 1, PublicationOutcome.STALE_INPUT_FALLBACK)
+    state = health(tmp_path)
+    assert state["status"] == "STARTING"
+    assert state["health_state"] == "DEGRADED"
+    assert state["runtime_started"] is False
+    assert state["publication_count"] == state["fallback_count"] == 2
+    assert state["successful_loop_count"] == 0
+    assert "RUNTIME LOOP" not in (tmp_path / "runtime_startup.log").read_text()
+    assert not tuple(tmp_path.glob("*.tmp"))
+
+
+def test_fallback_after_start_degrades_and_normal_recovery_retains_history(tmp_path):
+    observer = RuntimeObservability(tmp_path)
+    observer.publication(decision(1), 1, PublicationOutcome.NORMAL)
+    observer.failure("READER", RuntimeError("MARKET_STATE_READ_REJECTED"))
+    observer.publication(decision(2), 1, PublicationOutcome.STALE_INPUT_FALLBACK)
+    degraded = health(tmp_path)
+    assert degraded["status"] == "RUNNING"
+    assert degraded["runtime_started"] is True
+    assert degraded["health_state"] == "DEGRADED"
+    assert degraded["failure_owner"] == "READER"
+
+    observer.publication(decision(3), 1, PublicationOutcome.NORMAL)
+    recovered = health(tmp_path)
+    assert recovered["status"] == "RUNNING"
+    assert recovered["health_state"] == "HEALTHY"
+    assert recovered["failure_owner"] is None
+    assert recovered["failure_reason"] is None
+    assert recovered["publication_count"] == 3
+    assert recovered["successful_loop_count"] == 2
+    assert recovered["fallback_count"] == 1
+
+
+def test_first_normal_snapshot_is_not_created_by_non_normal_outcomes(tmp_path):
+    observer = RuntimeObservability(tmp_path)
+    observer.failure("READER", RuntimeError("MARKET_STATE_READ_REJECTED"))
+    observer.publication(decision(1), 1, PublicationOutcome.STALE_INPUT_FALLBACK)
+    observer.failure("ANALYSIS", RuntimeError("BUILD_DECISION_FAILED"))
+    observer.publication(decision(2), 1, PublicationOutcome.LOGIC_ERROR_REJECTION)
+    assert not (tmp_path / "first_decision.json").exists()
+
+    observer.publication(decision(3), 1, PublicationOutcome.NORMAL)
+    snapshot = (tmp_path / "first_decision.json").read_bytes()
+    assert json.loads(snapshot)["sequence_id"] == 3
+    observer.publication(decision(4), 1, PublicationOutcome.NORMAL)
+    assert (tmp_path / "first_decision.json").read_bytes() == snapshot
+    assert "FIRST NORMAL DECISION PERSISTED -> RUNTIME LOOP" in (
+        tmp_path / "runtime_startup.log"
+    ).read_text()
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 @pytest.mark.parametrize("owner", [

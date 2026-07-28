@@ -36,6 +36,8 @@ class RuntimeObservability:
         self._last_stage = "BOOT"
         self._health: dict[str, object] = {
             "status": "STARTING", "health_state": "HEALTHY",
+            "runtime_started": False, "first_publication_at": None,
+            "first_normal_decision_at": None,
             "loop_count": 0, "publication_count": 0,
             "successful_loop_count": 0, "fallback_count": 0,
             "rejected_loop_count": 0, "last_market_state": None,
@@ -67,12 +69,28 @@ class RuntimeObservability:
 
     def publication(self, document: Mapping[str, object], latency_ms: float,
                     outcome: PublicationOutcome) -> None:
-        """Record one atomically persisted document and its truthful outcome."""
+        """Record persisted evidence; only a NORMAL outcome starts the Runtime.
+
+        ``loop_count`` is the count of completed, persisted runtime outcomes,
+        not a count of healthy or successful loops. ``first_decision.json`` is
+        immutable evidence of the first NORMAL decision only.
+        """
         if not isinstance(outcome, PublicationOutcome):
             raise ValueError("INVALID_PUBLICATION_OUTCOME")
         with self._lock:
             first_publication = not self._health["publication_count"]
-            persisted_stage = "FIRST DECISION PERSISTED" if first_publication else "DECISION PERSISTED"
+            runtime_started = bool(self._health["runtime_started"])
+            now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            if first_publication:
+                self._health["first_publication_at"] = now
+            persisted_stage = {
+                PublicationOutcome.NORMAL: (
+                    "NORMAL DECISION PERSISTED" if runtime_started
+                    else "FIRST NORMAL DECISION PERSISTED"
+                ),
+                PublicationOutcome.STALE_INPUT_FALLBACK: "FALLBACK DECISION PERSISTED",
+                PublicationOutcome.LOGIC_ERROR_REJECTION: "REJECTED DECISION PERSISTED",
+            }[outcome]
             self.stage(persisted_stage)
             self._health["publication_count"] = int(self._health["publication_count"]) + 1
             counter = {
@@ -92,21 +110,27 @@ class RuntimeObservability:
                 "decision_uuid": document.get("decision_uuid"),
                 "outcome": outcome.value,
             }
-            self._health.update(status="RUNNING", current_stage="RUNTIME LOOP",
-                                loop_latency_ms=round(float(latency_ms), 3))
+            self._health["loop_latency_ms"] = round(float(latency_ms), 3)
             if outcome is PublicationOutcome.NORMAL:
-                self._health.update(health_state="HEALTHY", failure_owner=None,
-                                    failure_reason=None)
+                if not runtime_started:
+                    self._health["first_normal_decision_at"] = now
+                self._health.update(status="RUNNING", health_state="HEALTHY",
+                                    runtime_started=True, current_stage="RUNTIME LOOP",
+                                    failure_owner=None, failure_reason=None)
             else:
                 self._health["health_state"] = "DEGRADED"
+                self._health["status"] = "RUNNING" if runtime_started else "STARTING"
+                self._health["current_stage"] = self._health["failure_owner"] or persisted_stage
             self._append("decision.log", "PUBLISHED", json.dumps(self._health["last_decision"], sort_keys=True))
-            first = self.root / "first_decision.json"
-            if not first.exists():
-                self._atomic_write(first, (json.dumps(dict(document), indent=2, sort_keys=True) + "\n").encode())
-            self._last_stage = "RUNTIME LOOP"
-            self._append("runtime.log", "TRANSITION", f"{persisted_stage} -> RUNTIME LOOP")
-            if first_publication:
-                self._append("runtime_startup.log", "TRANSITION", "FIRST DECISION PERSISTED -> RUNTIME LOOP")
+            if outcome is PublicationOutcome.NORMAL:
+                first = self.root / "first_decision.json"
+                if not first.exists():
+                    self._atomic_write(first, (json.dumps(dict(document), indent=2, sort_keys=True) + "\n").encode())
+                self._last_stage = "RUNTIME LOOP"
+                transition = f"{persisted_stage} -> RUNTIME LOOP"
+                self._append("runtime.log", "TRANSITION", transition)
+                if not runtime_started:
+                    self._append("runtime_startup.log", "TRANSITION", transition)
             self._write_health()
 
     def failure(self, owner: str, error: BaseException, *, terminal: bool = False) -> None:
