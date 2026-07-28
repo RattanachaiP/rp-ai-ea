@@ -4,7 +4,8 @@ from pathlib import Path
 import pytest
 from learning.execution_environment.policy import ENVIRONMENT_DIMENSIONS
 from runtime.environment_observation import (
-    EXPECTED_PRODUCER, EXPECTED_PRODUCER_VERSION, EXPECTED_SCHEMA_VERSION,
+    DEFAULT_MAX_CLOCK_SKEW_SECONDS, EXPECTED_PRODUCER, EXPECTED_PRODUCER_VERSION,
+    EXPECTED_SCHEMA_VERSION,
     EXPECTED_SOURCE_UUID, EnvironmentObservationError, EnvironmentObservationPolicy,
     GovernedEnvironmentObservationProducer, canonical_market_state_path,
 )
@@ -72,10 +73,25 @@ def test_policy_based_derivation_is_deterministic_and_direct(tmp_path):
     assert first.unique_sequence_ids == (1, 2, 3)
 
 
-@pytest.mark.parametrize("heartbeat,error", [(990.0, "HEARTBEAT_STALE"), (1001.0, "HEARTBEAT_FUTURE")])
-def test_stale_and_future_heartbeat_fail_closed(tmp_path, heartbeat, error):
+@pytest.mark.parametrize(
+    "heartbeat,error",
+    [(990.0, "HEARTBEAT_STALE"), (1002.000001, "HEARTBEAT_FUTURE")],
+)
+def test_stale_and_excessively_future_heartbeat_fail_closed(tmp_path, heartbeat, error):
     with pytest.raises(EnvironmentObservationError, match=error):
         collect(tmp_path, [payload(1, heartbeat)])
+
+
+@pytest.mark.parametrize(
+    "offset",
+    [DEFAULT_MAX_CLOCK_SKEW_SECONDS - 0.000001, DEFAULT_MAX_CLOCK_SKEW_SECONDS],
+)
+def test_heartbeat_at_or_below_clock_skew_boundary_is_accepted(tmp_path, offset):
+    states = [payload(1, 1000.0 + offset), payload(2, 1000.01 + offset),
+              payload(3, 1000.02 + offset), payload(3, 1000.02 + offset)]
+    result = collect(tmp_path, states)
+    assert result.unique_sequence_ids == (1, 2, 3)
+    assert dict(result.observations)["data_freshness"] == 0.0
 
 
 @pytest.mark.parametrize("sequences,error", [([1, 1, 1, 1], "INSUFFICIENT_UNIQUE"),
@@ -123,6 +139,21 @@ def test_policy_records_definitions_thresholds_and_provenance():
     assert all(len(row) == 5 for row in policy.dimensions)
     assert len(policy.policy_digest) == 64
     assert policy.policy_uuid
+    assert policy.max_clock_skew_seconds == DEFAULT_MAX_CLOCK_SKEW_SECONDS
+
+
+def test_clock_skew_participates_in_immutable_policy_identity():
+    baseline = EnvironmentObservationPolicy()
+    changed = EnvironmentObservationPolicy(max_clock_skew_seconds=1.5)
+    assert baseline.payload()["max_clock_skew_seconds"] == DEFAULT_MAX_CLOCK_SKEW_SECONDS
+    assert changed.policy_digest != baseline.policy_digest
+    assert changed.policy_uuid != baseline.policy_uuid
+
+
+@pytest.mark.parametrize("value", [-0.1, float("inf"), float("nan"), True, 2])
+def test_invalid_clock_skew_policy_fails_closed(value):
+    with pytest.raises(ValueError, match="INVALID_ENVIRONMENT_OBSERVATION_POLICY"):
+        EnvironmentObservationPolicy(max_clock_skew_seconds=value)
 
 
 def test_shared_root_resolves_the_writer_and_runtime_publication(monkeypatch, tmp_path):

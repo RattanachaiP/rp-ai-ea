@@ -234,3 +234,15 @@ must be unique and may not derive authority from current repository contents, ti
 file ordering, READY-state scanning, or a latest-record choice. No downstream UUID may
 be supplied, fabricated, selected as latest, or recovered; any missing, non-ready,
 incompatible, corrupt, or lineage-invalid stage prevents Runtime invocation.
+
+## PR242 runtime clock skew policy rule
+
+**Rule #036 — Immutable Environment Observation clock skew.** Environment
+Observation compares the MT5 broker-clock `heartbeat_unix` with Python host wall
+time under the immutable, finite, non-negative `max_clock_skew_seconds` policy
+field. The field participates in the canonical policy payload, SHA-256 digest, and
+deterministic UUID. Equality at the declared boundary is accepted; only a heartbeat
+strictly beyond host time plus the declared tolerance is future-dated and rejected.
+This policy changes no stale, identity, sequence, telemetry, integrity, or fail-closed
+gate and grants no decision, strategy, risk, publication, Writer, package, Executor,
+broker, `OrderSend`, or execution authority.
