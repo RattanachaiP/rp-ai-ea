@@ -590,8 +590,9 @@ confidence, package, or strategy objects and adds no execution behavior.
 ## PR264 V28 execution-integration flow
 
 `DecisionContext -> PR263 ExecutionPlan -> ready-only ExecutorContract -> atomic PR264
-publication + replay validation -> unchanged V27 Executor interface -> shadow/replay/
-validation or human-approved isolated Demo`.
+publication + replay validation -> replay-bound V27 compatibility contract -> nominal
+Demo Executor capability -> unchanged V27 Executor -> shadow/replay/validation or
+record-approved isolated Demo`.
 
 Any plan, contract, Decision replay, execution replay, Runtime sequence, publication,
 broker snapshot, health, or freshness mismatch stops before Executor invocation. PR264

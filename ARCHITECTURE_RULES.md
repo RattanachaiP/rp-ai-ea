@@ -60,8 +60,10 @@ Decision or Market Intelligence, invoke the Executor, activate V28, or change V2
 
 PR264 may validate and atomically publish an immutable PR263 `ExecutionPlan`, validate
 its ready-only `ExecutorContract` and complete replay/Runtime/broker-snapshot lineage,
-and project that contract unchanged into the existing V27 Executor interface. Shadow,
-replay, validation, and explicitly human-approved isolated-demo modes are allowed.
+and project a replay-bound V27 compatibility contract unchanged into the existing V27
+Executor interface. Shadow, replay, validation, and explicitly approved isolated-demo
+modes are allowed. Approval and Demo environment authority must be immutable,
+independently replay-validated records; caller booleans cannot convey authority.
 Every mismatch fails closed before Executor invocation. PR264 owns no `OrderSend`,
 market, Decision, Risk Construction, production activation, or promotion authority;
 production authority remains exclusively with V27.

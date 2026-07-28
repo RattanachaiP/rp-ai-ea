@@ -615,8 +615,10 @@ PR179 follows PR178 as an offline, immutable governance-recording boundary. It o
 
 - PR264 atomically publishes an exact immutable PR263 `ExecutionPlan`, validates its
   plan/Decision/Executor/Runtime/broker/publication replay lineage, and projects a
-  ready-only `ExecutorContract` into the unchanged V27 `WriterReadResult` interface.
+  ready-only `ExecutorContract` through a policy/replay-bound compatibility contract
+  into the unchanged V27 `WriterReadResult` interface without synthesizing authority.
 - Shadow BUY, SELL, and HOLD, plus replay and validation modes, have no broker dependency.
-  Isolated Demo requires explicit environment selection and human approval.
+  Isolated Demo requires governed, expiring environment and human-approval records and
+  a nominal Demo-only Executor capability; caller booleans and arbitrary executors are rejected.
 - PR264 has no production mode, promotion authority, broker interface, or `OrderSend`.
   V27 remains the sole production Executor and execution authority.
