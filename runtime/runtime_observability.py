@@ -7,13 +7,22 @@ from __future__ import annotations
 
 import json
 import os
-import time
+from math import isfinite
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from threading import Lock
 from typing import Mapping
 from uuid import UUID
+
+from runtime.decision_publication import (
+    DECISION_HEARTBEAT_MAXIMUM_AGE_SECONDS,
+    DECISION_PRODUCER,
+    GOVERNED_DECISION_LIFECYCLES,
+    PUBLISHED_SCHEMA_VERSION,
+    RUNTIME_VERSION,
+)
+from runtime.market_state_reader import MARKET_STATE_MAXIMUM_AGE_SECONDS
 
 
 class DecisionBlockReason(str, Enum):
@@ -27,10 +36,13 @@ class DecisionBlockReason(str, Enum):
     PUBLICATION_FAILED = "PUBLICATION_FAILED"
 
 
-FAILURE_OWNERS = frozenset(reason.value for reason in DecisionBlockReason)
+FAILURE_OWNERS = frozenset({
+    "BOOT", "CONFIG", "READER", "DECISION_CONTEXT", "ANALYSIS", "RISK",
+    "PUBLISHER", "HEALTH",
+})
 LEGACY_FAILURE_REASONS = {
     "BOOT": DecisionBlockReason.CONTEXT_BUILD_FAILED,
-    "CONFIG": DecisionBlockReason.CONTEXT_BUILD_FAILED,
+    "CONFIG": DecisionBlockReason.INVALID_SCHEMA,
     "READER": DecisionBlockReason.NO_MARKET_STATE,
     "DECISION_CONTEXT": DecisionBlockReason.CONTEXT_BUILD_FAILED,
     "ANALYSIS": DecisionBlockReason.ANALYSIS_FAILED,
@@ -38,6 +50,18 @@ LEGACY_FAILURE_REASONS = {
     "PUBLISHER": DecisionBlockReason.PUBLICATION_FAILED,
     "HEALTH": DecisionBlockReason.PUBLICATION_FAILED,
 }
+
+
+class PublicationVerificationFailure(ValueError):
+    """A governed NORMAL publication failed before activation authority."""
+
+    def __init__(self, *, owner: str, reason: DecisionBlockReason, detail: str) -> None:
+        if owner not in FAILURE_OWNERS:
+            raise ValueError("INVALID_FAILURE_OWNER")
+        super().__init__(detail)
+        self.owner = owner
+        self.reason = reason
+        self.detail = detail
 
 
 class PublicationOutcome(str, Enum):
@@ -49,10 +73,11 @@ class PublicationOutcome(str, Enum):
 class RuntimeObservability:
     """Trace stages, publication integrity, and STARTING/RUNNING/HEALTHY."""
 
-    def __init__(self, root: Path | str) -> None:
+    def __init__(self, root: Path | str, *, clock=None) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self._lock = Lock()
+        self._clock = clock or __import__("time").time
         self._last_stage = "BOOT"
         self._last_market: dict[str, object] | None = None
         self._last_publication_sequence: int | None = None
@@ -65,7 +90,8 @@ class RuntimeObservability:
             "last_market_state": None, "last_decision": None,
             "loop_latency_ms": 0.0, "exception_count": 0,
             "current_stage": "BOOT", "failure_owner": None,
-            "failure_reason": None, "promotion_invariant": "FIRST_NORMAL_DECISION_NOT_VERIFIED",
+            "failure_reason": None, "failure_detail": None,
+            "promotion_invariant": "FIRST_NORMAL_DECISION_NOT_VERIFIED",
         }
         self._append("decision_pipeline_trace.log", "STAGE", "BOOT")
         self._append("runtime.log", "STAGE", "BOOT")
@@ -101,7 +127,11 @@ class RuntimeObservability:
             raise ValueError("INVALID_PUBLICATION_OUTCOME")
         with self._lock:
             if outcome is PublicationOutcome.NORMAL:
-                self._verify_normal(document)
+                try:
+                    self._verify_normal(document)
+                except PublicationVerificationFailure as exc:
+                    self.failure(exc.owner, exc, reason=exc.reason, detail=exc.detail)
+                    raise
             now = self._now()
             first_publication = not self._health["publication_count"]
             was_running = bool(self._health["runtime_started"])
@@ -129,7 +159,7 @@ class RuntimeObservability:
                     self._append("runtime_transition.log", "TRANSITION", "STARTING -> RUNNING")
                 self._health.update(status="RUNNING", health_state="HEALTHY",
                     runtime_started=True, current_stage="RUNTIME LOOP", failure_owner=None,
-                    failure_reason=None, promotion_invariant=None)
+                    failure_reason=None, failure_detail=None, promotion_invariant=None)
                 if not was_running:
                     self._append("runtime_transition.log", "TRANSITION", "RUNNING -> HEALTHY")
                 persisted = "NORMAL DECISION PERSISTED" if was_running else "FIRST NORMAL DECISION PERSISTED"
@@ -147,56 +177,94 @@ class RuntimeObservability:
                          json.dumps(self._health["last_decision"], sort_keys=True))
             self._write_health()
 
-    def failure(self, owner: str, error: BaseException, *, terminal: bool = False) -> None:
-        reason = self._canonical_reason(owner, error)
+    def failure(self, owner: str, error: BaseException, *, terminal: bool = False,
+                reason: DecisionBlockReason | None = None,
+                detail: str | None = None) -> None:
+        if owner not in FAILURE_OWNERS:
+            raise ValueError("INVALID_FAILURE_OWNER")
+        reason = reason or self._canonical_reason(owner, error)
+        if not isinstance(reason, DecisionBlockReason):
+            raise ValueError("INVALID_FAILURE_REASON")
+        diagnostic = detail if detail is not None else (str(error) or type(error).__name__)
         self._health["exception_count"] = int(self._health["exception_count"]) + 1
         self._health.update(status="STOPPED" if terminal else self._health["status"],
-            health_state="STOPPED" if terminal else "DEGRADED", current_stage=reason.value,
-            failure_owner=reason.value, failure_reason=reason.value,
+            health_state="STOPPED" if terminal else "DEGRADED", current_stage=owner,
+            failure_owner=owner, failure_reason=reason.value, failure_detail=diagnostic,
             promotion_invariant=reason.value if not self._health["runtime_started"] else None)
-        self._append("decision_pipeline_trace.log", "REJECTED", f"reason={reason.value}")
+        self._append("decision_pipeline_trace.log", "REJECTED",
+                     f"owner={owner} reason={reason.value} detail={diagnostic}")
         self._write_health()
 
     def snapshot(self) -> dict[str, object]:
         return dict(self._health)
 
     def _verify_normal(self, document: Mapping[str, object]) -> None:
-        # Older in-process observers supplied only the three correlation fields.
-        # A governed MT5 publication is identifiable by its producer contract;
-        # that live path always receives the complete verification below.
-        if "producer" not in document:
-            return
         required = ("decision_uuid", "sequence_id", "heartbeat_unix", "producer",
-                    "producer_version", "decision_lifecycle", "confidence")
-        if any(key not in document for key in required):
-            raise ValueError("INVALID_SCHEMA")
+                    "producer_version", "schema_version", "decision_lifecycle",
+                    "confidence", "market_state_sequence_id", "market_state_source_uuid",
+                    "decision", "decision_timestamp", "timestamp")
+        missing = tuple(key for key in required if key not in document)
+        if missing:
+            self._verification_failure("PUBLISHER", DecisionBlockReason.INVALID_SCHEMA,
+                                       f"missing field: {missing[0]}")
         try:
             UUID(str(document["decision_uuid"]))
         except (ValueError, TypeError, AttributeError):
-            raise ValueError("INVALID_SCHEMA") from None
+            self._verification_failure("PUBLISHER", DecisionBlockReason.INVALID_SCHEMA,
+                                       "invalid field: decision_uuid")
+        if document["producer"] != DECISION_PRODUCER:
+            self._verification_failure("PUBLISHER", DecisionBlockReason.INVALID_SCHEMA,
+                                       "invalid field: producer")
+        if document["producer_version"] != RUNTIME_VERSION:
+            self._verification_failure("PUBLISHER", DecisionBlockReason.INVALID_SCHEMA,
+                                       "invalid field: producer_version")
+        if document["schema_version"] != PUBLISHED_SCHEMA_VERSION:
+            self._verification_failure("PUBLISHER", DecisionBlockReason.INVALID_SCHEMA,
+                                       "invalid field: schema_version")
+        if document["decision_lifecycle"] not in GOVERNED_DECISION_LIFECYCLES:
+            self._verification_failure("PUBLISHER", DecisionBlockReason.INVALID_SCHEMA,
+                                       "invalid field: decision_lifecycle")
+        confidence = document["confidence"]
+        if (type(confidence) not in (int, float) or not isfinite(confidence)
+                or not 0 <= confidence <= 100):
+            self._verification_failure("PUBLISHER", DecisionBlockReason.INVALID_SCHEMA,
+                                       "invalid field: confidence")
+        if (not isinstance(document["decision"], str) or not document["decision"]
+                or document["decision_timestamp"] != document["timestamp"]):
+            self._verification_failure("PUBLISHER", DecisionBlockReason.INVALID_SCHEMA,
+                                       "invalid decision identity metadata")
         sequence = document["sequence_id"]
         heartbeat = document["heartbeat_unix"]
         if type(sequence) is not int or sequence < 1 or (
                 self._last_publication_sequence is not None and sequence <= self._last_publication_sequence):
-            raise ValueError("PUBLICATION_FAILED")
+            self._verification_failure("PUBLISHER", DecisionBlockReason.DECISION_REJECTED,
+                                       f"non-monotonic sequence: {sequence}")
         if (type(heartbeat) is not int or heartbeat <= 0
-                or abs(time.time() - heartbeat) > 120):
-            raise ValueError("INVALID_SCHEMA")
-        if not document["producer"] or not document["producer_version"]:
-            raise ValueError("INVALID_SCHEMA")
+                or abs(float(self._clock()) - heartbeat) > DECISION_HEARTBEAT_MAXIMUM_AGE_SECONDS):
+            self._verification_failure("PUBLISHER", DecisionBlockReason.STALE_MARKET_STATE,
+                                       f"stale decision heartbeat: {heartbeat}")
         if self._last_market is None:
-            raise ValueError("NO_MARKET_STATE")
+            self._verification_failure("READER", DecisionBlockReason.NO_MARKET_STATE,
+                                       "no accepted market state")
+        market_heartbeat = self._last_market["heartbeat_unix"]
+        if (type(market_heartbeat) is not int or
+                abs(float(self._clock()) - market_heartbeat) > MARKET_STATE_MAXIMUM_AGE_SECONDS):
+            self._verification_failure("READER", DecisionBlockReason.STALE_MARKET_STATE,
+                                       f"stale market heartbeat: {market_heartbeat}")
         if document.get("market_state_source_uuid") != self._last_market["source_uuid"]:
-            raise ValueError("INVALID_SCHEMA")
+            self._verification_failure("PUBLISHER", DecisionBlockReason.DECISION_REJECTED,
+                "market_state_source_uuid mismatch: "
+                f"decision={document.get('market_state_source_uuid')} market={self._last_market['source_uuid']}")
         if document.get("market_state_sequence_id") != self._last_market["sequence_id"]:
-            raise ValueError("INVALID_SCHEMA")
+            self._verification_failure("PUBLISHER", DecisionBlockReason.DECISION_REJECTED,
+                "market_state_sequence_id mismatch: "
+                f"decision={document.get('market_state_sequence_id')} market={self._last_market['sequence_id']}")
+
+    @staticmethod
+    def _verification_failure(owner: str, reason: DecisionBlockReason, detail: str) -> None:
+        raise PublicationVerificationFailure(owner=owner, reason=reason, detail=detail)
 
     def _persist_first_normal(self, document: Mapping[str, object]) -> None:
-        if "producer" not in document:
-            legacy = self.root / "first_decision.json"
-            if not legacy.exists():
-                self._atomic_write(legacy, (json.dumps(dict(document), indent=2, sort_keys=True) + "\n").encode())
-            return
         evidence = {
             "decision_uuid": document["decision_uuid"],
             "market_sequence": document["market_state_sequence_id"],
@@ -214,14 +282,8 @@ class RuntimeObservability:
             self._atomic_write(legacy, (json.dumps(dict(document), indent=2, sort_keys=True) + "\n").encode())
 
     @staticmethod
-    def _canonical_reason(owner: str, error: BaseException) -> DecisionBlockReason:
-        if owner in FAILURE_OWNERS:
-            return DecisionBlockReason(owner)
-        if owner in LEGACY_FAILURE_REASONS:
-            if owner == "READER" and "STALE" in str(error).upper():
-                return DecisionBlockReason.STALE_MARKET_STATE
-            return LEGACY_FAILURE_REASONS[owner]
-        raise ValueError("INVALID_FAILURE_OWNER")
+    def _canonical_reason(owner: str, _error: BaseException) -> DecisionBlockReason:
+        return LEGACY_FAILURE_REASONS[owner]
 
     def _append(self, name: str, event: str, detail: str) -> None:
         with (self.root / name).open("a", encoding="utf-8") as stream:

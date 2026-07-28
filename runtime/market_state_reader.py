@@ -22,6 +22,7 @@ PRODUCER = "RP_AI_MT5_MARKET_STATE"
 PRODUCER_VERSION = "V1"
 SCHEMA_VERSION = "1.0"
 SOURCE_UUID = "dc3777c6-cf0d-5a7b-bd58-8a5c44568475"
+MARKET_STATE_MAXIMUM_AGE_SECONDS = 30
 
 REQUIRED_FIELDS = {
     "producer": str, "producer_version": str, "schema_version": str,
@@ -80,7 +81,7 @@ class ReaderDiagnostic:
 class GovernedMarketStateReader:
     """Validate one canonical publication and enforce monotonic continuity."""
 
-    def __init__(self, *, maximum_age_seconds: int = 30,
+    def __init__(self, *, maximum_age_seconds: int = MARKET_STATE_MAXIMUM_AGE_SECONDS,
                  maximum_future_skew_seconds: int = 2,
                  clock: Callable[[], float] | None = None) -> None:
         if type(maximum_age_seconds) is not int or maximum_age_seconds <= 0:
