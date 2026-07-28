@@ -3,6 +3,16 @@
 Date: 2026-07-28 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR255 evidence review and improvement backlog — ADVISORY ONLY
+
+The offline PR255 builder converts explicitly selected, authoritative production
+evidence into the sole `production_improvement_backlog.json` output. Items contain
+measured evidence, frequency, business impact, reproducibility, severity, priority,
+recommended component, and mandatory human-review status. Unsupported or favorable
+observations produce no item. PR255 cannot apply changes or influence AI, Strategy,
+Runtime, execution, learning, or production. See
+`docs/architecture/PR255_EVIDENCE_REVIEW_AND_IMPROVEMENT_BACKLOG.md`.
+
 ## PR254 end-to-end production runtime validation — VALIDATION ONLY
 
 The offline PR254 validator consumes one operator-selected JSON Lines Demo trace,
