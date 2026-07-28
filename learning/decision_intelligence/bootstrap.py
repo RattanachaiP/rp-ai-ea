@@ -18,29 +18,10 @@ class GovernedDecisionIntelligenceBootstrap:
         self.engine = engine
 
     def run(self, context_report):
-        report = self.engine.run(context_report)
-        repository = self.engine.repository
+        """Refuse the retired construct-and-activate shortcut.
 
-        if len(report.decision_intelligences) != 1:
-            raise DecisionIntelligenceError(
-                "DECISION_INTELLIGENCE_ACTIVATION_SELECTION_AMBIGUOUS"
-            )
-        intelligence = report.decision_intelligences[0]
-        snapshot = repository.latest_snapshot()
-        if (
-            snapshot is None
-            or snapshot.snapshot_uuid != report.snapshot_uuid
-            or snapshot.snapshot_digest != report.snapshot_digest
-        ):
-            raise DecisionIntelligenceError("SNAPSHOT_MISMATCH")
-
-        # activate() is the canonical, idempotent repository boundary.  Calling
-        # it for both the first bootstrap and a replay also verifies that an
-        # existing activation selects this exact record and snapshot.
-        activation = repository.activate(intelligence, snapshot)
-        activations = repository.activations()
-        if activations != (activation,):
-            raise DecisionIntelligenceError(
-                "DECISION_INTELLIGENCE_ACTIVATION_AMBIGUOUS"
-            )
-        return report
+        Construction remains available through the engine.  Production activation
+        is now exclusively an explicit invocation of ``operator_activation`` with
+        caller-selected identities and owner authority.
+        """
+        raise DecisionIntelligenceError("ACTIVATION_REQUIRES_OPERATOR_COMMAND")

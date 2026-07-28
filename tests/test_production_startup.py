@@ -28,7 +28,11 @@ def configured(root: Path):
     report = engine.run(context_report)
     intelligence = report.decision_intelligences[0]
     snapshot = engine.repository.snapshots()[0]
-    engine.repository.activate(intelligence, snapshot)
+    engine.repository.activate(
+        intelligence, snapshot,
+        authority_owner="PR184_DECISION_INTELLIGENCE_OWNER",
+        activated_at=intelligence.created_at,
+    )
     return ProductionStartupConfiguration(
         decision_intelligence_uuid=intelligence.intelligence_uuid,
         decision_intelligence_digest=intelligence.intelligence_digest,
