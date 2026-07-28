@@ -1,0 +1,11 @@
+{
+  "evidence_status": "NOT_CAPTURED",
+  "authentic_demo_execution": false,
+  "execution_result_present": false,
+  "execution_uuid": null,
+  "ticket": null,
+  "retcode": null,
+  "broker_time": null,
+  "execution_status": null,
+  "reason": "NO_CONNECTED_MT5_DEMO_ENVIRONMENT"
+}

@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from dataclasses import dataclass, field
 
 import pytest
 
@@ -57,6 +58,22 @@ def test_generated_contract_is_reproducible_and_has_one_authority():
     assert "RP_EXECUTOR_PACKAGE_MAX_AGE_SECONDS" in source
 
 
+def test_unicode_decoding_uses_ushort_preserving_conversion():
+    source = SOURCE.read_text()
+    assert "CharToString(" not in source
+    assert source.count("ShortToString(") == 11
+    assert "input ulong  InpMagic" in source
+
+
+def test_file_size_remains_unsigned_until_range_checked():
+    source = SOURCE.read_text()
+    assert "ulong file_size = FileSize(handle);" in source
+    assert "\n   long file_size = FileSize(handle);" not in source
+    assert "file_size > maximum_package_bytes" in source
+    assert "int requested_bytes=(int)file_size;" in source
+    assert "file_size=%I64u" in source
+
+
 @pytest.mark.parametrize("payload", [
     '{"execution_uuid":"a","execution_uuid":"b"}',
     json.dumps(package()) + " trailing",
@@ -84,7 +101,9 @@ def test_mql_enforces_freshness_duplicates_monotonicity_and_corruption():
     for token in ("STALE_PACKAGE", "DUPLICATE_EXECUTION_UUID", "NON_MONOTONIC_MARKET_SEQUENCE",
                   "EXECUTOR_STATE_CORRUPT_OR_INACCESSIBLE", "EXECUTOR_JOURNAL_CORRUPT_OR_INACCESSIBLE"):
         assert token in source
-    assert "ERR_FILE_NOT_FOUND" in source and "5004" not in source
+    assert "GetLastError()==ERR_FILE_NOT_FOUND" not in source
+    assert "#define RP_ERR_FILE_CANNOT_OPEN 5004" in source
+    assert source.count("GetLastError()==RP_ERR_FILE_CANNOT_OPEN") == 2
     assert 'execution_package.json"' in source and 'decision.json"' not in source
 
 
@@ -108,3 +127,80 @@ def test_state_result_trace_and_failure_paths_are_separate():
     assert "RESULT_PERSIST_FAILED" in source and "EXECUTOR_TRACE_OPEN_FAILED" in source
     for owner in ("PACKAGE", "VALIDATION", "BROKER", "ORDERSEND", "POSITION"):
         assert f'"{owner}"' in source
+
+
+def test_authoritative_state_and_result_use_fail_closed_replacement():
+    source = SOURCE.read_text()
+    assert 'bool ReplaceTextFailClosed(' in source
+    assert 'FileMove(temporary,FILE_COMMON,path,FILE_COMMON|FILE_REWRITE)' in source
+    assert 'FileIsExist(temporary,FILE_COMMON)' in source
+    assert 'execution_uuid+"."+status' in source
+    assert 'execution_uuid+".result"' in source
+    assert 'ReplaceTextFailClosed(EXECUTION_RESULT_PATH,value' in source
+    assert 'PersistTransition("UNKNOWN_OUTCOME"' in source
+    assert 'RESULT_PERSIST_FAILED|retcode=%u|ticket=%I64u' in source
+
+
+@dataclass
+class PublicationModel:
+    """Behavioral model of the MQL Common/Files publication primitive."""
+
+    files: dict[str, str] = field(default_factory=dict)
+    fail_write: bool = False
+    fail_replace: bool = False
+    journal: list[tuple[str, str]] = field(default_factory=list)
+    state: str = "SUBMITTED"
+
+    def replace(self, path: str, value: str, publication_id: str) -> bool:
+        temporary = f"{path}.{publication_id}.tmp"
+        if temporary in self.files:
+            del self.files[temporary]
+            return False
+        if self.fail_write:
+            return False
+        self.files[temporary] = value
+        if self.fail_replace:
+            del self.files[temporary]
+            return False
+        self.files[path] = self.files.pop(temporary)
+        return True
+
+    def publish_result(self, execution_uuid: str, value: str, retcode: int, ticket: int) -> bool:
+        if self.replace("execution_result.json", value, f"{execution_uuid}.result"):
+            return True
+        reason = f"RESULT_PERSIST_FAILED|retcode={retcode}|ticket={ticket}"
+        self.journal.append(("UNKNOWN_OUTCOME", reason))
+        self.state = "UNKNOWN_OUTCOME"
+        return False
+
+
+def test_temporary_write_failure_preserves_destination():
+    model = PublicationModel({"execution_result.json": "old"}, fail_write=True)
+    assert model.replace("execution_result.json", "new", f"{UUID1}.result") is False
+    assert model.files == {"execution_result.json": "old"}
+
+
+def test_replacement_failure_cleans_temp_and_preserves_destination():
+    model = PublicationModel({"execution_result.json": "old"}, fail_replace=True)
+    assert model.replace("execution_result.json", "new", f"{UUID1}.result") is False
+    assert model.files == {"execution_result.json": "old"}
+
+
+def test_stale_temp_collision_is_cleaned_and_publication_is_blocked():
+    temp = f"execution_result.json.{UUID1}.result.tmp"
+    model = PublicationModel({"execution_result.json": "old", temp: "stale"})
+    assert model.replace("execution_result.json", "new", f"{UUID1}.result") is False
+    assert model.files == {"execution_result.json": "old"}
+
+
+def test_successful_replacement_publishes_complete_value():
+    model = PublicationModel({"execution_result.json": "old"})
+    assert model.replace("execution_result.json", "new", f"{UUID1}.result") is True
+    assert model.files == {"execution_result.json": "new"}
+
+
+def test_result_publication_failure_records_unknown_outcome_and_broker_facts():
+    model = PublicationModel(fail_replace=True)
+    assert model.publish_result(UUID1, "result", 10009, 238001) is False
+    assert model.state == "UNKNOWN_OUTCOME"
+    assert model.journal == [("UNKNOWN_OUTCOME", "RESULT_PERSIST_FAILED|retcode=10009|ticket=238001")]
