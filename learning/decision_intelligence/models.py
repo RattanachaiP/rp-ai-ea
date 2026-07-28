@@ -10,6 +10,9 @@ from learning.decision_context.models import CONTEXT_STATES
 from .identity import activation_uuid, intelligence_uuid, digest, report_uuid, snapshot_uuid
 
 AUTHORITY_SCOPE = "ADVISORY_DECISION_INTELLIGENCE_ONLY"
+ACTIVATION_SCHEMA_VERSION = "PR184-DECISION-INTELLIGENCE-ACTIVATION.1.0"
+ACTIVATION_AUTHORITY_OWNER = "PR184_DECISION_INTELLIGENCE_OWNER"
+ACTIVATION_STATES = ("PENDING", "READY")
 INTELLIGENCE_STATES = ("REJECTED", "INSUFFICIENT_DECISION_INTELLIGENCE", "DECISION_INTELLIGENCE_READY")
 EXPECTED_INTELLIGENCE_MAPPING = {
     "CONTEXT_PREPARED": (
@@ -243,6 +246,10 @@ class DecisionIntelligenceActivation:
 
     activation_uuid: str
     activation_digest: str
+    schema_version: str
+    authority_owner: str
+    activation_state: str
+    activated_at: str
     intelligence_uuid: str
     intelligence_digest: str
     snapshot_uuid: str
@@ -269,9 +276,14 @@ class DecisionIntelligenceActivation:
                 self.intelligence_policy_digest,
             ))
             or not all(_valid_version(value) for value in (
+                self.schema_version,
+                self.authority_owner,
                 self.intelligence_policy_version,
                 self.intelligence_engine_version,
             ))
+            or self.schema_version != ACTIVATION_SCHEMA_VERSION
+            or self.activation_state not in ACTIVATION_STATES
+            or not valid_timestamp(self.activated_at)
             or activation_uuid(self.identity_payload()) != self.activation_uuid
             or digest(self.digest_payload()) != self.activation_digest
         ):

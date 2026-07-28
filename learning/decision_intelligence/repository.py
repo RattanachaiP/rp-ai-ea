@@ -10,6 +10,8 @@ from uuid import UUID
 from .exceptions import DecisionIntelligenceError
 from .identity import canonical_bytes, digest
 from .models import (
+    ACTIVATION_AUTHORITY_OWNER,
+    ACTIVATION_SCHEMA_VERSION,
     DecisionIntelligence,
     DecisionIntelligenceActivation,
     DecisionIntelligenceSnapshot,
@@ -106,7 +108,7 @@ class DecisionIntelligenceRepository:
             "activation_uuid",
         )
 
-    def activate(self, intelligence, snapshot):
+    def activate(self, intelligence, snapshot, *, authority_owner, activated_at):
         """Persist the owner's immutable exact production identity selection."""
         if (
             type(intelligence) is not DecisionIntelligence
@@ -116,6 +118,8 @@ class DecisionIntelligenceRepository:
             not in snapshot.intelligence_identities
         ):
             raise DecisionIntelligenceError("INVALID_DECISION_INTELLIGENCE_ACTIVATION")
+        if authority_owner != ACTIVATION_AUTHORITY_OWNER:
+            raise DecisionIntelligenceError("WRONG_DECISION_INTELLIGENCE_ACTIVATION_AUTHORITY")
         self.exact(
             intelligence_uuid=intelligence.intelligence_uuid,
             intelligence_digest=intelligence.intelligence_digest,
@@ -128,6 +132,10 @@ class DecisionIntelligenceRepository:
             intelligence_engine_version=snapshot.intelligence_engine_version,
         )
         activation = DecisionIntelligenceActivation.create(
+            schema_version=ACTIVATION_SCHEMA_VERSION,
+            authority_owner=authority_owner,
+            activation_state="READY",
+            activated_at=activated_at,
             intelligence_uuid=intelligence.intelligence_uuid,
             intelligence_digest=intelligence.intelligence_digest,
             snapshot_uuid=snapshot.snapshot_uuid,

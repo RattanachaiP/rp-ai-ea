@@ -3,6 +3,18 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR244 Decision Intelligence Activation Lifecycle — IMPLEMENTED, PENDING ACCEPTANCE
+
+- PR184 production activation is an explicit owner command binding exact operator-
+  selected intelligence and snapshot UUIDs; construction and Runtime cannot create,
+  infer, or select an activation.
+- The canonical append-only activation record binds its schema, authority owner,
+  READY state, approval timestamp, content identities, full lineage, and compatibility
+  partitions into deterministic UUID and SHA-256 integrity.
+- Production Startup revalidates the sole canonical record and fails closed with an
+  explicit domain reason for missing, malformed, wrong-owner, non-READY, corrupt,
+  incompatible, or lineage-invalid activation state.
+
 
 ## PR242 Runtime Clock Skew Policy — IMPLEMENTED, PENDING ACCEPTANCE
 

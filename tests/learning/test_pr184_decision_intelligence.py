@@ -57,14 +57,22 @@ def test_replay_deterministic_canonical_and_append_only(tmp_path):
     assert path.read_bytes() == canonical_bytes(item.to_dict())
     assert json.loads(path.read_text())["decision_recommendation"] not in {"BUY", "SELL", "HOLD"}
     assert engine.repository.activations() == ()
-    engine.repository.activate(item, engine.repository.snapshots()[0])
+    engine.repository.activate(
+        item, engine.repository.snapshots()[0],
+        authority_owner="PR184_DECISION_INTELLIGENCE_OWNER",
+        activated_at=item.created_at,
+    )
     activations = engine.repository.activations()
     assert len(activations) == 1
     activation_path = engine.repository.activation_root / f"{activations[0].activation_uuid}.json"
     assert activation_path.read_bytes() == canonical_bytes(activations[0].to_dict())
     assert activations[0].intelligence_uuid == item.intelligence_uuid
     assert activations[0].snapshot_uuid == first.snapshot_uuid
-    assert engine.repository.activate(item, engine.repository.snapshots()[0]) == activations[0]
+    assert engine.repository.activate(
+        item, engine.repository.snapshots()[0],
+        authority_owner="PR184_DECISION_INTELLIGENCE_OWNER",
+        activated_at=item.created_at,
+    ) == activations[0]
 
 
 def test_broken_provenance_snapshot_and_repository_fail_closed(tmp_path):

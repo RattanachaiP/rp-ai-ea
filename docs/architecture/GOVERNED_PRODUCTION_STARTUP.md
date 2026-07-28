@@ -2,14 +2,12 @@
 
 ## Boundary and prerequisite
 
-The production PR184 producer must invoke
-`GovernedDecisionIntelligenceBootstrap.run(context_report)`. The bootstrap runs the
-construction-only Decision Intelligence engine, persists its record and snapshot,
-then uses `DecisionIntelligenceRepository.activate` to establish and verify exactly
-one immutable activation. Replaying the same bootstrap is idempotent; an attempt to
-replace an existing selection fails closed. Calling the lower-level engine directly
-intentionally remains useful for non-production construction and does not grant
-production authority.
+PR184 construction and production activation are separate lifecycle steps. The
+construction-only engine persists intelligence and snapshot evidence but grants no
+activation. The retired `GovernedDecisionIntelligenceBootstrap` fails with
+`ACTIVATION_REQUIRES_OPERATOR_COMMAND`; neither it nor Runtime may infer or create a
+production selection. An owner explicitly commits exact intelligence and snapshot
+UUIDs with `learning.decision_intelligence.operator_activation`.
 
 `runtime.production_startup` is the operator-facing composition. It automatically
 resolves the **exact PR184 Decision Intelligence identity bundle** from the sole
@@ -32,6 +30,42 @@ fails closed with `DECISION_INTELLIGENCE_MISSING`. “Clean production state” 
 entrypoint means the PR184 governed chain is present while PR185–PR190 repositories
 may be absent. Creating synthetic upstream intelligence would violate Rules #019 and
 #020 and is intentionally not implemented.
+
+## PR184 activation contract and validation
+
+The canonical record is stored only at
+`learning_data/decision_intelligence/activations/<activation_uuid>.json`. Its exact
+schema is `PR184-DECISION-INTELLIGENCE-ACTIVATION.1.0` and its authority owner is
+`PR184_DECISION_INTELLIGENCE_OWNER`. It contains `activation_state` (`READY` for a
+committed production input), the explicit `activated_at` UTC timestamp, intelligence
+UUID/digest, snapshot UUID/digest, repository digest, policy UUID/digest/version, and
+engine version. `activation_uuid` is UUIDv5 over the canonical identity payload in
+the PR184 activation namespace; `activation_digest` is SHA-256 over that payload plus
+the UUID. The selection, owner, state, timestamp, compatibility, and lineage are
+therefore immutable and reproducible.
+
+Commit validates canonical source JSON, exact caller-selected UUIDs, intelligence
+`DECISION_INTELLIGENCE_READY`, snapshot membership, repository digest, the complete
+snapshot chain, and policy/engine compatibility before using an atomic append-only
+link. An identical replay is idempotent; replacement or a second selection is
+rejected. Startup independently validates schema, UUID, digest, owner, READY state,
+canonical location/filename/JSON, exact lineage, and compatibility. Every rejection
+uses a domain-specific reason; there is no repair or fallback.
+
+The operator obtains the exact UUIDs from the approved PR184 construction report,
+records the approval timestamp, and runs:
+
+```powershell
+python -m learning.decision_intelligence.operator_activation `
+  --intelligence-uuid <approved-intelligence-uuid> `
+  --snapshot-uuid <approved-snapshot-uuid> `
+  --authority-owner PR184_DECISION_INTELLIGENCE_OWNER `
+  --activated-at <approved-utc-timestamp>
+```
+
+Only after this command succeeds may the operator run production startup. No file
+editing, directory scan, newest-record selection, hidden UUID, or Runtime bootstrap
+is an activation procedure.
 
 The default repositories are `learning_data/decision_intelligence`,
 `learning_data/decision_recommendation`, `learning_data/execution_readiness`,

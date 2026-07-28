@@ -15,6 +15,7 @@ from typing import Callable, Optional, Sequence
 from uuid import UUID
 
 from learning.decision_intelligence import DecisionIntelligenceRepository
+from learning.decision_intelligence.models import ACTIVATION_AUTHORITY_OWNER
 from learning.decision_intelligence.exceptions import DecisionIntelligenceError
 from learning.pattern_memory.models import valid_digest
 from learning.decision_recommendation import (
@@ -78,6 +79,10 @@ class ProductionStartupConfiguration:
         if len(activations) != 1:
             raise ProductionStartupError("DECISION_INTELLIGENCE_ACTIVATION_AMBIGUOUS")
         activation = activations[0]
+        if activation.authority_owner != ACTIVATION_AUTHORITY_OWNER:
+            raise ProductionStartupError("WRONG_DECISION_INTELLIGENCE_ACTIVATION_AUTHORITY")
+        if activation.activation_state != "READY":
+            raise ProductionStartupError("DECISION_INTELLIGENCE_ACTIVATION_NOT_READY")
         try:
             intelligence, _ = repository.exact(
                 intelligence_uuid=activation.intelligence_uuid,

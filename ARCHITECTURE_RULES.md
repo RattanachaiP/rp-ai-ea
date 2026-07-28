@@ -70,6 +70,12 @@ advisory artifact was constructed; it grants no strategy, bias, direction, risk,
 publication, activation, broker, position-management, exit, or execution authority.
 Only PR185 may consume PR184 Decision Intelligence.
 
+The activation is committed only by the explicit PR184 owner command from exact
+operator-selected intelligence and snapshot UUIDs. Its canonical schema, owner,
+READY state, approval timestamp, lineage, and compatibility partitions are bound by
+its deterministic UUID and digest. Construction, startup, and Runtime may not create,
+infer, repair, replace, or select an activation from repository contents.
+
 ## PR185 governed advisory Decision Recommendation rule
 
 **Rule #020 — Advisory Decision Recommendation.** PR185 may consume only immutable,

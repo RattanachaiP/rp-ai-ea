@@ -17,9 +17,9 @@ sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from learning.decision_intelligence import (  # noqa: E402
     DecisionIntelligenceRepository,
-    GovernedDecisionIntelligenceBootstrap,
     GovernedDecisionIntelligenceEngine,
 )
+from learning.decision_intelligence.operator_activation import commit_activation  # noqa: E402
 from learning.decision_recommendation import (  # noqa: E402
     DecisionRecommendationRepository,
     GovernedDecisionRecommendationEngine,
@@ -71,12 +71,16 @@ def test_complete_governed_runtime_reaches_immutable_executor_input_once(tmp_pat
         context_engine.repository,
         DecisionIntelligenceRepository(tmp_path / "decision_intelligence"),
     )
-    intelligence_report = GovernedDecisionIntelligenceBootstrap(
-        intelligence_engine
-    ).run(context_report)
+    intelligence_report = intelligence_engine.run(context_report)
     intelligence = intelligence_report.decision_intelligences[0]
     invocations["intelligence"] += 1
-    activation = intelligence_engine.repository.activations()[0]
+    activation = commit_activation(
+        repository_root=intelligence_engine.repository.root,
+        intelligence_uuid=intelligence.intelligence_uuid,
+        snapshot_uuid=intelligence_report.snapshot_uuid,
+        authority_owner="PR184_DECISION_INTELLIGENCE_OWNER",
+        activated_at=intelligence.created_at,
+    )
     invocations["activation"] += 1
 
     recommendation_engine = GovernedDecisionRecommendationEngine(
