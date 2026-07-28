@@ -1,19 +1,17 @@
 //+------------------------------------------------------------------+
-//| RP Governed Executor -- canonical package consumer                    |
+//| RP Governed Executor -- canonical package consumer               |
 //+------------------------------------------------------------------+
 #property strict
 #property version   "28.05"
 #property description "Canonical governed one-shot execution_package.json consumer."
 
-#include <Trade/Trade.mqh>
+#include "RP_ExecutionPackageContract.mqh"
 
 #define EXECUTION_PACKAGE_PATH "RP_AI_EA\\shared\\XAUUSD\\execution_package.json"
 
-input double InpExposureCapLots           = 1.00;
 input bool   InpEmergencyDisable          = false;
 input long   InpMagic                     = 2800001;
 
-CTrade g_trade;
 
 bool IsPayloadTrimCharacter(const ushort character)
 {
@@ -150,112 +148,122 @@ bool ReadExecutionPackage(string &payload)
    return true;
 }
 
-bool IsJsonWhitespace(const ushort character)
+bool IsJsonWhitespace(const ushort c) { return c==' ' || c=='\\t' || c=='\\r' || c=='\\n'; }
+void SkipWhitespace(const string json,int &cursor) { while(cursor<StringLen(json) && IsJsonWhitespace(StringGetCharacter(json,cursor))) cursor++; }
+int HexDigit(const ushort c)
 {
-   return character == ' ' || character == '\t' || character == '\r' || character == '\n';
+   if(c>='0' && c<='9') return (int)(c-'0');
+   if(c>='a' && c<='f') return (int)(c-'a'+10);
+   if(c>='A' && c<='F') return (int)(c-'A'+10);
+   return -1;
 }
-
-// This is intentionally a field scanner, not a JSON parser.  It only finds a
-// quoted key at root-object depth and never validates unrelated payload data.
-bool FindTopLevelField(const string json, const string key, int &value_start)
+bool ParseHexUnit(const string json,int &cursor,ushort &unit)
 {
-   int depth = 0;
-   bool in_string = false;
-   bool escaped = false;
-   int length = StringLen(json);
-   for(int index = 0; index < length; index++)
+   if(cursor+4>StringLen(json)) return false;
+   uint value=0;
+   for(int i=0;i<4;i++) { int digit=HexDigit(StringGetCharacter(json,cursor++)); if(digit<0) return false; value=(value<<4)+(uint)digit; }
+   unit=(ushort)value; return true;
+}
+bool ParseJsonString(const string json,int &cursor,string &value)
+{
+   value="";
+   if(cursor>=StringLen(json) || StringGetCharacter(json,cursor++)!='"') return false;
+   while(cursor<StringLen(json))
    {
-      ushort character = StringGetCharacter(json, index);
-      if(in_string)
+      ushort c=StringGetCharacter(json,cursor++);
+      if(c=='"') return true;
+      if(c<0x20) return false;
+      if(c!='\\') { value+=CharToString(c); continue; }
+      if(cursor>=StringLen(json)) return false;
+      ushort escape=StringGetCharacter(json,cursor++);
+      if(escape=='"' || escape=='\\' || escape=='/') value+=CharToString(escape);
+      else if(escape=='b') value+=CharToString(8);
+      else if(escape=='f') value+=CharToString(12);
+      else if(escape=='n') value+="\n";
+      else if(escape=='r') value+="\r";
+      else if(escape=='t') value+="\t";
+      else if(escape=='u')
       {
-         if(escaped) { escaped = false; continue; }
-         if(character == '\\') { escaped = true; continue; }
-         if(character != '"') continue;
-         in_string = false;
-         continue;
-      }
-
-      if(character == '"')
-      {
-         if(depth == 1 && StringSubstr(json, index + 1, StringLen(key)) == key &&
-            index + StringLen(key) + 1 < length && StringGetCharacter(json, index + StringLen(key) + 1) == '"')
+         ushort high=0; if(!ParseHexUnit(json,cursor,high)) return false;
+         if(high>=0xD800 && high<=0xDBFF)
          {
-            int colon = index + StringLen(key) + 2;
-            while(colon < length && IsJsonWhitespace(StringGetCharacter(json, colon))) colon++;
-            if(colon < length && StringGetCharacter(json, colon) == ':')
-            {
-               value_start = colon + 1;
-               while(value_start < length && IsJsonWhitespace(StringGetCharacter(json, value_start))) value_start++;
-               return value_start < length;
-            }
+            if(cursor+2>StringLen(json) || StringGetCharacter(json,cursor++)!='\\' || StringGetCharacter(json,cursor++)!='u') return false;
+            ushort low=0; if(!ParseHexUnit(json,cursor,low) || low<0xDC00 || low>0xDFFF) return false;
+            value+=CharToString(high)+CharToString(low);
          }
-         in_string = true;
+         else if(high>=0xDC00 && high<=0xDFFF) return false;
+         else value+=CharToString(high);
       }
-      else if(character == '{' || character == '[') depth++;
-      else if(character == '}' || character == ']') depth--;
+      else return false;
    }
    return false;
 }
-
-bool ReadFieldString(const string json, const string key, string &value)
+bool ParseJsonNumber(const string json,int &cursor,string &token,const bool integer_required)
 {
-   int start = 0;
-   if(!FindTopLevelField(json, key, start) || StringGetCharacter(json, start) != '"') return false;
-   start++;
-   int end = start;
-   bool escaped = false;
-   while(end < StringLen(json))
+   int start=cursor,length=StringLen(json);
+   if(cursor<length && StringGetCharacter(json,cursor)=='-') cursor++;
+   if(cursor>=length) return false;
+   ushort c=StringGetCharacter(json,cursor);
+   if(c=='0') { cursor++; if(cursor<length && StringGetCharacter(json,cursor)>='0' && StringGetCharacter(json,cursor)<='9') return false; }
+   else if(c>='1' && c<='9') { do { cursor++; } while(cursor<length && StringGetCharacter(json,cursor)>='0' && StringGetCharacter(json,cursor)<='9'); }
+   else return false;
+   if(cursor<length && StringGetCharacter(json,cursor)=='.')
    {
-      ushort character = StringGetCharacter(json, end);
-      if(!escaped && character == '"')
-      {
-         value = StringSubstr(json, start, end - start);
-         return true;
-      }
-      if(!escaped && character == '\\') escaped = true;
-      else escaped = false;
-      end++;
+      if(integer_required) return false; cursor++;
+      if(cursor>=length || StringGetCharacter(json,cursor)<'0' || StringGetCharacter(json,cursor)>'9') return false;
+      while(cursor<length && StringGetCharacter(json,cursor)>='0' && StringGetCharacter(json,cursor)<='9') cursor++;
    }
-   return false;
+   if(cursor<length && (StringGetCharacter(json,cursor)=='e' || StringGetCharacter(json,cursor)=='E'))
+   {
+      if(integer_required) return false; cursor++;
+      if(cursor<length && (StringGetCharacter(json,cursor)=='+' || StringGetCharacter(json,cursor)=='-')) cursor++;
+      if(cursor>=length || StringGetCharacter(json,cursor)<'0' || StringGetCharacter(json,cursor)>'9') return false;
+      while(cursor<length && StringGetCharacter(json,cursor)>='0' && StringGetCharacter(json,cursor)<='9') cursor++;
+   }
+   token=StringSubstr(json,start,cursor-start);
+   double numeric=StringToDouble(token);
+   return MathIsValidNumber(numeric);
 }
-
-bool ReadFieldNumber(const string json, const string key, double &value)
+int ContractFieldIndex(const string key,const string &names[])
 {
-   int start = 0;
-   if(!FindTopLevelField(json, key, start)) return false;
-   int end = start;
-   while(end < StringLen(json))
+   for(int i=0;i<ArraySize(names);i++) if(names[i]==key) return i;
+   return -1;
+}
+bool ParseCanonicalPackage(const string json,string &values[],string &reason)
+{
+   string names[]; RPJsonFieldType types[]; RPInitializePackageContract(names,types);
+   ArrayResize(values,RP_EXECUTION_PACKAGE_FIELD_COUNT); bool seen[]; ArrayResize(seen,RP_EXECUTION_PACKAGE_FIELD_COUNT); ArrayInitialize(seen,false);
+   int cursor=0,count=0; SkipWhitespace(json,cursor);
+   if(cursor>=StringLen(json) || StringGetCharacter(json,cursor++)!='{') { reason="ROOT_OBJECT_REQUIRED"; return false; }
+   SkipWhitespace(json,cursor);
+   if(cursor<StringLen(json) && StringGetCharacter(json,cursor)=='}') { reason="MISSING_FIELD"; return false; }
+   while(cursor<StringLen(json))
    {
-      ushort character = StringGetCharacter(json, end);
-      if((character >= '0' && character <= '9') || character == '-' || character == '+' ||
-         character == '.' || character == 'e' || character == 'E') end++;
-      else break;
+      string key,value; if(!ParseJsonString(json,cursor,key)) { reason="INVALID_JSON_KEY"; return false; }
+      int index=ContractFieldIndex(key,names); if(index<0) { reason="UNKNOWN_FIELD"; return false; }
+      if(index!=count) { reason="NON_CANONICAL_FIELD_ORDER"; return false; }
+      if(seen[index]) { reason="DUPLICATE_FIELD"; return false; }
+      SkipWhitespace(json,cursor); if(cursor>=StringLen(json) || StringGetCharacter(json,cursor++)!=':') { reason="MISSING_COLON"; return false; }
+      SkipWhitespace(json,cursor);
+      if(types[index]==RP_JSON_STRING) { if(!ParseJsonString(json,cursor,value)) { reason="WRONG_FIELD_TYPE"; return false; } }
+      else if(!ParseJsonNumber(json,cursor,value,types[index]==RP_JSON_INTEGER)) { reason="INVALID_NUMBER_OR_TYPE"; return false; }
+      values[index]=value; seen[index]=true; count++;
+      SkipWhitespace(json,cursor); if(cursor>=StringLen(json)) { reason="UNTERMINATED_OBJECT"; return false; }
+      ushort delimiter=StringGetCharacter(json,cursor++);
+      if(delimiter=='}') break;
+      if(delimiter!=',') { reason="INVALID_DELIMITER"; return false; }
+      SkipWhitespace(json,cursor);
    }
-   if(end == start) return false;
-   value = StringToDouble(StringSubstr(json, start, end - start));
+   SkipWhitespace(json,cursor);
+   if(cursor!=StringLen(json)) { reason="TRAILING_CONTENT"; return false; }
+   if(count!=RP_EXECUTION_PACKAGE_FIELD_COUNT) { reason="MISSING_FIELD"; return false; }
    return true;
 }
 
-bool ReadFieldBool(const string json, const string key, bool &value)
-{
-   int start = 0;
-   if(!FindTopLevelField(json, key, start)) return false;
-   string literal = StringSubstr(json, start, 5);
-   StringToLower(literal);
-   if(StringSubstr(literal, 0, 4) == "true") { value = true; return true; }
-   if(literal == "false") { value = false; return true; }
-   return false;
-}
-
-
 #define EXECUTOR_STATE_PATH "RP_AI_EA\\shared\\XAUUSD\\executor_state.json"
-#define EXECUTOR_ACCEPTED_UUIDS_PATH "RP_AI_EA\\shared\\XAUUSD\\executor_accepted_uuids.log"
+#define EXECUTOR_JOURNAL_PATH "RP_AI_EA\\shared\\XAUUSD\\executor_journal.log"
 #define EXECUTION_RESULT_PATH "RP_AI_EA\\shared\\XAUUSD\\execution_result.json"
 #define EXECUTOR_TRACE_PATH "RP_AI_EA\\shared\\XAUUSD\\executor_trace.log"
-#define PACKAGE_SCHEMA_VERSION "1.0"
-#define PACKAGE_PRODUCER "RP_AI_RUNTIME"
-#define PACKAGE_PRODUCER_VERSION "27.5"
-#define MAX_HEARTBEAT_AGE_SECONDS 30
 
 string JsonEscape(string value)
 {
@@ -271,6 +279,13 @@ string UtcTimestamp()
    MqlDateTime value; TimeToStruct(TimeGMT(), value);
    return StringFormat("%04d-%02d-%02dT%02d:%02d:%02dZ", value.year, value.mon,
                        value.day, value.hour, value.min, value.sec);
+}
+
+string BrokerTimestamp()
+{
+   MqlDateTime value; TimeToStruct(TimeTradeServer(),value);
+   return StringFormat("%04d-%02d-%02dT%02d:%02d:%02dZ",value.year,value.mon,
+                       value.day,value.hour,value.min,value.sec);
 }
 
 void Trace(const string stage, const string status, const string execution_uuid,
@@ -297,51 +312,76 @@ bool IsCanonicalUuid(const string value)
    return true;
 }
 
-bool ReadStateUuid(string &last_uuid)
+bool ParseExecutorState(const string json,long &sequence,string &execution_uuid,string &decision_uuid,string &status)
 {
-   last_uuid="";
+   string expected[]={"schema_version","last_market_sequence","last_execution_uuid","last_decision_uuid","last_execution_status","updated_at"};
+   bool seen[]; ArrayResize(seen,6); ArrayInitialize(seen,false); int cursor=0,count=0; string schema,updated;
+   SkipWhitespace(json,cursor); if(cursor>=StringLen(json) || StringGetCharacter(json,cursor++)!='{') return false;
+   while(cursor<StringLen(json))
+   {
+      SkipWhitespace(json,cursor); string key,value; if(!ParseJsonString(json,cursor,key)) return false;
+      int index=-1; for(int i=0;i<6;i++) if(expected[i]==key) index=i;
+      if(index<0 || seen[index]) return false;
+      SkipWhitespace(json,cursor); if(cursor>=StringLen(json) || StringGetCharacter(json,cursor++)!=':') return false; SkipWhitespace(json,cursor);
+      if(index==1) { if(!ParseJsonNumber(json,cursor,value,true)) return false; sequence=(long)StringToInteger(value); }
+      else if(!ParseJsonString(json,cursor,value)) return false;
+      if(index==0) schema=value; else if(index==2) execution_uuid=value; else if(index==3) decision_uuid=value; else if(index==4) status=value; else if(index==5) updated=value;
+      seen[index]=true; count++; SkipWhitespace(json,cursor); if(cursor>=StringLen(json)) return false;
+      ushort delimiter=StringGetCharacter(json,cursor++); if(delimiter=='}') break; if(delimiter!=',') return false;
+   }
+   SkipWhitespace(json,cursor);
+   return cursor==StringLen(json) && count==6 && schema=="1.0" && sequence>0 &&
+          IsCanonicalUuid(execution_uuid) && IsCanonicalUuid(decision_uuid) && updated!="";
+}
+
+bool LoadExecutorState(bool &exists,long &sequence,string &execution_uuid,string &decision_uuid,string &status)
+{
+   exists=false; ResetLastError();
    int handle=FileOpen(EXECUTOR_STATE_PATH,FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ);
-   if(handle==INVALID_HANDLE) return GetLastError()==5004; // no state is valid only before first acceptance
-   string json=FileReadString(handle); FileClose(handle);
-   if(!ReadFieldString(json,"last_accepted_execution_uuid",last_uuid) || !IsCanonicalUuid(last_uuid)) return false;
-   return true;
+   if(handle==INVALID_HANDLE) return GetLastError()==ERR_FILE_NOT_FOUND;
+   exists=true; string json=""; while(!FileIsEnding(handle)) json+=FileReadString(handle); FileClose(handle);
+   return ParseExecutorState(json,sequence,execution_uuid,decision_uuid,status);
 }
 
-bool WasExecutionUuidAccepted(const string execution_uuid, bool &state_readable)
+bool AppendJournal(const string status,const string execution_uuid,const string decision_uuid,const long sequence,const string reason)
 {
-   state_readable=true;
-   int handle=FileOpen(EXECUTOR_ACCEPTED_UUIDS_PATH,FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ);
-   if(handle==INVALID_HANDLE)
-   {
-      if(GetLastError()==5004) return false;
-      state_readable=false; return false;
-   }
-   while(!FileIsEnding(handle))
-   {
-      string accepted=FileReadString(handle);
-      if(accepted==execution_uuid) { FileClose(handle); return true; }
-      if(accepted!="" && !IsCanonicalUuid(accepted)) { FileClose(handle); state_readable=false; return false; }
-   }
-   FileClose(handle); return false;
-}
-
-bool AppendAcceptedUuid(const string execution_uuid)
-{
-   int handle=FileOpen(EXECUTOR_ACCEPTED_UUIDS_PATH,FILE_READ|FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ);
+   int handle=FileOpen(EXECUTOR_JOURNAL_PATH,FILE_READ|FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ);
    if(handle==INVALID_HANDLE) return false;
    FileSeek(handle,0,SEEK_END);
-   bool okay=FileWriteString(handle,execution_uuid+"\r\n")==StringLen(execution_uuid)+2;
-   FileFlush(handle); FileClose(handle); return okay;
+   string line=StringFormat("%I64d\t%s\t%s\t%s\t%s\t%s\r\n",sequence,execution_uuid,decision_uuid,status,UtcTimestamp(),reason);
+   bool okay=FileWriteString(handle,line)==StringLen(line); FileFlush(handle); FileClose(handle); return okay;
 }
 
-bool PersistAcceptedUuid(const string execution_uuid, const long market_sequence)
+bool InspectJournal(const string candidate_uuid,bool &duplicate,long &maximum_sequence,string &last_status)
+{
+   duplicate=false; maximum_sequence=0; last_status=""; ResetLastError();
+   int handle=FileOpen(EXECUTOR_JOURNAL_PATH,FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON|FILE_SHARE_READ);
+   if(handle==INVALID_HANDLE) return GetLastError()==ERR_FILE_NOT_FOUND;
+   while(!FileIsEnding(handle))
+   {
+      string line=FileReadString(handle); if(line=="") continue;
+      string parts[]; if(StringSplit(line,'\t',parts)!=6) { FileClose(handle); return false; }
+      long sequence=(long)StringToInteger(parts[0]);
+      if(sequence<1 || !IsCanonicalUuid(parts[1]) || !IsCanonicalUuid(parts[2])) { FileClose(handle); return false; }
+      if(sequence>maximum_sequence) maximum_sequence=sequence;
+      if(parts[1]==candidate_uuid) { duplicate=true; last_status=parts[3]; }
+   }
+   FileClose(handle); return true;
+}
+
+bool PersistExecutorState(const string execution_uuid,const string decision_uuid,const long market_sequence,const string status)
 {
    int handle=FileOpen(EXECUTOR_STATE_PATH,FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
    if(handle==INVALID_HANDLE) return false;
-   string value=StringFormat("{\"schema_version\":\"1.0\",\"last_accepted_execution_uuid\":\"%s\",\"last_market_sequence\":%I64d,\"accepted_at\":\"%s\"}\r\n",
-                             execution_uuid,market_sequence,UtcTimestamp());
-   bool okay=FileWriteString(handle,value)==StringLen(value); FileFlush(handle); FileClose(handle);
-   return okay;
+   string value=StringFormat("{\"schema_version\":\"1.0\",\"last_market_sequence\":%I64d,\"last_execution_uuid\":\"%s\",\"last_decision_uuid\":\"%s\",\"last_execution_status\":\"%s\",\"updated_at\":\"%s\"}",
+      market_sequence,execution_uuid,decision_uuid,status,UtcTimestamp());
+   bool okay=FileWriteString(handle,value)==StringLen(value); FileFlush(handle); FileClose(handle); return okay;
+}
+
+bool PersistTransition(const string status,const string execution_uuid,const string decision_uuid,const long sequence,const string reason)
+{
+   return AppendJournal(status,execution_uuid,decision_uuid,sequence,reason) &&
+          PersistExecutorState(execution_uuid,decision_uuid,sequence,status);
 }
 
 void PersistResult(const string execution_uuid,const ulong ticket,const uint retcode,const string status)
@@ -349,7 +389,7 @@ void PersistResult(const string execution_uuid,const ulong ticket,const uint ret
    int handle=FileOpen(EXECUTION_RESULT_PATH,FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
    if(handle==INVALID_HANDLE) { Trace("Execution result","FAILED",execution_uuid,"POSITION","RESULT_PERSIST_FAILED"); return; }
    string value=StringFormat("{\"execution_uuid\":\"%s\",\"ticket\":%I64u,\"retcode\":%u,\"broker_time\":\"%s\",\"execution_status\":\"%s\"}\r\n",
-                             execution_uuid,ticket,retcode,UtcTimestamp(),status);
+                             execution_uuid,ticket,retcode,BrokerTimestamp(),status);
    FileWriteString(handle,value); FileFlush(handle); FileClose(handle);
    Trace("Execution result","RECORDED",execution_uuid,"NONE",status);
 }
@@ -400,27 +440,23 @@ bool BrokerValidation(const string symbol,const string direction,const double vo
 bool ValidatePackage(const string json,string &execution_uuid,string &decision_uuid,string &symbol,
                      string &direction,double &volume,double &sl,double &tp,long &market_sequence,string &reason)
 {
-   string producer,producer_version,schema_version,source_uuid,execution_timestamp;
-   double heartbeat=0.0,sequence=0.0;
-   if(!ReadFieldString(json,"execution_uuid",execution_uuid) || !IsCanonicalUuid(execution_uuid)) { reason="INVALID_EXECUTION_UUID"; return false; }
-   if(!ReadFieldString(json,"decision_uuid",decision_uuid) || !IsCanonicalUuid(decision_uuid)) { reason="INVALID_DECISION_UUID"; return false; }
-   if(!ReadFieldString(json,"producer",producer) || producer!=PACKAGE_PRODUCER) { reason="INVALID_PRODUCER"; return false; }
-   if(!ReadFieldString(json,"producer_version",producer_version) || producer_version!=PACKAGE_PRODUCER_VERSION) { reason="INVALID_PRODUCER_VERSION"; return false; }
-   if(!ReadFieldString(json,"schema_version",schema_version) || schema_version!=PACKAGE_SCHEMA_VERSION) { reason="INVALID_SCHEMA_VERSION"; return false; }
-   if(!ReadFieldString(json,"source_uuid",source_uuid) || !IsCanonicalUuid(source_uuid)) { reason="INVALID_SOURCE_UUID"; return false; }
-   if(!ReadFieldNumber(json,"heartbeat_unix",heartbeat) || heartbeat<=0 || MathAbs((double)TimeGMT()-heartbeat)>MAX_HEARTBEAT_AGE_SECONDS)
-      { reason="STALE_HEARTBEAT"; return false; }
-   if(!ReadFieldNumber(json,"market_sequence",sequence) || sequence<1 || sequence!=MathFloor(sequence)) { reason="INVALID_MARKET_SEQUENCE"; return false; }
-   market_sequence=(long)sequence;
-   // The canonical assembler publishes a package only after independently checking
-   // executable runtime state, entry permission, and OrderSend permission.  Exact
-   // producer/version/schema validation above verifies that capability boundary;
-   // direction alone is never treated as authority.
-   if(!ReadFieldString(json,"execution_timestamp",execution_timestamp) || execution_timestamp=="") { reason="RUNTIME_EXECUTION_STATE_UNVERIFIED"; return false; }
-   if(!ReadFieldString(json,"symbol",symbol) || symbol=="") { reason="ENTRY_PERMISSION_UNVERIFIED"; return false; }
-   if(!ReadFieldString(json,"direction",direction) || (direction!="BUY" && direction!="SELL")) { reason="ORDERSEND_PERMISSION_UNVERIFIED"; return false; }
-   if(!ReadFieldNumber(json,"lot_size",volume) || !ReadFieldNumber(json,"sl",sl) || !ReadFieldNumber(json,"tp",tp)) { reason="INVALID_ORDER_FIELDS"; return false; }
-   return MathIsValidNumber(volume) && MathIsValidNumber(sl) && MathIsValidNumber(tp);
+   string values[];
+   if(!ParseCanonicalPackage(json,values,reason)) return false;
+   execution_uuid=values[0]; decision_uuid=values[1]; market_sequence=(long)StringToInteger(values[2]);
+   long heartbeat=(long)StringToInteger(values[3]); symbol=values[8]; direction=values[9];
+   volume=StringToDouble(values[12]); sl=StringToDouble(values[14]); tp=StringToDouble(values[15]);
+   if(!IsCanonicalUuid(execution_uuid)) { reason="INVALID_EXECUTION_UUID"; return false; }
+   if(!IsCanonicalUuid(decision_uuid)) { reason="INVALID_DECISION_UUID"; return false; }
+   if(values[4]!=RP_PACKAGE_PRODUCER) { reason="INVALID_PRODUCER"; return false; }
+   if(values[5]!=RP_PACKAGE_PRODUCER_VERSION) { reason="INVALID_PRODUCER_VERSION"; return false; }
+   if(values[6]!=RP_PACKAGE_SCHEMA_VERSION) { reason="INVALID_SCHEMA_VERSION"; return false; }
+   if(!IsCanonicalUuid(values[7])) { reason="INVALID_SOURCE_UUID"; return false; }
+   if(heartbeat<=0 || MathAbs((long)TimeGMT()-heartbeat)>RP_EXECUTOR_PACKAGE_MAX_AGE_SECONDS) { reason="STALE_PACKAGE"; return false; }
+   if(market_sequence<1) { reason="INVALID_MARKET_SEQUENCE"; return false; }
+   if(symbol=="") { reason="ENTRY_PERMISSION_UNVERIFIED"; return false; }
+   if(direction!="BUY" && direction!="SELL") { reason="ORDERSEND_PERMISSION_UNVERIFIED"; return false; }
+   if(!MathIsValidNumber(volume) || !MathIsValidNumber(sl) || !MathIsValidNumber(tp)) { reason="INVALID_ORDER_FIELDS"; return false; }
+   return true;
 }
 
 void Reject(const string stage,const string execution_uuid,const string owner,const string reason)
@@ -432,40 +468,50 @@ void Reject(const string stage,const string execution_uuid,const string owner,co
 void OnTick()
 {
    if(InpEmergencyDisable) { Reject("Validation","","VALIDATION","EMERGENCY_DISABLE_ACTIVE"); return; }
-   string json;
-   if(!ReadExecutionPackage(json)) return;
+   string json; if(!ReadExecutionPackage(json)) return;
    string execution_uuid="",decision_uuid="",symbol="",direction="",reason="";
    double volume=0.0,sl=0.0,tp=0.0; long market_sequence=0;
    if(!ValidatePackage(json,execution_uuid,decision_uuid,symbol,direction,volume,sl,tp,market_sequence,reason))
       { Reject("Validation",execution_uuid,"PACKAGE",reason); return; }
-   Trace("Validation","PASSED",execution_uuid,"NONE","fully authorized canonical package");
+   Trace("Validation","PASSED",execution_uuid,"NONE","exact canonical package accepted for broker validation");
 
-   string last_uuid;
-   if(!ReadStateUuid(last_uuid)) { Reject("Validation",execution_uuid,"VALIDATION","EXECUTOR_STATE_INVALID"); return; }
-   bool ledger_readable=true;
-   bool duplicate=WasExecutionUuidAccepted(execution_uuid,ledger_readable);
-   if(!ledger_readable) { Reject("Validation",execution_uuid,"VALIDATION","EXECUTOR_UUID_LEDGER_INVALID"); return; }
-   if(last_uuid==execution_uuid || duplicate) { Reject("Validation",execution_uuid,"VALIDATION","DUPLICATE_EXECUTION_UUID"); return; }
+   bool state_exists=false; long state_sequence=0; string state_uuid,state_decision,state_status;
+   if(!LoadExecutorState(state_exists,state_sequence,state_uuid,state_decision,state_status))
+      { Reject("Validation",execution_uuid,"VALIDATION","EXECUTOR_STATE_CORRUPT_OR_INACCESSIBLE"); return; }
+   bool duplicate=false; long journal_sequence=0; string journal_status;
+   if(!InspectJournal(execution_uuid,duplicate,journal_sequence,journal_status))
+      { Reject("Validation",execution_uuid,"VALIDATION","EXECUTOR_JOURNAL_CORRUPT_OR_INACCESSIBLE"); return; }
+   if(duplicate)
+   {
+      if(journal_status=="SUBMITTING") AppendJournal("UNKNOWN_OUTCOME",execution_uuid,decision_uuid,market_sequence,"RECOVERED_UNCERTAIN_SUBMISSION");
+      Reject("Validation",execution_uuid,"VALIDATION",journal_status=="SUBMITTING" ? "UNKNOWN_OUTCOME" : "DUPLICATE_EXECUTION_UUID"); return;
+   }
+   long authority_sequence=state_sequence>journal_sequence ? state_sequence : journal_sequence;
+   if(market_sequence<=authority_sequence) { Reject("Validation",execution_uuid,"VALIDATION","NON_MONOTONIC_MARKET_SEQUENCE"); return; }
 
    MqlTradeRequest request; MqlTradeResult result;
    if(!BrokerValidation(symbol,direction,volume,sl,tp,request,reason))
       { Reject("Broker validation",execution_uuid,"BROKER",reason); return; }
    Trace("Broker validation","PASSED",execution_uuid,"NONE","symbol trading market volume margin stops valid");
 
-   // Persist acceptance before broker submission: a crash may suppress an order,
-   // but can never submit the same execution_uuid twice after restart or deletion.
-   if(!AppendAcceptedUuid(execution_uuid) || !PersistAcceptedUuid(execution_uuid,market_sequence))
-      { Reject("Package accepted",execution_uuid,"VALIDATION","EXECUTOR_STATE_PERSIST_FAILED"); return; }
-   Trace("Package accepted","ACCEPTED",execution_uuid,"NONE","immutable duplicate authority persisted");
-   ZeroMemory(result);
-   Trace("OrderSend","ATTEMPTED",execution_uuid,"NONE","broker request submitted");
-   ResetLastError();
-   bool sent=OrderSend(request,result);
-   string status=sent && (result.retcode==TRADE_RETCODE_DONE || result.retcode==TRADE_RETCODE_PLACED || result.retcode==TRADE_RETCODE_DONE_PARTIAL)
-                 ? "POSITION_LIFECYCLE_INITIATED" : "ORDER_REJECTED";
-   PersistResult(execution_uuid,result.order,result.retcode,status);
-   if(status=="POSITION_LIFECYCLE_INITIATED")
-      Trace("OrderSend","SUCCEEDED",execution_uuid,"NONE","position lifecycle initiated");
+   if(!PersistTransition("ACCEPTED",execution_uuid,decision_uuid,market_sequence,"PACKAGE_ACCEPTED"))
+      { Reject("Package accepted",execution_uuid,"VALIDATION","ACCEPTANCE_PERSIST_FAILED"); return; }
+   Trace("Package accepted","ACCEPTED",execution_uuid,"NONE","authoritative journal and monotonic state persisted");
+   if(!PersistTransition("SUBMITTING",execution_uuid,decision_uuid,market_sequence,"ORDERSEND_IMMINENT"))
+      { PersistTransition("UNKNOWN_OUTCOME",execution_uuid,decision_uuid,market_sequence,"SUBMITTING_PERSIST_FAILED"); Reject("OrderSend",execution_uuid,"ORDERSEND","SUBMITTING_PERSIST_FAILED"); return; }
+
+   ZeroMemory(result); Trace("OrderSend","ATTEMPTED",execution_uuid,"NONE","broker request submitted"); ResetLastError();
+   bool api_result=OrderSend(request,result);
+   string journal_terminal,result_status;
+   if(result.retcode==TRADE_RETCODE_DONE || result.retcode==TRADE_RETCODE_DONE_PARTIAL)
+      { journal_terminal="SUBMITTED"; result_status="EXECUTED"; }
+   else if(result.retcode==TRADE_RETCODE_PLACED)
+      { journal_terminal="SUBMITTED"; result_status="PENDING"; }
    else
-      Reject("OrderSend",execution_uuid,"ORDERSEND",StringFormat("RETCODE_%u_ERROR_%d",result.retcode,GetLastError()));
+      { journal_terminal="REJECTED"; result_status=api_result ? "BROKER_REJECTED" : "ORDERSEND_FAILED"; }
+   if(!PersistTransition(journal_terminal,execution_uuid,decision_uuid,market_sequence,StringFormat("RETCODE_%u",result.retcode)))
+      { AppendJournal("UNKNOWN_OUTCOME",execution_uuid,decision_uuid,market_sequence,"TERMINAL_STATE_PERSIST_FAILED"); Reject("Position",execution_uuid,"POSITION","TERMINAL_STATE_PERSIST_FAILED"); return; }
+   PersistResult(execution_uuid,result.order,result.retcode,result_status);
+   if(journal_terminal=="SUBMITTED") Trace("OrderSend",result_status,execution_uuid,"NONE",StringFormat("RETCODE_%u",result.retcode));
+   else Reject("OrderSend",execution_uuid,"ORDERSEND",StringFormat("RETCODE_%u_ERROR_%d",result.retcode,GetLastError()));
 }

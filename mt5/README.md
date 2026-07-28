@@ -49,9 +49,11 @@ identity, lineage, freshness, sequence, and complete order facts validate.
 
 Before `OrderSend`, the executor validates symbol availability, terminal and
 symbol trading permission, a fresh broker tick (market open), broker volume
-constraints, free margin, and stop distances. It durably appends the accepted
-`execution_uuid` before submission and also persists the latest acceptance in
-`executor_state.json`; package deletion or a non-adjacent replay therefore
-cannot authorize the UUID again. Every terminal outcome is written to
+constraints, free margin, and stop distances. It durably records `ACCEPTED` and `SUBMITTING` before submission, then records
+`SUBMITTED`, `REJECTED`, or `UNKNOWN_OUTCOME` from broker/recovery facts in the
+authoritative `executor_journal.log`. The independent monotonic
+`executor_state.json` retains package lineage and the latest lifecycle status;
+package deletion, state deletion, or a non-adjacent replay cannot authorize the
+UUID again. Every terminal outcome is written to
 `execution_result.json`, while `executor_trace.log` records the governed stage,
 status, failure owner, and reason.
