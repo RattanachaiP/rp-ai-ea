@@ -369,13 +369,29 @@ bool InspectJournal(const string candidate_uuid,bool &duplicate,long &maximum_se
    FileClose(handle); return true;
 }
 
+bool AtomicReplaceText(const string path,const string value)
+{
+   string temporary=path+".tmp";
+   int handle=FileOpen(temporary,FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
+   if(handle==INVALID_HANDLE) return false;
+   bool okay=FileWriteString(handle,value)==StringLen(value);
+   FileFlush(handle); FileClose(handle);
+   if(!okay) { FileDelete(temporary,FILE_COMMON); return false; }
+   // The temporary and destination names are both in Common/Files, so the
+   // replacement cannot expose a partially written authoritative document.
+   if(!FileMove(temporary,FILE_COMMON,path,FILE_COMMON|FILE_REWRITE))
+   {
+      FileDelete(temporary,FILE_COMMON);
+      return false;
+   }
+   return true;
+}
+
 bool PersistExecutorState(const string execution_uuid,const string decision_uuid,const long market_sequence,const string status)
 {
-   int handle=FileOpen(EXECUTOR_STATE_PATH,FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
-   if(handle==INVALID_HANDLE) return false;
    string value=StringFormat("{\"schema_version\":\"1.0\",\"last_market_sequence\":%I64d,\"last_execution_uuid\":\"%s\",\"last_decision_uuid\":\"%s\",\"last_execution_status\":\"%s\",\"updated_at\":\"%s\"}",
       market_sequence,execution_uuid,decision_uuid,status,UtcTimestamp());
-   bool okay=FileWriteString(handle,value)==StringLen(value); FileFlush(handle); FileClose(handle); return okay;
+   return AtomicReplaceText(EXECUTOR_STATE_PATH,value);
 }
 
 bool PersistTransition(const string status,const string execution_uuid,const string decision_uuid,const long sequence,const string reason)
@@ -386,11 +402,10 @@ bool PersistTransition(const string status,const string execution_uuid,const str
 
 void PersistResult(const string execution_uuid,const ulong ticket,const uint retcode,const string status)
 {
-   int handle=FileOpen(EXECUTION_RESULT_PATH,FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
-   if(handle==INVALID_HANDLE) { Trace("Execution result","FAILED",execution_uuid,"POSITION","RESULT_PERSIST_FAILED"); return; }
    string value=StringFormat("{\"execution_uuid\":\"%s\",\"ticket\":%I64u,\"retcode\":%u,\"broker_time\":\"%s\",\"execution_status\":\"%s\"}\r\n",
                              execution_uuid,ticket,retcode,BrokerTimestamp(),status);
-   FileWriteString(handle,value); FileFlush(handle); FileClose(handle);
+   if(!AtomicReplaceText(EXECUTION_RESULT_PATH,value))
+      { Trace("Execution result","FAILED",execution_uuid,"POSITION","RESULT_PERSIST_FAILED"); return; }
    Trace("Execution result","RECORDED",execution_uuid,"NONE",status);
 }
 

@@ -108,3 +108,11 @@ def test_state_result_trace_and_failure_paths_are_separate():
     assert "RESULT_PERSIST_FAILED" in source and "EXECUTOR_TRACE_OPEN_FAILED" in source
     for owner in ("PACKAGE", "VALIDATION", "BROKER", "ORDERSEND", "POSITION"):
         assert f'"{owner}"' in source
+
+
+def test_authoritative_state_and_result_use_atomic_replacement():
+    source = SOURCE.read_text()
+    assert 'bool AtomicReplaceText(' in source
+    assert 'FileMove(temporary,FILE_COMMON,path,FILE_COMMON|FILE_REWRITE)' in source
+    assert 'return AtomicReplaceText(EXECUTOR_STATE_PATH,value);' in source
+    assert 'AtomicReplaceText(EXECUTION_RESULT_PATH,value)' in source
