@@ -9,7 +9,7 @@ The governed offline analyzer reads explicit PR252 telemetry snapshots, complete
 trade CSV/MT5 history exports, and optional Experts/Journal logs and atomically
 produces `production_trading_report.json` and `daily_trade_review.json`. Reports
 contain aggregated trading, execution, Runtime, entry-quality, exit-quality,
-strength, weakness, source, and limitation evidence only. They have no runtime,
+non-evaluative observation, source, and limitation evidence only. They have no runtime,
 trading, learning, scoring, or promotion authority.
 
 ## Production stabilization directive — ACTIVE

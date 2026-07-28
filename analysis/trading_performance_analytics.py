@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 import os
 import re
-from collections import Counter, defaultdict
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
@@ -61,24 +62,60 @@ def _read_csv(path: Path) -> list[dict[str, str]]:
         raise ValueError(f"UNREADABLE_CSV_SOURCE:{path.name}") from exc
 
 
-def _trade_key(row: Mapping[str, object]) -> tuple[str, ...]:
-    identity = _first(row, "trade_uuid", "deal_ticket", "ticket", "position_ticket")
-    if identity:
-        return ("identity", identity)
-    return ("values", _first(row, "symbol"), _first(row, "entry_time"),
-            _first(row, "exit_time"), _first(row, "net_profit", "actual_profit_usd", "profit"))
+def _timestamp(value: str, *, source: Path, row_number: int, field: str) -> datetime:
+    """Parse the PR253 timestamp contract: ISO-8601 with an explicit UTC offset."""
+    if not value:
+        raise ValueError(f"MISSING_TRADE_TIMESTAMP:{source.name}:row={row_number}:field={field}")
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith(("Z", "z")) else value)
+    except ValueError as exc:
+        raise ValueError(f"INVALID_TRADE_TIMESTAMP:{source.name}:row={row_number}:field={field}") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"AMBIGUOUS_TRADE_TIMESTAMP:{source.name}:row={row_number}:field={field}")
+    return parsed.astimezone(timezone.utc)
+
+
+def _required_profit(row: Mapping[str, object], *, source: Path, row_number: int) -> float:
+    aliases = ("net_profit", "actual_profit_usd", "realized_profit_usd", "realized_profit", "profit")
+    raw = _first(row, *aliases)
+    value = _number(raw)
+    if value is None:
+        reason = "MISSING" if not raw else "INVALID"
+        raise ValueError(f"{reason}_REALIZED_PROFIT:{source.name}:row={row_number}")
+    return value
+
+
+def _trade_identity(row: Mapping[str, object], *, source: Path, row_number: int,
+                    entry_utc: datetime, exit_utc: datetime, profit: float) -> tuple[str, ...]:
+    for field in ("trade_uuid", "deal_ticket", "position_ticket", "order_ticket", "ticket"):
+        value = _first(row, field)
+        if value:
+            return (field, value)
+    symbol = _first(row, "symbol")
+    direction = _first(row, "direction", "ai_intended_action")
+    if not symbol or not direction:
+        raise ValueError(f"INSUFFICIENT_TRADE_IDENTITY:{source.name}:row={row_number}")
+    return ("fallback", symbol, direction, entry_utc.isoformat(), exit_utc.isoformat(), repr(profit))
 
 
 def _normalized_trades(paths: Sequence[Path]) -> list[dict[str, object]]:
     unique: dict[tuple[str, ...], dict[str, object]] = {}
     for path in paths:
-        for row in _read_csv(path):
+        for row_number, row in enumerate(_read_csv(path), start=2):
             if not any(str(value or "").strip() for value in row.values()):
                 continue
-            unique.setdefault(_trade_key(row), {
-                "profit": _number(_first(row, "net_profit", "actual_profit_usd", "realized_profit_usd", "realized_profit", "profit")) or 0.0,
-                "entry_time": _first(row, "entry_time", "time_open", "open_time"),
-                "exit_time": _first(row, "exit_time", "time_close", "close_time"),
+            profit = _required_profit(row, source=path, row_number=row_number)
+            entry_raw = _first(row, "entry_time", "time_open", "open_time")
+            exit_raw = _first(row, "exit_time", "time_close", "close_time")
+            entry_utc = _timestamp(entry_raw, source=path, row_number=row_number, field="entry_time")
+            exit_utc = _timestamp(exit_raw, source=path, row_number=row_number, field="exit_time")
+            if exit_utc < entry_utc:
+                raise ValueError(f"INVALID_TRADE_CHRONOLOGY:{path.name}:row={row_number}")
+            identity = _trade_identity(row, source=path, row_number=row_number,
+                                       entry_utc=entry_utc, exit_utc=exit_utc, profit=profit)
+            normalized = {
+                "profit": profit, "entry_utc": entry_utc, "exit_utc": exit_utc,
+                "sort_key": (*identity, entry_utc.isoformat(), exit_utc.isoformat()),
                 "exit_reason": _first(row, "exit_reason", "broker_deal_reason", "deal_reason"),
                 "exit_owner": _first(row, "dashboard_effective_exit_owner", "broker_close_source", "close_source"),
                 "mfe": _number(_first(row, "mfe", "maximum_favorable_excursion")),
@@ -91,8 +128,12 @@ def _normalized_trades(paths: Sequence[Path]) -> list[dict[str, object]]:
                 "spread": _number(_first(row, "spread", "spread_at_entry_points", "entry_spread")),
                 "atr": _number(_first(row, "atr", "entry_atr")),
                 "signal_quality": _first(row, "signal_quality", "quality") or "UNAVAILABLE",
-            })
-    return list(unique.values())
+            }
+            previous = unique.get(identity)
+            if previous is not None and previous != normalized:
+                raise ValueError(f"CONFLICTING_TRADE_IDENTITY:{path.name}:row={row_number}")
+            unique.setdefault(identity, normalized)
+    return sorted(unique.values(), key=lambda trade: (trade["exit_utc"], trade["sort_key"]))
 
 
 def _average(values: Iterable[float | None]) -> float | None:
@@ -197,31 +238,37 @@ def _exit_quality(trades: Sequence[Mapping[str, object]]) -> dict[str, object]:
     }
 
 
-def _ranked_findings(trading: Mapping[str, object], execution: Mapping[str, object], runtime: Mapping[str, object]) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
-    candidates = [
-        ("win_rate", trading["win_rate"], "higher", "trade_statistics"),
-        ("profit_factor", trading["profit_factor"], "higher", "trade_statistics"),
-        ("expectancy", trading["expectancy"], "higher", "trade_statistics"),
-        ("net_profit", trading["net_profit"], "higher", "trade_statistics"),
-        ("max_drawdown", trading["max_drawdown"], "lower", "trade_statistics"),
-        ("consecutive_losses", trading["consecutive_losses"], "lower", "trade_statistics"),
-        ("execution_rejections", execution["order_rejection_count"], "lower", "runtime_metrics"),
-        ("duplicate_decisions", execution["duplicate_decision_count"], "lower", "runtime_metrics"),
-        ("runtime_restarts", runtime["restart_count"], "lower", "runtime_metrics"),
-        ("runtime_exceptions", runtime["exception_count"], "lower", "runtime_metrics_and_logs"),
-    ]
-    strengths, weaknesses = [], []
-    for metric, value, desired, source in candidates:
-        if value is None or value == "INFINITE":
-            classification = "strength" if value == "INFINITE" else None
-        elif desired == "higher":
-            classification = "strength" if float(value) > 0 else "weakness"
-        else:
-            classification = "strength" if float(value) == 0 else "weakness"
-        if classification:
-            finding = {"metric": metric, "observed_value": value, "evidence": {"source": source, "calculation": metric}}
-            (strengths if classification == "strength" else weaknesses).append(finding)
-    return weaknesses[:10], strengths[:10]
+def _observations(trading: Mapping[str, object], execution: Mapping[str, object],
+                  runtime: Mapping[str, object]) -> list[dict[str, object]]:
+    """Return non-evaluative facts; PR253 owns no performance thresholds."""
+    sample_size = int(trading["total_trades"])
+    candidates = (
+        ("win_rate", trading["win_rate"], "higher_is_favorable", sample_size, "completed_trades"),
+        ("profit_factor", trading["profit_factor"], "higher_is_favorable", sample_size, "completed_trades"),
+        ("expectancy", trading["expectancy"], "higher_is_favorable", sample_size, "completed_trades"),
+        ("net_profit", trading["net_profit"], "higher_is_favorable", sample_size, "completed_trades"),
+        ("max_drawdown", trading["max_drawdown"], "lower_is_favorable", sample_size, "completed_trades"),
+        ("consecutive_losses", trading["consecutive_losses"], "lower_is_favorable", sample_size, "completed_trades"),
+        ("execution_rejections", execution["order_rejection_count"], "lower_is_favorable", execution["execution_sample_size"], "runtime_metrics"),
+        ("duplicate_decisions", execution["duplicate_decision_count"], "lower_is_favorable", execution["decision_sample_size"], "runtime_metrics"),
+        ("runtime_restarts", runtime["restart_count"], "lower_is_favorable", None, "runtime_metrics"),
+        ("telemetry_runtime_exceptions", runtime["telemetry_runtime_exception_count"], "lower_is_favorable", None, "runtime_metrics"),
+        ("log_exception_indicators", runtime["log_exception_indicator_count"], "lower_is_favorable", runtime["inspected_log_count"], "runtime_logs"),
+    )
+    return [{"metric": metric, "value": value, "direction": direction,
+             "sample_size": size, "source_role": source}
+            for metric, value, direction, size, source in candidates]
+
+
+def _source_descriptor(role: str, path: Path, *, schema_version: str | None,
+                       record_count: int | None) -> dict[str, object]:
+    try:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise ValueError(f"UNREADABLE_SOURCE:{path.name}") from exc
+    basename = str(path).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+    return {"role": role, "basename": basename, "schema_version": schema_version,
+            "record_count": record_count, "sha256": digest}
 
 
 def generate_reports(*, runtime_metrics: Path | str, runtime_daily_summary: Path | str,
@@ -242,26 +289,37 @@ def generate_reports(*, runtime_metrics: Path | str, runtime_daily_summary: Path
         "duplicate_decision_count": int(metrics.get("duplicate_decision_count", 0)),
         "average_spread": _series_average(metrics, "spread_at_entry_points"),
         "average_slippage": _series_average(metrics, "slippage_points"),
+        "execution_sample_size": int(metrics.get("execution_accept_count", 0)) + int(metrics.get("execution_rejection_count", 0)),
+        "decision_sample_size": int(metrics.get("decision_publish_count", 0)),
     }
     runtime = {
         "uptime_seconds": _number(metrics.get("runtime_uptime_seconds")),
         "restart_count": int(metrics.get("runtime_restart_count", 0)),
-        "exception_count": max(int(metrics.get("runtime_exception_count", 0)), log_counts["exception_count"]),
-        "json_read_failures": log_counts["json_read_failures"], "json_write_failures": log_counts["json_write_failures"],
+        "telemetry_runtime_exception_count": int(metrics.get("runtime_exception_count", 0)),
+        "log_exception_indicator_count": log_counts["exception_count"],
+        "json_read_failure_indicator_count": log_counts["json_read_failures"],
+        "json_write_failure_indicator_count": log_counts["json_write_failures"],
+        "inspected_log_count": len(logs),
     }
     trading = _trading(trades)
-    weaknesses, strengths = _ranked_findings(trading, execution, runtime)
     generated = generated_at_utc or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    sources = [{"role": "runtime_metrics", "path": str(metrics_path)}, {"role": "runtime_daily_summary", "path": str(daily_path)},
-               *({"role": "completed_trades", "path": str(path)} for path in csv_paths),
-               *({"role": "runtime_log", "path": str(path)} for path in logs)]
+    csv_counts = [len(_read_csv(path)) for path in csv_paths]
+    sources = [_source_descriptor("runtime_metrics", metrics_path, schema_version=RUNTIME_SCHEMA, record_count=1),
+               _source_descriptor("runtime_daily_summary", daily_path, schema_version=DAILY_RUNTIME_SCHEMA, record_count=1),
+               *(_source_descriptor("completed_trades", path, schema_version=None, record_count=count)
+                 for path, count in zip(csv_paths, csv_counts)),
+               *(_source_descriptor("runtime_log", path, schema_version=None, record_count=None) for path in logs)]
     report = {"schema_version": PRODUCTION_SCHEMA, "generated_at_utc": generated, "analysis_only": True,
               "source_evidence": sources, "trading": trading, "execution": execution, "runtime": runtime,
               "entry_quality": _entry_quality(trades), "exit_quality": _exit_quality(trades),
-              "top_measurable_weaknesses": weaknesses, "top_measurable_strengths": strengths,
+              "measurable_observations": _observations(trading, execution, runtime),
               "limitations": (["No Experts or Journal logs supplied; JSON failure counts are zero from inspected logs only."] if not logs else [])}
     day = str(daily_metrics["summary_date_utc"])
-    daily_trades = [trade for trade in trades if str(trade["exit_time"])[:10] == day]
+    try:
+        review_day = datetime.strptime(day, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise ValueError("INVALID_DAILY_SUMMARY_DATE") from exc
+    daily_trades = [trade for trade in trades if trade["exit_utc"].date() == review_day]
     daily = {"schema_version": DAILY_SCHEMA, "generated_at_utc": generated, "review_date_utc": day,
              "analysis_only": True, "source_evidence": sources, "trading": _trading(daily_trades),
              "execution": {"decision_to_execution_latency_ms": _series_average(daily_metrics, "decision_to_execution_latency_ms"),
@@ -270,7 +328,7 @@ def generate_reports(*, runtime_metrics: Path | str, runtime_daily_summary: Path
                            "average_spread": _series_average(daily_metrics, "spread_at_entry_points"),
                            "average_slippage": _series_average(daily_metrics, "slippage_points")},
              "runtime": {"restart_count": int(daily_metrics.get("runtime_restart_count", 0)),
-                         "exception_count": int(daily_metrics.get("runtime_exception_count", 0))},
+                         "telemetry_runtime_exception_count": int(daily_metrics.get("runtime_exception_count", 0))},
              "entry_quality": _entry_quality(daily_trades), "exit_quality": _exit_quality(daily_trades)}
     output = Path(output_directory)
     output.mkdir(parents=True, exist_ok=True)
