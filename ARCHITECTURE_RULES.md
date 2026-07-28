@@ -9,8 +9,11 @@ PR255 is an offline, advisory-only consumer of explicitly selected authoritative
 production evidence. It may emit only `production_improvement_backlog.json` and
 may create items only from measured adverse observations supported by a governed
 schema rule. Every item remains `PENDING_HUMAN_REVIEW`. Priority is triage order,
-not change approval. PR255 cannot modify, tune, invoke, activate, or authorize AI,
-Strategy, Runtime, execution, position management, learning, or production.
+maps from severity only, and is not change approval. Items have snapshot-scoped
+identity and evidence references an explicit digested source record. Missing-stage
+evidence never assigns failure ownership. PR255 cannot modify, tune, invoke,
+activate, or authorize AI, Strategy, Runtime, execution, position management,
+learning, or production.
 
 ## PR254 production pipeline validation rule
 

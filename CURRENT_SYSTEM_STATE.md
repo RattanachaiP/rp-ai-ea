@@ -8,9 +8,11 @@ Authoritative branch policy: `codex-dev`
 The offline PR255 builder converts explicitly selected, authoritative production
 evidence into the sole `production_improvement_backlog.json` output. Items contain
 measured evidence, frequency, business impact, reproducibility, severity, priority,
-recommended component, and mandatory human-review status. Unsupported or favorable
-observations produce no item. PR255 cannot apply changes or influence AI, Strategy,
-Runtime, execution, learning, or production. See
+recommended component, snapshot-scoped identity, source reference, and mandatory
+human-review status. Unsupported observations remain explicit; favorable or zero
+observations produce no item. Priority maps from severity only, and missing pipeline
+events retain unknown attribution. PR255 cannot apply changes or influence AI,
+Strategy, Runtime, execution, learning, or production. See
 `docs/architecture/PR255_EVIDENCE_REVIEW_AND_IMPROVEMENT_BACKLOG.md`.
 
 ## PR254 end-to-end production runtime validation — VALIDATION ONLY
