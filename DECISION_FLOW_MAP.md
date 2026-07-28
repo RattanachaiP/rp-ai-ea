@@ -650,3 +650,13 @@ This passive post-completion flow is the only producer of knowledge candidates
 for future adaptive systems. It cannot modify its evidence and performs no
 prediction, recommendation, optimisation, governance action, Runtime change,
 broker action, or execution.
+
+## PR265 V28 certification flow
+
+`Market State -> Market Intelligence -> Decision Intelligence -> Risk Construction ->
+Execution Integration -> Executor Adapter -> Delivery Receipt -> immutable PR265 reports`.
+
+PR265 observes and deterministically replays those boundaries without changing their
+outputs. Any identity, sequence, freshness, data, policy, publication, or delivery mismatch
+produces certification `FAIL` and `READINESS_DENIED`. Shadow validation terminates in a
+broker-free record. No PR265 result can authorize production or `OrderSend`.

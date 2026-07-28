@@ -622,3 +622,11 @@ PR179 follows PR178 as an offline, immutable governance-recording boundary. It o
   a nominal Demo-only Executor capability; caller booleans and arbitrary executors are rejected.
 - PR264 has no production mode, promotion authority, broker interface, or `OrderSend`.
   V27 remains the sole production Executor and execution authority.
+
+## PR265 state — V28 end-to-end validation
+
+The V28 proposal now has an independent deterministic validation and certification layer.
+It verifies runtime sequence, freshness, immutable contracts, policy and replay lineage,
+ExecutionPlan, ExecutorContract, publication, adapter, and delivery integrity. Shadow BUY,
+SELL, and HOLD evidence is broker-free and explicitly forbids `OrderSend`. Certification is
+fail-closed and never activates Production; V27 remains the production authority.

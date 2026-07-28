@@ -139,3 +139,10 @@ not use candidate knowledge or qualification state to modify evidence or
 influence Runtime, Strategy, governance, broker safety, orders, positions,
 exits, or execution; nor may it weaken source integrity, completeness, replay,
 deterministic qualification, identity, digest, append-only, or duplicate checks.
+
+## PR265 boundary
+
+End-to-end validation cannot be weakened, bypassed, or converted into production authority.
+Emergency patches may not downgrade a mismatch, fabricate certification evidence, call a
+broker, introduce `OrderSend`, change BUY/SELL/HOLD logic, or modify PR260–PR264 or V27 through
+PR265. Every inconsistency remains a certification failure and V27 retains production authority.

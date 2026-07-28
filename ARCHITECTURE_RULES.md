@@ -354,3 +354,12 @@ strictly beyond host time plus the declared tolerance is future-dated and reject
 This policy changes no stale, identity, sequence, telemetry, integrity, or fail-closed
 gate and grants no decision, strategy, risk, publication, Writer, package, Executor,
 broker, `OrderSend`, or execution authority.
+
+## PR265 V28 end-to-end validation rule
+
+PR265 is a read-only certification layer over the immutable PR260–PR264 boundaries. It may
+replay, compare, and report Market, Decision, Risk, Execution, publication, adapter, and
+delivery evidence, and may run broker-free Shadow validation. Every inconsistency makes the
+aggregate certification `FAIL` and denies readiness. A `PASS` certifies only deterministic
+validation; it grants no production, broker, `OrderSend`, strategy, or promotion authority.
+V27 remains the sole production authority until explicit human approval.
