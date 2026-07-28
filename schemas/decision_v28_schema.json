@@ -1,0 +1,15 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,
+  "required":["schema_version","brain_version","runtime_version","sequence_id","heartbeat_unix","published_at","decision","direction","entry_permission","entry_state","construction_action","confidence","probability","expected_value","location_score","position_budget_total","position_budget_used","position_budget_remaining","decision_reasons","decision_trace","fail_safe","executable","symbol","volume","entry_price","stop_loss","take_profit"],
+  "properties":{
+    "schema_version":{"const":"2.0"},"brain_version":{"const":"V28.PR-A"},"runtime_version":{"const":"V28.PR-A"},
+    "sequence_id":{"type":"integer","minimum":0},"heartbeat_unix":{"type":"number","exclusiveMinimum":0},
+    "published_at":{"type":"string","format":"date-time"},"decision":{"const":"HOLD"},"direction":{"const":"NONE"},
+    "entry_permission":{"const":false},"entry_state":{"const":"HOLD"},"construction_action":{"const":"NO_ACTION"},
+    "confidence":{"const":0.0},"probability":{"const":0.0},"expected_value":{"const":0.0},"location_score":{"const":0.0},
+    "position_budget_total":{"const":0.0},"position_budget_used":{"const":0.0},"position_budget_remaining":{"const":0.0},
+    "decision_reasons":{"type":"array","items":{"type":"string"}},"decision_trace":{"type":"array","items":{"type":"string"}},
+    "fail_safe":{"const":false},"executable":{"const":false},"symbol":{"type":"string","minLength":1},
+    "volume":{"const":0.0},"entry_price":{"const":0.0},"stop_loss":{"const":0.0},"take_profit":{"const":0.0}
+  }
+}

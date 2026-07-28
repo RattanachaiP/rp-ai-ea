@@ -1,1 +1,1 @@
-"""V28 clean core package."""
+"""V28 decision-engine foundation package."""
