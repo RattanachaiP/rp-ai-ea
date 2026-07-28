@@ -1,0 +1,20 @@
+{
+  "execution_uuid": "00000000-0000-4000-8000-000000000001",
+  "decision_uuid": "00000000-0000-4000-8000-000000000236",
+  "market_sequence": 42,
+  "heartbeat_unix": 1785217837,
+  "producer": "RP_AI_RUNTIME",
+  "producer_version": "27.5",
+  "schema_version": "1.0",
+  "source_uuid": "dc3777c6-cf0d-5a7b-bd58-8a5c44568475",
+  "symbol": "XAUUSD",
+  "direction": "BUY",
+  "confidence": 81.5,
+  "risk_profile": "Balanced",
+  "lot_size": 0.1,
+  "entry": 2400.5,
+  "sl": 2395.0,
+  "tp": 2411.5,
+  "management_profile": "STANDARD",
+  "execution_timestamp": "2026-07-28T05:50:37Z"
+}

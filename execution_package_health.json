@@ -1,0 +1,10 @@
+{
+  "status": "VERIFIED",
+  "executor_ready": true,
+  "execution_uuid": "00000000-0000-4000-8000-000000000001",
+  "decision_uuid": "00000000-0000-4000-8000-000000000236",
+  "market_sequence": 42,
+  "failure_owner": null,
+  "failure_reason": null,
+  "updated_at": "2026-07-28T05:51:01.985788Z"
+}
