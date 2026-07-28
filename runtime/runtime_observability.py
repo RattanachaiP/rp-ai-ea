@@ -23,6 +23,7 @@ from runtime.decision_publication import (
     RUNTIME_VERSION,
 )
 from runtime.market_state_reader import MARKET_STATE_MAXIMUM_AGE_SECONDS
+from runtime.production_metrics import ProductionMetrics
 
 
 class DecisionBlockReason(str, Enum):
@@ -81,6 +82,12 @@ class RuntimeObservability:
         self._last_stage = "BOOT"
         self._last_market: dict[str, object] | None = None
         self._last_publication_sequence: int | None = None
+        self._telemetry_diagnostics: list[str] = []
+        try:
+            self.metrics = ProductionMetrics(self.root, clock=self._clock)
+        except Exception as exc:
+            self.metrics = None
+            self._telemetry_diagnostic("initialization", exc)
         self._health: dict[str, object] = {
             "status": "STARTING", "health_state": "HEALTHY",
             "runtime_started": False, "first_publication_at": None,
@@ -130,6 +137,9 @@ class RuntimeObservability:
                 try:
                     self._verify_normal(document)
                 except PublicationVerificationFailure as exc:
+                    if (exc.reason is DecisionBlockReason.DECISION_REJECTED
+                            and exc.detail.startswith("non-monotonic sequence:")):
+                        self._record_metrics("duplicate_decision")
                     self.failure(exc.owner, exc, reason=exc.reason, detail=exc.detail)
                     raise
             now = self._now()
@@ -151,6 +161,20 @@ class RuntimeObservability:
                 "decision_uuid": document.get("decision_uuid"), "outcome": outcome.value,
             }
             self._health["loop_latency_ms"] = round(float(latency_ms), 3)
+            publish_seconds = document.get("file_write_latency")
+            if type(publish_seconds) not in (int, float) or publish_seconds <= 0:
+                publish_seconds = document.get("decision_write_duration")
+            publish_latency_ms = (
+                float(publish_seconds) * 1000.0
+                if type(publish_seconds) in (int, float) and publish_seconds >= 0
+                else None
+            )
+            self._record_metrics(
+                "decision_published",
+                document,
+                decision_latency_ms=latency_ms,
+                json_publish_latency_ms=publish_latency_ms,
+            )
             if outcome is PublicationOutcome.NORMAL:
                 self._last_publication_sequence = int(document["sequence_id"])
                 if not was_running:
@@ -194,9 +218,31 @@ class RuntimeObservability:
         self._append("decision_pipeline_trace.log", "REJECTED",
                      f"owner={owner} reason={reason.value} detail={diagnostic}")
         self._write_health()
+        self._record_metrics("runtime_exception", owner=owner, reason=reason.value)
 
     def snapshot(self) -> dict[str, object]:
         return dict(self._health)
+
+    def execution_result(self, **result: object) -> None:
+        """Forward completed Executor telemetry to the passive PR252 collector."""
+        self._record_metrics("execution_result", **result)
+
+    def _record_metrics(self, method: str, *args: object, **kwargs: object) -> None:
+        """Invoke non-authoritative telemetry without affecting Runtime state."""
+        if self.metrics is None:
+            return
+        try:
+            getattr(self.metrics, method)(*args, **kwargs)
+        except Exception as exc:
+            self._telemetry_diagnostic(method, exc)
+
+    def _telemetry_diagnostic(self, operation: str, error: BaseException) -> None:
+        # In-memory and bounded: diagnostics themselves must perform no I/O and
+        # must never become an authoritative health signal.
+        self._telemetry_diagnostics.append(
+            f"{operation}:{type(error).__name__}:{error}"
+        )
+        del self._telemetry_diagnostics[:-32]
 
     def _verify_normal(self, document: Mapping[str, object]) -> None:
         required = ("decision_uuid", "sequence_id", "heartbeat_unix", "producer",
