@@ -587,6 +587,17 @@ field-set validation. Any missing or invalid publication fails closed without
 fallback, repair, or partial acceptance. It does not read governance, Runtime,
 confidence, package, or strategy objects and adds no execution behavior.
 
+## PR264 V28 execution-integration flow
+
+`DecisionContext -> PR263 ExecutionPlan -> ready-only ExecutorContract -> atomic PR264
+publication + replay validation -> replay-bound V27 compatibility contract -> nominal
+Demo Executor capability -> unchanged V27 Executor -> shadow/replay/validation or
+record-approved isolated Demo`.
+
+Any plan, contract, Decision replay, execution replay, Runtime sequence, publication,
+broker snapshot, health, or freshness mismatch stops before Executor invocation. PR264
+cannot select Production; only the V27 Executor owns broker submission.
+
 ## PR195 governed Executor activation flow
 
 `PR194 accepted immutable ExecutionContext + Runtime READY -> PR195 one-shot activation authorization -> existing MT5 Executor lifecycle`.

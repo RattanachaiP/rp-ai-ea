@@ -1,18 +1,28 @@
 """PR263 dimensional correctness, lineage, fail-closed and replay tests."""
 from dataclasses import FrozenInstanceError,replace
 import math
+import json
 import pytest
 from bridge.v28.account_risk_context import AccountRiskPolicy,assess_account_risk,create_account_state
 from bridge.v28.broker_constraint_adapter import create_broker_constraints,create_symbol_specification
 from bridge.v28.decision_contract import create_expectancy_evidence
 from bridge.v28.decision_engine import decide_from_market_intelligence
-from bridge.v28.execution_plan import ExecutableQuote,ExecutionConstraints
+from bridge.v28.execution_plan import ExecutableQuote,ExecutionConstraints,identity
 from bridge.v28.executor_contract import build_executor_contract
 from bridge.v28.market_snapshot import build_market_intelligence
 from bridge.v28.portfolio_exposure import PortfolioExposure,PortfolioPolicy
 from bridge.v28.position_budget import construct_position_budget
 from bridge.v28.risk_construction import construct_execution_plan
 from bridge.v28.runtime_context import construct_runtime_context
+from bridge.v28.demo_runtime_controller import DemoRuntimeController
+from bridge.v28.execution_bridge import DeliveryReceipt,DemoExecutor,ExecutionBridge
+from bridge.v28.execution_plan_publisher import ExecutionPlanPublisher,publication_for
+from bridge.v28.execution_replay_validator import validate_execution_replay
+from bridge.v28.executor_adapter import adapt_executor_contract,build_v27_compatibility_contract
+from bridge.v28.publisher_contract import (BrokerSnapshot,ExecutionEnvironmentContract,HumanApprovalRecord,
+    PR264_POLICY,RuntimeHealthSnapshot,replay_bound)
+from bridge.v28.shadow_executor import ShadowExecutionRecord,ShadowExecutor
+from runtime.broker_safety import BrokerOrderResult,BrokerOutcome,BrokerSymbol
 
 NOW="1970-01-01T00:01:41Z"; STATE_TIME="1970-01-01T00:01:40Z"
 def decision_runtime(side="BUY"):
@@ -113,3 +123,103 @@ def test_plan_and_executor_are_replay_safe_immutable_and_tamper_rejected():
 def test_risk_construction_never_reads_raw_indicators():
     v=inputs(); object.__setattr__(v["runtime"],"market",{"symbol":"XAUUSD","sequence_id":11,"raw_indicator":"poison"})
     assert construct_execution_plan(**v).execution_ready
+
+EVAL="1970-01-01T00:01:43Z"; EXPIRES="1970-01-01T00:01:50Z"
+def integration_boundary(plan=None):
+    plan=plan or construct_execution_plan(**inputs()); contract=build_executor_contract(plan)
+    environment_values=dict(environment="DEMO",account_identifier="demo-1",account_type="DEMO",broker_server="demo-server",
+        terminal_instance_identity="terminal-1",executor_instance_identity="demo-executor-1",verified_source_authority="DEMO_TERMINAL_REGISTRY",
+        verification_timestamp="1970-01-01T00:01:42Z",expires_at=EXPIRES,policy_reference=PR264_POLICY)
+    environment=replay_bound(ExecutionEnvironmentContract,"V28_EXECUTION_ENVIRONMENT_REPLAY",**environment_values)
+    health_values=dict(healthy=True,runtime_sequence_id=plan.runtime_sequence_id,source_authority="RUNTIME_HEALTH_AUTHORITY",
+        observed_at="1970-01-01T00:01:42Z",evaluation_time=EVAL,expires_at=EXPIRES,maximum_age_seconds=5,policy_reference=PR264_POLICY)
+    health=replay_bound(RuntimeHealthSnapshot,"V28_RUNTIME_HEALTH_SNAPSHOT_REPLAY",**health_values)
+    broker_values=dict(account_environment="DEMO",account_identifier="demo-1",broker_server="demo-server",terminal_instance_identity="terminal-1",
+        symbol=plan.symbol,runtime_sequence_id=plan.runtime_sequence_id,trading_enabled=True,session_state="OPEN",symbol_trade_mode="ENABLED",
+        connection_state="CONNECTED",source_authority="DEMO_BROKER_AUTHORITY",observed_at="1970-01-01T00:01:42Z",
+        evaluation_time=EVAL,expires_at=EXPIRES,maximum_age_seconds=5,policy_reference=PR264_POLICY)
+    broker=replay_bound(BrokerSnapshot,"V28_BROKER_SNAPSHOT_REPLAY",**broker_values)
+    publication=publication_for(plan,publisher_authority="EXECUTION_PLAN_PUBLISHER",publisher_instance_identity="publisher-1",
+        publication_timestamp="1970-01-01T00:01:42Z",destination_identity="demo-file-1",generation=1,policy_reference=PR264_POLICY)
+    approval_values=dict(approval_id="approval-1",approver_identity="operator-1",approval_authority="DEMO_EXECUTION_APPROVER",
+        execution_plan_replay_identity=plan.replay_identity,executor_contract_replay_identity=contract.replay_identity,
+        approved_environment_identity=environment.replay_identity,approval_timestamp="1970-01-01T00:01:42Z",expires_at=EXPIRES,
+        policy_reference=PR264_POLICY,nonce="one-time-purpose-1")
+    approval=replay_bound(HumanApprovalRecord,"V28_HUMAN_APPROVAL_REPLAY",**approval_values)
+    compatibility=build_v27_compatibility_contract(contract,compatibility_policy_reference=PR264_POLICY)
+    return plan,contract,compatibility,health,broker,publication,environment,approval
+
+def test_pr264_publication_is_exact_immutable_atomic_and_replay_safe(tmp_path):
+    plan,contract,compatibility,health,broker,publication,environment,approval=integration_boundary()
+    path=tmp_path/"execution_plan.json"
+    publisher=ExecutionPlanPublisher(path,publisher_authority="EXECUTION_PLAN_PUBLISHER",publisher_instance_identity="publisher-1",destination_identity="demo-file-1",policy_reference=PR264_POLICY)
+    published=publisher.publish(plan,publication_timestamp="1970-01-01T00:01:42Z",generation=1)
+    assert published==publication and path.exists() and published.plan_payload()["direction"]==plan.direction
+    tampered=json.loads(published.canonical_plan_json); tampered["policy_references"].append("POISON")
+    with pytest.raises(ValueError,match="HASH"): replace(published,canonical_plan_json=json.dumps(tampered,sort_keys=True,separators=(",",":")))
+    assert validate_execution_replay(plan,contract,health,broker,published,environment,approval,evaluation_time=EVAL).valid
+
+def test_pr264_adapter_projects_governed_authority_and_meets_real_v27_requirements():
+    plan,contract,compatibility,*_=integration_boundary(); adapted=adapt_executor_contract(compatibility)
+    assert adapted.valid and adapted.snapshot.payload["volume"]==plan.approved_volume
+    assert adapted.snapshot.payload["entry_permission"] is compatibility.entry_permission
+    assert adapted.snapshot.payload["construction_action"]==compatibility.construction_action
+    object.__setattr__(compatibility,"entry_permission",False)
+    assert not adapt_executor_contract(compatibility).valid
+
+def test_pr264_shadow_buy_sell_and_hold_never_grant_ordersend():
+    for side in ("BUY","SELL"):
+        plan,*_,publication,environment,approval=integration_boundary(construct_execution_plan(**inputs(side)))
+        record=ShadowExecutor().execute(plan,publication,recorded_at=EVAL)
+        assert record.action==side and not record.ordersend_permitted
+    invalid=inputs(); invalid["execution_constraints"]=replace(invalid["execution_constraints"],runtime_health_valid=False)
+    plan=construct_execution_plan(**invalid); record=ShadowExecutor().execute(plan,None,recorded_at=EVAL)
+    assert record.action=="HOLD" and not record.ordersend_permitted
+    with pytest.raises(ValueError,match="REPLAY"): replace(record,action="BUY")
+
+def test_pr264_fail_closed_replay_health_staleness_and_approval_gate():
+    plan,contract,compatibility,health,broker,publication,environment,approval=integration_boundary()
+    object.__setattr__(contract,"decision_replay_identity","wrong")
+    assert not validate_execution_replay(plan,contract,health,broker,publication,environment,approval,evaluation_time=EVAL).valid
+    plan,contract,compatibility,health,broker,publication,environment,approval=integration_boundary()
+    assert not validate_execution_replay(plan,contract,health,broker,None,environment,approval,evaluation_time=EVAL,require_delivery_authority=True).valid
+    stale_values=approval.canonical_payload(); stale_values["expires_at"]="1970-01-01T00:01:42Z"
+    stale=replay_bound(HumanApprovalRecord,"V28_HUMAN_APPROVAL_REPLAY",**stale_values)
+    assert not validate_execution_replay(plan,contract,health,broker,publication,environment,stale,evaluation_time=EVAL,require_delivery_authority=True).valid
+
+class DemoBroker:
+    def __init__(self): self.requests=[]
+    def symbol_info(self,_): return BrokerSymbol(True,True,.1,100,.1)
+    def free_margin(self): return 100000
+    def required_margin(self,_): return 10
+    def send_order(self,request): self.requests.append(request); return BrokerOrderResult(BrokerOutcome.ACCEPTED,"DONE",ticket="demo-1")
+
+def test_pr264_demo_capability_receipt_and_no_boolean_or_production_bypass():
+    plan,contract,compatibility,health,broker,publication,environment,approval=integration_boundary(); demo_broker=DemoBroker()
+    with pytest.raises(TypeError): DemoRuntimeController(object())
+    demo=DemoExecutor(environment,demo_broker,id_factory=lambda:"exec-demo")
+    controller=DemoRuntimeController(demo)
+    result=controller.run("DEMO",plan,contract,compatibility,health,broker,publication,environment,approval,evaluation_time=EVAL)
+    assert result.completed and result.result.status=="DELIVERED" and len(demo_broker.requests)==1
+    with pytest.raises(ValueError,match="MODE"): controller.run("PRODUCTION",plan,contract,compatibility,health,broker,publication,environment,approval,evaluation_time=EVAL)
+    with pytest.raises(TypeError): ExecutionBridge(object())
+    with pytest.raises(ValueError,match="REPLAY"): replace(result.result,reason="tampered")
+
+def test_pr264_mismatched_projected_field_and_stale_environment_block_before_executor():
+    plan,contract,compatibility,health,broker,publication,environment,approval=integration_boundary(); object.__setattr__(contract,"target",999)
+    validation=validate_execution_replay(plan,contract,health,broker,publication,environment,approval,evaluation_time=EVAL,require_delivery_authority=True)
+    assert not validation.valid and "EXECUTOR_PLAN_TARGET_MISMATCH" in validation.reasons
+    plan,contract,compatibility,health,broker,publication,environment,approval=integration_boundary()
+    stale_values=environment.canonical_payload(); stale_values["expires_at"]="1970-01-01T00:01:42Z"
+    stale=replay_bound(ExecutionEnvironmentContract,"V28_EXECUTION_ENVIRONMENT_REPLAY",**stale_values)
+    assert not validate_execution_replay(plan,contract,health,broker,publication,stale,approval,evaluation_time=EVAL,require_delivery_authority=True).valid
+
+def test_pr264_invalid_adapter_and_missing_publication_never_reach_v27_executor():
+    plan,contract,compatibility,health,broker,publication,environment,approval=integration_boundary(); demo_broker=DemoBroker()
+    demo=DemoExecutor(environment,demo_broker,id_factory=lambda:"exec-demo"); bridge=ExecutionBridge(demo)
+    object.__setattr__(compatibility,"replay_identity","tampered")
+    receipt=bridge.deliver(plan,contract,compatibility,health,broker,publication,environment,approval,delivered_at=EVAL)
+    assert receipt.status=="REJECTED" and receipt.reason=="V27_COMPATIBILITY_REPLAY_INVALID" and not demo_broker.requests
+    plan,contract,compatibility,health,broker,publication,environment,approval=integration_boundary()
+    receipt=bridge.deliver(plan,contract,compatibility,health,broker,None,environment,approval,delivered_at=EVAL)
+    assert receipt.status=="REJECTED" and receipt.reason=="PUBLICATION_REQUIRED" and not demo_broker.requests
