@@ -436,6 +436,12 @@ PR183 prepares context only. `CONTEXT_PREPARED` has no trading or operational me
 
 `PR183 Decision Context -> PR184 canonical provenance, repository, snapshot, policy, and engine verification -> immutable advisory Decision Intelligence -> future PR185 Decision Recommendation.`
 
+The explicit construction path is `operator-supplied exact PR183 snapshot UUID ->
+operator_construction -> existing PR184 owner engine -> existing append-only PR184
+repository`. Construction never creates activation state. Inspection remains read-only,
+and activation still requires separate exact PR184 identities and explicit human
+approval.
+
 PR184's quality, reliability, consistency, and recommendation-review fields are advisory evidence only. Its immutable production-input activation names one exact governed bundle for PR185 consumption and grants no trading or execution authority. `DECISION_INTELLIGENCE_READY` is not BUY, SELL, HOLD, trade approval, publication, activation, or execution approval. Only future PR185 may consume Decision Intelligence, and PR185 remains advisory-only.
 
 ## PR185 governed advisory Decision Recommendation flow

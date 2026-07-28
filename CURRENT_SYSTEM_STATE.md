@@ -3,6 +3,17 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR246 Decision Intelligence Construction Entrypoint — IMPLEMENTED, PENDING ACCEPTANCE
+
+- Repository discovery confirmed case A: the PR184 owner engine, construction API,
+  append-only repository, and construction tests already existed; only the explicit
+  operator-facing construction composition was missing.
+- `python -m learning.decision_intelligence.operator_construction` accepts one exact
+  canonical PR183 snapshot UUID and delegates all construction and persistence to the
+  existing PR184 engine and repository. Missing or invalid upstream state fails closed.
+- Construction remains separate from inspection, human approval, activation, and
+  production startup and grants no Runtime, strategy, trading, or execution authority.
+
 ## PR245 Decision Intelligence Operator Inspection — IMPLEMENTED, PENDING ACCEPTANCE
 
 - `python -m learning.decision_intelligence.operator_inspection` provides read-only,
