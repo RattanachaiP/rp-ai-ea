@@ -1,15 +1,46 @@
-# CURRENT_SYSTEM_STATE — V26.6.2A No-Pause Adaptive Expectancy Fix
+# CURRENT_SYSTEM_STATE — Production Trading Stabilization
 
-Date: 2026-06-12 (UTC)
+Date: 2026-07-28 (UTC)
 Authoritative branch policy: `codex-dev`
 
-## PR250 Governed Outcome Evidence Acquisition — IMPLEMENTED, PENDING ACCEPTANCE
+## Production stabilization directive — ACTIVE
+
+- PR248, PR249, and PR250 have passed verification. The verified baseline has a
+  clean repository, is synchronized with `origin/codex-dev`, and has no detected
+  architecture regression.
+- Trading Runtime is `READY`. Learning Runtime is intentionally waiting and must
+  remain disabled; PR173 attribution, PR174 and later learning stages, Pattern
+  Learning, Runtime Knowledge updates, outcome learning, and behaviour adaptation
+  are not authorized for activation.
+- Primary development is frozen to production trading stabilization. Permitted work
+  is runtime and execution reliability verification, long-duration Demo operation,
+  trading-statistics collection, and evidence-based analysis of entry quality, exit
+  quality, drawdown, win rate, profit factor, and expectancy.
+- New architecture and speculative enhancements are prohibited. A modification must
+  be justified by runtime evidence, trading evidence, or a reproducible production
+  defect and must preserve the boundaries in the architecture authority documents.
+- The active operating sequence is continuous Demo execution, runtime stability
+  verification, collection of sufficient closed trades, review of trading and
+  execution statistics, and identification of evidence-backed improvements.
+  Learning Runtime activation may be reconsidered only after sufficient governed
+  production evidence exists.
+- The next milestone is stable, repeatable trading behavior with high-quality
+  production statistics while the architecture remains stable; it is not
+  architecture expansion.
+
+## PR250 Governed Outcome Evidence Acquisition — VERIFIED PASS
 
 - `learning.outcome_evidence` defines the immutable canonical PR173 manifest and acquisition-owned deterministic row replay provenance.
 - Exact validated imports preserve complete normalized evidence append-only under `learning_data/outcome_evidence`; validate/inspect are read-only and no latest selection exists.
 - Explicit `construct-pr173` invokes/persists through the PR173 owner and verifies exact source/replay binding. PR175 human approval remains pending PR251; trading authority is unchanged.
 
-## PR248 End-to-End Governed Learning Bootstrap — IMPLEMENTED, PENDING ACCEPTANCE
+## PR249 PR173 Evidence Acquisition Discovery — VERIFIED PASS
+
+- Architecture discovery documented the governed evidence-acquisition gap and the
+  constraints subsequently implemented by PR250.
+- The discovery introduced no Runtime, Strategy, Executor, or learning activation.
+
+## PR248 End-to-End Governed Learning Bootstrap — VERIFIED PASS
 
 - Repository audit establishes PR173 immutable outcome evidence as the first
   learning input, with the separately governed PR175 approved evidence envelope
