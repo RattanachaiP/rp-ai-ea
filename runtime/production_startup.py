@@ -239,8 +239,16 @@ def _parser():
     parser = argparse.ArgumentParser(
         description="Create PR185 from an exact PR184 record and start the governed Runtime."
     )
-    parser.add_argument("--market-state", type=Path, default=None,
-                        help="canonical publication (default: RP_AI_SHARED_ROOT/XAUUSD/market_state.json)")
+    parser.add_argument(
+        "--market-state",
+        type=Path,
+        default=None,
+        help=(
+            "canonical publication path; defaults to "
+            "RP_AI_SHARED_ROOT/XAUUSD/market_state.json when configured, "
+            "otherwise the canonical Windows Common Files publication path"
+        ),
+    )
     parser.add_argument("--observation-window", type=float, default=5.0)
     for name, directory in (
         ("intelligence", "decision_intelligence"),
