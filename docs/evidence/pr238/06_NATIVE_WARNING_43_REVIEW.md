@@ -22,3 +22,17 @@ The remaining explicit `uint -> ushort` conversions are limited to Unicode assem
 ## Required native confirmation
 
 This source correction must still be compiled in MetaEditor. The merge gate remains **NOT READY** until the corrected revision has an attached native result of **0 errors / 0 warnings**.
+
+## Final Warning 43 — native line 129
+
+The next native compile reported **0 errors / 1 warning** at the former declaration `long file_size = FileSize(handle);`.
+
+| Compile line | Exact expression | Current type | Former destination | Correct type | Resolution |
+|---|---|---|---|---|---|
+| 129 | `FileSize(handle)` | `ulong` | `long file_size` | `ulong file_size` | The narrowing conversion is removed completely. |
+
+`long` was previously used only so the code could test `file_size <= 0` and print with `%I64d`. It was not semantically required: `FileSize` reports a non-negative byte count for an already valid handle. The corrected code retains `ulong` for the file size, tests `== 0`, applies the existing 1 MiB maximum, compares it to the `uint` read count through a lossless widening conversion, and prints with `%I64u`.
+
+`FileReadArray` still requires an `int` element count. That conversion is performed only after `file_size <= 1,048,576`; therefore the value is proven to be within both `INT_MAX` and `LONG_MAX` before conversion. The cast is not used as a warning suppressor: the preceding runtime bound is the safety condition, and the named `requested_bytes` variable documents the API-boundary type.
+
+A final MetaEditor compile of this correction remains required to attach the target **0 errors / 0 warnings** result.

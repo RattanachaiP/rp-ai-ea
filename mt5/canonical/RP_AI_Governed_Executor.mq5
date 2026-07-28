@@ -126,8 +126,9 @@ bool ReadExecutionPackage(string &payload)
       return false;
    }
 
-   long file_size = FileSize(handle);
-   if(file_size <= 0 || file_size > 1048576)
+   const ulong maximum_package_bytes = 1048576;
+   ulong file_size = FileSize(handle);
+   if(file_size == 0 || file_size > maximum_package_bytes)
    {
       FileClose(handle);
       Print(file_size == 0 ? "PACKAGE_FILE_EMPTY" : "PACKAGE_FILE_SIZE_INVALID");
@@ -135,11 +136,13 @@ bool ReadExecutionPackage(string &payload)
    }
 
    uchar bytes[];
-   uint bytes_read = FileReadArray(handle, bytes, 0, (int)file_size);
+   // The preceding 1 MiB bound proves this count is within the MQL5 int range.
+   int requested_bytes=(int)file_size;
+   uint bytes_read = FileReadArray(handle, bytes, 0, requested_bytes);
    FileClose(handle);
-   if((long)bytes_read != file_size || !DecodePackagePayload(bytes, payload))
+   if((ulong)bytes_read != file_size || !DecodePackagePayload(bytes, payload))
    {
-      PrintFormat("PACKAGE_PAYLOAD_DECODE_FAIL | bytes_read=%u | file_size=%I64d",bytes_read,file_size);
+      PrintFormat("PACKAGE_PAYLOAD_DECODE_FAIL | bytes_read=%u | file_size=%I64u",bytes_read,file_size);
       return false;
    }
 

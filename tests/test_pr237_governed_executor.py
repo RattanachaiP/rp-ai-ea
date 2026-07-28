@@ -65,6 +65,15 @@ def test_unicode_decoding_uses_ushort_preserving_conversion():
     assert "input ulong  InpMagic" in source
 
 
+def test_file_size_remains_unsigned_until_range_checked():
+    source = SOURCE.read_text()
+    assert "ulong file_size = FileSize(handle);" in source
+    assert "\n   long file_size = FileSize(handle);" not in source
+    assert "file_size > maximum_package_bytes" in source
+    assert "int requested_bytes=(int)file_size;" in source
+    assert "file_size=%I64u" in source
+
+
 @pytest.mark.parametrize("payload", [
     '{"execution_uuid":"a","execution_uuid":"b"}',
     json.dumps(package()) + " trailing",
