@@ -23,6 +23,7 @@ from bridge.execution_confidence_integration import (
     ExecutionConfidenceIntegrationError,
 )
 from learning.execution_package_consumer import ExecutionPackageConsumer
+from runtime.runtime_observability import RuntimeObservability
 
 # V25 Pullback Fallback Mode
 # V25 RP TIME SYNC STANDARD V1
@@ -68,6 +69,19 @@ COMMON_SHARED_ROOT = Path(os.environ.get(
 BASE_PATH = COMMON_SHARED_ROOT / SYMBOL
 FILE_PATH = BASE_PATH / "market_state.json"
 OUTPUT_PATH = BASE_PATH / "decision.json"
+
+DECISION_PRODUCER = "RP_AI_RUNTIME"
+DECISION_PRODUCER_VERSION = "V27.5"
+DECISION_SCHEMA_VERSION = "2.0"
+_last_write_failure_owner = "PUBLISHER"
+
+
+class RuntimeStageFailure(RuntimeError):
+    """Preserve the exact pipeline owner across the retrying write boundary."""
+
+    def __init__(self, owner, reason):
+        super().__init__(reason)
+        self.owner = owner
 
 
 RUNTIME_BRANCH = "codex-dev"
@@ -5787,6 +5801,8 @@ def write_decision(data, execution_context=None):
     - Atomically replace decision.json only after temp is complete.
     This reduces the chance that EA reads decision.json while Python is writing it.
     """
+    global _last_write_failure_owner
+    _last_write_failure_owner = "PUBLISHER"
     BASE_PATH.mkdir(parents=True, exist_ok=True)
     temp_path = OUTPUT_PATH.with_suffix(".tmp")
 
@@ -5843,7 +5859,10 @@ def write_decision(data, execution_context=None):
                 data = apply_expectancy_metrics_v26_6_6(data)
                 data = apply_shadow_opposite_audit_v26_6_6(data)
                 _trace_before = dict(data)
-                data = construct_risk_payload_before_validation(data)
+                try:
+                    data = construct_risk_payload_before_validation(data)
+                except Exception as exc:
+                    raise RuntimeStageFailure("RISK", f"{type(exc).__name__}: {exc}") from exc
                 data = record_final_decision_trace_stage(data, "risk_payload_construction", _trace_before)
                 data = apply_loss_cap_and_profit_lock_v26_6_2(data)
                 data = apply_exit_authority_manager_v26_6_4(data)
@@ -5918,6 +5937,16 @@ def write_decision(data, execution_context=None):
                 data["arch_version"] = ARCH_VERSION
                 data["build_tag"] = BUILD_TAG
                 data["runtime_signature"] = RUNTIME_SIGNATURE
+                # Publication identity is Runtime-owned.  Market provenance is
+                # retained separately rather than relabelled as a decision.
+                data["producer"] = DECISION_PRODUCER
+                data["producer_version"] = DECISION_PRODUCER_VERSION
+                data["schema_version"] = DECISION_SCHEMA_VERSION
+                data["source_uuid"] = str(
+                    data.get("source_uuid")
+                    or data.get("market_state_source_uuid")
+                    or "dc3777c6-cf0d-5a7b-bd58-8a5c44568475"
+                )
                 data = attach_final_write_metadata(data, write_start)
                 data = record_final_decision_trace_stage(data, "final_publish", data)
                 payload_text = json.dumps(data, indent=2)
@@ -5978,6 +6007,7 @@ def write_decision(data, execution_context=None):
             print("WRITE DECISION LOCKED, RETRY:", e)
             time.sleep(0.1)
         except Exception as e:
+            _last_write_failure_owner = e.owner if isinstance(e, RuntimeStageFailure) else "PUBLISHER"
             print("WRITE DECISION ERROR:", e)
             time.sleep(0.1)
 
@@ -10124,6 +10154,8 @@ def build_decision(data):
 
 
 def run():
+    observer = RuntimeObservability(BASE_PATH)
+    observer.transition("BOOT", "CONFIGURATION", startup=True)
     print("RUNTIME BOOT", flush=True)
     print("RP AI Decision Engine XAUUSD V21.2 SOFT DIRECTION LOCK + SPIKE CONTINUATION + EA SCHEMA FIX started")
     print(f"RUNTIME_BRANCH={RUNTIME_BRANCH} | ARCH_VERSION={ARCH_VERSION} | BUILD_TAG={BUILD_TAG} | RUNTIME_SIGNATURE={RUNTIME_SIGNATURE}")
@@ -10137,12 +10169,26 @@ def run():
     print("Entry Quality Gate: dual mode safe/aggressive / selective range reversal / balanced transition / adaptive score / M15-M3 alignment / BB middle block / momentum confirmation / learning")
     print(f"MAX_SIGNALS_PER_BAR = {MAX_SIGNALS_PER_BAR} | COOLDOWN_SECONDS = {COOLDOWN_SECONDS}")
 
+    observer.transition("CONFIGURATION", "PATH RESOLUTION", startup=True)
+    if FILE_PATH.name != "market_state.json" or OUTPUT_PATH.name != "decision.json":
+        error = RuntimeError("NON_CANONICAL_RUNTIME_PATH")
+        observer.failure("CONFIG", error, terminal=True)
+        raise error
+    observer.transition("PATH RESOLUTION", "ENVIRONMENT OBSERVATION", startup=True)
     package_uuid = os.environ.get("RP_EXECUTION_PACKAGE_UUID", "").strip()
     if not package_uuid:
-        raise ExecutionConfidenceIntegrationError("PACKAGE_MISSING")
+        error = ExecutionConfidenceIntegrationError("PACKAGE_MISSING")
+        observer.failure("CONFIG", error, terminal=True)
+        raise error
     execution_context = ExecutionConfidenceIntegration(
         ExecutionPackageConsumer()).consume(package_uuid)
     print("EXECUTION CONTEXT CONSUMED", flush=True)
+    observer.transition("ENVIRONMENT OBSERVATION", "MARKET STATE READER", startup=True)
+    observer.transition("MARKET STATE READER", "DECISION CONTEXT", startup=True)
+    observer.transition("DECISION CONTEXT", "DECISION INTELLIGENCE", startup=True)
+    observer.transition("DECISION INTELLIGENCE", "DECISION PUBLISHER", startup=True)
+    observer.transition("DECISION PUBLISHER", "RUNTIME LOOP", startup=True)
+    observer.running()
 
     market_received = False
     decision_generated = False
@@ -10151,6 +10197,7 @@ def run():
         cycle_start = time.time()
         data = read_market()
         if data is None:
+            observer.failure("READER", RuntimeError("MARKET_STATE_READ_REJECTED"))
             fallback = no_trade("market_state read failed")
             fallback["loop_duration_sec"] = round(time.time() - cycle_start, 6)
             fallback["stale_prevention_timing_sec"] = fallback["loop_duration_sec"]
@@ -10158,12 +10205,19 @@ def run():
             fallback["file_write_latency"] = 0.0
             fallback["total_cycle_time"] = fallback["loop_duration_sec"]
             observe_knowledge(fallback, {})
-            write_decision(final_decision_publication(
+            persisted = write_decision(final_decision_publication(
                 brain_decision_publication(fallback),
                 lifecycle="STALE_INPUT_FALLBACK",
             ), execution_context)
+            if persisted:
+                try:
+                    observer.decision(json.loads(OUTPUT_PATH.read_text(encoding="utf-8")),
+                                      (time.time() - cycle_start) * 1000.0)
+                except Exception as exc:
+                    observer.failure("HEALTH", exc)
             time.sleep(1)
             continue
+        observer.market_state(data)
         if not market_received:
             print(
                 "MARKET STATE FIRST ACCEPTED",
@@ -10215,10 +10269,19 @@ def run():
                 print("DECISION FIRST PERSISTED", flush=True)
                 print("EXECUTOR CONSUMPTION PENDING", flush=True)
                 decision_generated = True
+            if persisted:
+                try:
+                    observer.decision(json.loads(OUTPUT_PATH.read_text(encoding="utf-8")),
+                                      (time.time() - cycle_start) * 1000.0)
+                except Exception as exc:
+                    observer.failure("HEALTH", exc)
+            else:
+                observer.failure(_last_write_failure_owner, RuntimeError("DECISION_ATOMIC_PUBLICATION_FAILED"))
         except Exception as e:
             print("RUNTIME CYCLE REJECTED", flush=True)
             print("Stage: Decision Intelligence", flush=True)
             print(f"Reason: {type(e).__name__}: {e}", flush=True)
+            observer.failure("ANALYSIS", e)
             err_decision = no_trade(f"logic error: {e}")
             err_decision["loop_duration_sec"] = round(time.time() - cycle_start, 6)
             err_decision["stale_prevention_timing_sec"] = err_decision["loop_duration_sec"]
@@ -10226,10 +10289,18 @@ def run():
             err_decision["file_write_latency"] = 0.0
             err_decision["total_cycle_time"] = err_decision["loop_duration_sec"]
             observe_knowledge(err_decision, data if isinstance(data, dict) else {})
-            write_decision(final_decision_publication(
+            persisted = write_decision(final_decision_publication(
                 brain_decision_publication(err_decision),
                 lifecycle="LOGIC_ERROR_REJECTION",
             ), execution_context)
+            if persisted:
+                try:
+                    observer.decision(json.loads(OUTPUT_PATH.read_text(encoding="utf-8")),
+                                      (time.time() - cycle_start) * 1000.0)
+                except Exception as exc:
+                    observer.failure("HEALTH", exc)
+            else:
+                observer.failure(_last_write_failure_owner, RuntimeError("DECISION_ATOMIC_PUBLICATION_FAILED"))
         time.sleep(1)
 
 
