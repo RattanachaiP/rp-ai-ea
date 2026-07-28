@@ -1,5 +1,12 @@
 # DECISION_FLOW_MAP — Runtime Lineage and Participation Governance Flow
 
+## PR254 read-only validation flow
+
+`operator-selected Demo trace snapshot -> offline lifecycle/stage/chronology and failure-classification validation -> pipeline_validation_report.json`.
+
+PR254 observes the completed production flow only. It does not become a stage in
+that flow and cannot call or influence any production owner.
+
 ## PR253 passive analytics flow
 
 `PR252 runtime_metrics.json + runtime_daily_summary.json + trade_statistics.csv`

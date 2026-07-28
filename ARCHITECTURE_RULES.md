@@ -3,6 +3,14 @@
 ## Sole authority
 This document, `CURRENT_SYSTEM_STATE.md`, `DECISION_FLOW_MAP.md`, and `EMERGENCY_PATCH_POLICY.md` are the authoritative architecture documents for V27 changes.
 
+## PR254 production pipeline validation rule
+
+PR254 is an offline, read-only consumer of an explicitly selected continuous
+Demo pipeline trace snapshot. It may produce only
+`pipeline_validation_report.json`. It cannot import, invoke, delay, retry,
+modify, or authorize any trading subsystem. Missing stages and failures remain
+explicit classified evidence.
+
 ## PR253 governed trading-performance analytics rule
 
 PR253 is an offline, read-only consumer of explicitly selected Runtime telemetry,
