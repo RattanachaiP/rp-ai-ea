@@ -91,6 +91,14 @@ RP_Telegram_AI_EA_Monitor_V1_1_UTF8_FIX.mq5
 LATEST MAJOR UPGRADES
 =====================
 
+## PR240 — Governed Development Startup
+
+Added `runtime.dev_startup` as a thin development-only delegate to the sole
+`runtime.production_startup` composition and added `start_ai_runtime.ps1` with
+repository-root, Python, and canonical `market_state.json` preflight checks. PR240
+adds no alternate Decision Engine launch, fallback, artifact repair, or execution
+authority and preserves the PR184 through PR190 fail-closed chain.
+
 * high quality override
 * anti-flip filter
 * trend continuation improvements
