@@ -22,6 +22,13 @@ All emergency exit behavior must preserve one effective exit owner and must publ
 
 ## V28 rebuild boundary
 
+## PR263 boundary
+
+Risk Construction is a fail-closed feasibility boundary, not emergency authority.
+Emergency patches may not infer missing plan values, weaken Decision replay or risk
+checks, submit orders through the Executor contract, activate V28, or move market,
+decision, broker-execution, position-management, or exit ownership into PR263.
+
 PR262 Decision Intelligence is an approved V28 construction milestone, not an emergency
 patch or V27 runtime modification. Emergency authority may not weaken its context-only
 input boundary, positive-expectancy gate, replay identity, or fail-closed HOLD behavior.

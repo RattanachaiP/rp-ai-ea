@@ -1,5 +1,16 @@
 # DECISION_FLOW_MAP — Runtime Lineage and Participation Governance Flow
 
+## PR263 V28 Risk Construction flow (non-production)
+
+`immutable DecisionContext + RuntimeContext + explicit account/portfolio state`
+`+ explicit execution/broker constraints -> account and portfolio assessment`
+`-> position budget + stop/target/reward-risk/broker feasibility -> ExecutionPlan`
+`-> ready-only ExecutorContract -> governed Executor (not invoked by PR263)`.
+
+Every missing, stale, inconsistent, or failed input produces a non-ready plan. Risk
+Construction reads no raw indicator or reconstructed market evidence, never changes
+the authorized decision, and neither its plan nor its contract submits an order.
+
 ## PR262 V28 Decision Intelligence flow (non-production)
 
 `StructureContext + RegimeContext + TrendContext + MomentumContext + VolatilityContext`
