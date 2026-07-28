@@ -1,15 +1,11 @@
-"""Describe directional environment; this module has no trading vocabulary."""
-from __future__ import annotations
-from typing import Any, Mapping
+"""Describe directional environment without trading semantics."""
+from .context_contracts import TrendContext
 
 
-def describe_trend(snapshot: Mapping[str, Any], structure: Mapping[str, Any]) -> dict[str, Any]:
-    bars = snapshot["bars"]
-    if len(bars) < 5:
-        return {"direction": "UNDETERMINED", "persistence": "UNKNOWN", "explanation": "insufficient structure history"}
-    direction = {"ADVANCING": "UPWARD", "DECLINING": "DOWNWARD"}.get(structure["condition"], "SIDEWAYS")
-    changes = [bars[i]["close"] - bars[i - 1]["close"] for i in range(1, len(bars))]
-    aligned = sum(change > 0 for change in changes[-4:]) if direction == "UPWARD" else sum(change < 0 for change in changes[-4:]) if direction == "DOWNWARD" else 0
-    persistence = "PERSISTENT" if aligned >= 3 else "MIXED"
-    return {"direction": direction, "persistence": persistence,
-            "explanation": f"{structure['condition']} structure with {aligned}/4 aligned close changes"}
+def describe_trend(snapshot, structure, policy):
+    if structure.data_quality != "VALID":
+        return TrendContext("UNDETERMINED", {"structure_state": structure.state}, "structure is unavailable", structure.data_quality, policy.policy_id, policy.version)
+    state = {"ADVANCING": "UPWARD", "DECLINING": "DOWNWARD"}.get(structure.state, "SIDEWAYS")
+    changes = tuple(snapshot.bars[i]["close"] - snapshot.bars[i-1]["close"] for i in range(1, len(snapshot.bars)))
+    return TrendContext(state, {"close_changes": changes, "structure_state": structure.state},
+                        f"close progression and structure describe {state.lower()} context", "VALID", policy.policy_id, policy.version)

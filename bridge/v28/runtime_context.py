@@ -21,13 +21,13 @@ class RuntimeContext:
     observed_at: float
     heartbeat_age_seconds: float
     source_heartbeat_unix: float
-    structure: Mapping[str, Any]
-    regime: Mapping[str, Any]
-    trend: Mapping[str, Any]
-    momentum: Mapping[str, Any]
-    volatility: Mapping[str, Any]
-    liquidity: Mapping[str, Any]
-    opportunity: Mapping[str, Any]
+    structure: Any
+    regime: Any
+    trend: Any
+    momentum: Any
+    volatility: Any
+    liquidity: Any
+    opportunity: Any
     runtime_version: str = "V28.PR-A"
 
     def __post_init__(self) -> None:
