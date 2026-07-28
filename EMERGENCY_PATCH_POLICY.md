@@ -1,5 +1,12 @@
 # EMERGENCY_PATCH_POLICY — V27
 
+## PR253 boundary
+
+Trading-performance reports are evidence only. Emergency-patch authority may not
+connect PR253 reports or findings to AI Decision, Strategy, Risk Construction,
+Writer, Runtime, Executor, Broker Safety, `OrderSend`, position management, exits,
+learning, or automated optimization, and may not fabricate unavailable evidence.
+
 Emergency patches may alter post-entry trade management only when the change is implemented through the Trade Management Dashboard runtime configuration layer or through the Exit Authority Manager contract.
 
 Emergency patches must not redesign AI direction, bias, entry timing, signal generation, or market classification. If an emergency requires an architectural exception, update the four authority documents before modifying runtime code.

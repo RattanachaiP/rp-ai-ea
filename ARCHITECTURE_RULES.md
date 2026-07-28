@@ -3,6 +3,16 @@
 ## Sole authority
 This document, `CURRENT_SYSTEM_STATE.md`, `DECISION_FLOW_MAP.md`, and `EMERGENCY_PATCH_POLICY.md` are the authoritative architecture documents for V27 changes.
 
+## PR253 governed trading-performance analytics rule
+
+PR253 is an offline, read-only consumer of explicitly selected Runtime telemetry,
+completed-trade exports, MT5 ReportHistory, Experts logs, and Journal logs. It may
+produce only aggregated production and daily evidence reports. It cannot import,
+invoke, delay, modify, score for, or otherwise influence AI Decision, Strategy,
+Risk Construction, Writer, Runtime, Executor, Broker Safety, `OrderSend`, position
+management, exits, learning, or promotion. Missing evidence remains explicitly
+unavailable and must never be inferred or replaced with a behavioral recommendation.
+
 ## V28 thinking-model rebuild gate
 
 V28 is a proposal-stage replacement of the AI Decision Engine's thinking model,

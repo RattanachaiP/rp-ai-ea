@@ -1,5 +1,14 @@
 # DECISION_FLOW_MAP — Runtime Lineage and Participation Governance Flow
 
+## PR253 passive analytics flow
+
+`PR252 runtime_metrics.json + runtime_daily_summary.json + trade_statistics.csv`
+`+ optional MT5 ReportHistory/Experts/Journal evidence -> read-only validation and aggregation`
+`-> production_trading_report.json + daily_trade_review.json`.
+
+This post-fact analysis path is outside the decision and execution path. No report
+is consumed by Runtime, Strategy, Risk, Writer, Executor, learning, or promotion.
+
 ## PR250 external genesis acquisition
 
 `real governed completed outcomes -> PR250 canonical validation -> exact append-only raw evidence UUID -> explicit PR173 owner construction/report -> PR174`. Validate/inspect are read-only; import/construction require exact path/UUID. No latest selection or PR175 approval exists. PR251 must bind human approval to the PR250 evidence UUID before PR175 mining.

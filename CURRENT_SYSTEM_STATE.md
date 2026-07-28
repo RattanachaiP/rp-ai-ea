@@ -3,6 +3,15 @@
 Date: 2026-07-28 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR253 trading performance analytics — ANALYSIS ONLY
+
+The governed offline analyzer reads explicit PR252 telemetry snapshots, completed
+trade CSV/MT5 history exports, and optional Experts/Journal logs and atomically
+produces `production_trading_report.json` and `daily_trade_review.json`. Reports
+contain aggregated trading, execution, Runtime, entry-quality, exit-quality,
+strength, weakness, source, and limitation evidence only. They have no runtime,
+trading, learning, scoring, or promotion authority.
+
 ## Production stabilization directive — ACTIVE
 
 - PR248, PR249, and PR250 have passed verification. The verified baseline has a
