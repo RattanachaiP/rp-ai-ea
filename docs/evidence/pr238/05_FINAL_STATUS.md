@@ -9,7 +9,7 @@
 | No duplicate execution | STATIC GUARDS VERIFIED; LIVE RESULT NOT OBSERVED |
 | No governance changes | PASS |
 | No architecture changes | PASS |
-| Final result publication is atomic | PASS (PR238 correction) |
+| Authoritative publication fails closed | PASS (same-directory, best-effort replacement) |
 
 ## Disposition
 
@@ -19,4 +19,20 @@ FIRST_DEMO_EXECUTION = NOT CAPTURED
 FIRST_BLOCKED_BOUNDARY = MT5_WRITER_TO_MARKET_STATE_JSON
 ```
 
-The repository is hardened at the identified atomicity defect, but this evidence bundle remains explicitly non-certifying until executed on a connected, authenticated MT5 Demo host. Marking success without an authentic broker artifact would fabricate operational evidence.
+The repository is hardened at the identified authoritative-publication defect, but this evidence bundle remains explicitly non-certifying until executed on a connected, authenticated MT5 Demo host. Marking success without an authentic broker artifact would fabricate operational evidence.
+
+## Hardening status
+
+```text
+AUTHORITATIVE_STATE_PUBLICATION = FAIL_CLOSED
+RESULT_PUBLICATION_FAILURE = UNKNOWN_OUTCOME_DURABLY_RECORDED_WHEN_STATE_STORAGE_IS_WRITABLE
+TEMP_FILE_COLLISION = BLOCKED_AND_CLEANED
+ATOMICITY_CLAIM = BEST_EFFORT_SAME_DIRECTORY_REPLACEMENT
+ARCHITECTURE = PASS
+```
+
+## Verification environment
+
+The Python suite is reproducible from the repository root with `PYTHONPATH=. pytest -q`; it passes with 1,110 tests and 27 pre-existing warnings. Invoking bare `pytest -q` omits the repository root from package resolution in this environment and causes collection errors, which is why the explicit environment variable is required.
+
+MetaEditor, Wine, and an MT5 installation are absent from this Linux collection host (`command -v wine`, `command -v wine64`, `command -v metaeditor64`, and a filesystem search under `/opt`, `/workspace`, and `/root` returned no compiler). Therefore the mandatory native MQL5 compile could not be performed here and **0 errors / 0 warnings is not claimed**. Merge readiness remains **NOT READY** until the exact modified EA is compiled in MetaEditor and its native compiler log is attached.

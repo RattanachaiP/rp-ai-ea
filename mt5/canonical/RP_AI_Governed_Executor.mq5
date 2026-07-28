@@ -369,16 +369,27 @@ bool InspectJournal(const string candidate_uuid,bool &duplicate,long &maximum_se
    FileClose(handle); return true;
 }
 
-bool AtomicReplaceText(const string path,const string value)
+bool ReplaceTextFailClosed(const string path,const string value,const string publication_id)
 {
-   string temporary=path+".tmp";
+   // The already validated execution UUID plus transition name makes this
+   // publication-specific and collision-resistant without creating another
+   // authority or a random identity inside the Executor.
+   string temporary=path+"."+publication_id+".tmp";
+   if(FileIsExist(temporary,FILE_COMMON))
+   {
+      // A stale file is never reused or overwritten.  Cleanup is explicit and
+      // this publication still fails closed; a later tick may try a new flow.
+      FileDelete(temporary,FILE_COMMON);
+      return false;
+   }
    int handle=FileOpen(temporary,FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
    if(handle==INVALID_HANDLE) return false;
    bool okay=FileWriteString(handle,value)==StringLen(value);
    FileFlush(handle); FileClose(handle);
    if(!okay) { FileDelete(temporary,FILE_COMMON); return false; }
-   // The temporary and destination names are both in Common/Files, so the
-   // replacement cannot expose a partially written authoritative document.
+   // Source and destination are in the same Common/Files directory. FileMove
+   // provides the platform's best-effort replacement semantics; failures are
+   // reported and the existing destination is never deliberately deleted.
    if(!FileMove(temporary,FILE_COMMON,path,FILE_COMMON|FILE_REWRITE))
    {
       FileDelete(temporary,FILE_COMMON);
@@ -391,7 +402,7 @@ bool PersistExecutorState(const string execution_uuid,const string decision_uuid
 {
    string value=StringFormat("{\"schema_version\":\"1.0\",\"last_market_sequence\":%I64d,\"last_execution_uuid\":\"%s\",\"last_decision_uuid\":\"%s\",\"last_execution_status\":\"%s\",\"updated_at\":\"%s\"}",
       market_sequence,execution_uuid,decision_uuid,status,UtcTimestamp());
-   return AtomicReplaceText(EXECUTOR_STATE_PATH,value);
+   return ReplaceTextFailClosed(EXECUTOR_STATE_PATH,value,execution_uuid+"."+status);
 }
 
 bool PersistTransition(const string status,const string execution_uuid,const string decision_uuid,const long sequence,const string reason)
@@ -400,13 +411,14 @@ bool PersistTransition(const string status,const string execution_uuid,const str
           PersistExecutorState(execution_uuid,decision_uuid,sequence,status);
 }
 
-void PersistResult(const string execution_uuid,const ulong ticket,const uint retcode,const string status)
+bool PersistResult(const string execution_uuid,const ulong ticket,const uint retcode,const string status)
 {
    string value=StringFormat("{\"execution_uuid\":\"%s\",\"ticket\":%I64u,\"retcode\":%u,\"broker_time\":\"%s\",\"execution_status\":\"%s\"}\r\n",
                              execution_uuid,ticket,retcode,BrokerTimestamp(),status);
-   if(!AtomicReplaceText(EXECUTION_RESULT_PATH,value))
-      { Trace("Execution result","FAILED",execution_uuid,"POSITION","RESULT_PERSIST_FAILED"); return; }
+   if(!ReplaceTextFailClosed(EXECUTION_RESULT_PATH,value,execution_uuid+".result"))
+      { Trace("Execution result","FAILED",execution_uuid,"POSITION","RESULT_PERSIST_FAILED"); return false; }
    Trace("Execution result","RECORDED",execution_uuid,"NONE",status);
+   return true;
 }
 
 bool ValidVolume(const string symbol,const double volume,string &reason)
@@ -526,7 +538,14 @@ void OnTick()
       { journal_terminal="REJECTED"; result_status=api_result ? "BROKER_REJECTED" : "ORDERSEND_FAILED"; }
    if(!PersistTransition(journal_terminal,execution_uuid,decision_uuid,market_sequence,StringFormat("RETCODE_%u",result.retcode)))
       { AppendJournal("UNKNOWN_OUTCOME",execution_uuid,decision_uuid,market_sequence,"TERMINAL_STATE_PERSIST_FAILED"); Reject("Position",execution_uuid,"POSITION","TERMINAL_STATE_PERSIST_FAILED"); return; }
-   PersistResult(execution_uuid,result.order,result.retcode,result_status);
+   if(!PersistResult(execution_uuid,result.order,result.retcode,result_status))
+   {
+      string publication_reason=StringFormat("RESULT_PERSIST_FAILED|retcode=%u|ticket=%I64u",result.retcode,result.order);
+      if(!PersistTransition("UNKNOWN_OUTCOME",execution_uuid,decision_uuid,market_sequence,publication_reason))
+         AppendJournal("UNKNOWN_OUTCOME",execution_uuid,decision_uuid,market_sequence,publication_reason);
+      Reject("Execution result",execution_uuid,"POSITION","RESULT_PERSIST_FAILED");
+      return;
+   }
    if(journal_terminal=="SUBMITTED") Trace("OrderSend",result_status,execution_uuid,"NONE",StringFormat("RETCODE_%u",result.retcode));
    else Reject("OrderSend",execution_uuid,"ORDERSEND",StringFormat("RETCODE_%u_ERROR_%d",result.retcode,GetLastError()));
 }
