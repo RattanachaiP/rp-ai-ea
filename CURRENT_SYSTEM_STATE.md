@@ -3,6 +3,18 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR247 Decision Context Construction Entrypoint — IMPLEMENTED, PENDING ACCEPTANCE
+
+- Repository-wide discovery confirmed case A: the PR183 owner engine, construction
+  API, append-only repository, and engine tests already existed; only an explicit
+  operator-facing construction composition was absent.
+- `python -m learning.decision_context.operator_construction` accepts one exact
+  canonical PR182 confidence snapshot UUID and delegates all construction and
+  persistence to the existing PR183 engine and repository.
+- Missing, corrupt, or unmatched PR182 state fails before PR183 initialization.
+  Construction creates no activation and changes no inspection, Runtime, Strategy,
+  or Executor behavior.
+
 ## PR246 Decision Intelligence Construction Entrypoint — IMPLEMENTED, PENDING ACCEPTANCE
 
 - Repository discovery confirmed case A: the PR184 owner engine, construction API,
