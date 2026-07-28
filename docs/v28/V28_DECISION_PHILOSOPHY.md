@@ -2,7 +2,7 @@
 
 ## Status and approval gate
 
-**Status: proposal only — implementation is prohibited pending explicit approval.**
+**Status: approved for staged V28 construction by PR260–PR262; production activation is not approved.**
 
 V28 does not repair, extend, tune, wrap, or otherwise inherit V27's decision
 philosophy. This document is the required design deliverable for a full
@@ -138,12 +138,9 @@ This is a philosophy replacement, not a claim that positive expectancy has
 already been proven. Proof requires the approved measurement plan and sufficient
 closed-trade evidence for each opportunity.
 
-## 6. Approval required before implementation
+## 6. Approval and production boundary
 
-Approval must explicitly accept all five sections above and
-`V28_EXPECTANCY_FIRST_ARCHITECTURE_ADDENDUM.md`: the philosophy, opportunity
-definition, positive-edge definition, decision flow, failure analysis, and
-mandatory edge-verification, traceability, self-correction, and rule-governance
-contracts. Only then may a separate implementation plan be proposed. That plan
-must preserve the prohibition on incremental V27 fixes and must not introduce
-the disallowed mechanisms unless separately and explicitly approved.
+PR260–PR262 staged construction accepts all five sections above and the mandatory
+addendum. This does not approve production activation or incremental V27 fixes. Future
+plans must retain the positive-edge, traceability, self-correction, and rule-governance
+contracts and may not introduce disallowed mechanisms without separate approval.

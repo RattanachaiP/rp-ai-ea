@@ -1,16 +1,128 @@
-"""Backward-compatible, HOLD-only executor contract for V28 PR-A."""
+"""V28 executor compatibility and immutable Decision Intelligence contracts."""
 from __future__ import annotations
 from datetime import datetime, timezone
 from math import isfinite
 from typing import Any, Mapping
+from dataclasses import dataclass
+from hashlib import sha256
+import json
+from types import MappingProxyType
 from .runtime_context import RuntimeContext
 
 SCHEMA_VERSION = "2.0"
+DECISION_SCHEMA_VERSION = "V28.DECISION_CONTEXT.1.0"
+DECISION_POLICY_ID = "V28_DECISION_INTELLIGENCE_POLICY"
+DECISION_POLICY_VERSION = "1.0.0"
 FIELDS = frozenset({"schema_version", "brain_version", "runtime_version", "sequence_id", "heartbeat_unix",
 "published_at", "decision", "direction", "entry_permission", "entry_state", "construction_action", "confidence",
 "probability", "expected_value", "location_score", "position_budget_total", "position_budget_used",
 "position_budget_remaining", "decision_reasons", "decision_trace", "fail_safe", "executable", "symbol", "volume",
 "entry_price", "stop_loss", "take_profit"})
+
+
+def _plain(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(k): _plain(v) for k, v in sorted(value.items(), key=lambda item: str(item[0]))}
+    if isinstance(value, (tuple, list)):
+        return [_plain(v) for v in value]
+    return value
+
+
+def _freeze(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType({str(k): _freeze(v) for k, v in value.items()})
+    if isinstance(value, (tuple, list)):
+        return tuple(_freeze(v) for v in value)
+    return value
+
+
+def replay_identity(payload: Mapping[str, Any]) -> str:
+    """Return the policy-domain-separated canonical replay identity."""
+    canonical = json.dumps(_plain(payload), sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return sha256(("V28_DECISION_REPLAY|" + canonical).encode()).hexdigest()
+
+
+@dataclass(frozen=True)
+class ExpectancyContext:
+    status: str
+    expected_quality: float
+    supporting_evidence: tuple[str, ...]
+    conflicting_evidence: tuple[str, ...]
+    explanation: str
+    evidence_reference: str
+    policy_version: str = DECISION_POLICY_VERSION
+
+    def __post_init__(self) -> None:
+        if self.status not in {"POSITIVE_EXPECTANCY", "EXPECTANCY_NOT_ESTABLISHED"}:
+            raise ValueError("EXPECTANCY_STATUS_INVALID")
+        if not isfinite(self.expected_quality) or not 0.0 <= self.expected_quality <= 1.0 or not self.explanation:
+            raise ValueError("EXPECTANCY_CONTRACT_INVALID")
+        object.__setattr__(self, "supporting_evidence", tuple(self.supporting_evidence))
+        object.__setattr__(self, "conflicting_evidence", tuple(self.conflicting_evidence))
+
+
+@dataclass(frozen=True)
+class RiskEligibility:
+    status: str
+    reasons: tuple[str, ...]
+    explanation: str
+    policy_version: str = DECISION_POLICY_VERSION
+
+    def __post_init__(self) -> None:
+        if (self.status not in {"RISK_ELIGIBLE", "RISK_REJECTED", "RISK_DEFERRED"}
+                or not self.reasons or not self.explanation):
+            raise ValueError("RISK_ELIGIBILITY_INVALID")
+        object.__setattr__(self, "reasons", tuple(self.reasons))
+
+
+@dataclass(frozen=True)
+class Confidence:
+    value: float
+    band: str
+    factors: Mapping[str, float]
+    explanation: str
+    sufficient: bool
+    policy_version: str = DECISION_POLICY_VERSION
+
+    def __post_init__(self) -> None:
+        if (not isfinite(self.value) or not 0.0 <= self.value <= 1.0
+                or self.band not in {"INSUFFICIENT", "SUFFICIENT", "HIGH"}):
+            raise ValueError("CONFIDENCE_INVALID")
+        if self.sufficient != (self.value >= 0.75) or not self.explanation:
+            raise ValueError("CONFIDENCE_INCONSISTENT")
+        object.__setattr__(self, "factors", _freeze(self.factors))
+
+
+@dataclass(frozen=True)
+class DecisionContext:
+    decision: str
+    direction: str
+    expectancy: ExpectancyContext
+    confidence: Confidence
+    risk_eligibility: RiskEligibility
+    decision_reason: str
+    supporting_evidence: tuple[str, ...]
+    conflicting_evidence: tuple[str, ...]
+    decision_lineage: Mapping[str, str]
+    policy_references: tuple[str, ...]
+    replay_identity: str
+    policy_version: str = DECISION_POLICY_VERSION
+    schema_version: str = DECISION_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if self.decision not in {"BUY", "SELL", "HOLD"}:
+            raise ValueError("DECISION_INVALID")
+        expected_direction = self.decision if self.decision != "HOLD" else "NONE"
+        if self.direction != expected_direction or not self.decision_reason:
+            raise ValueError("DECISION_DIRECTION_INVALID")
+        if self.policy_version != DECISION_POLICY_VERSION or self.schema_version != DECISION_SCHEMA_VERSION:
+            raise ValueError("DECISION_VERSION_INVALID")
+        if len(self.replay_identity) != 64 or any(c not in "0123456789abcdef" for c in self.replay_identity):
+            raise ValueError("DECISION_REPLAY_IDENTITY_INVALID")
+        object.__setattr__(self, "supporting_evidence", tuple(self.supporting_evidence))
+        object.__setattr__(self, "conflicting_evidence", tuple(self.conflicting_evidence))
+        object.__setattr__(self, "policy_references", tuple(self.policy_references))
+        object.__setattr__(self, "decision_lineage", _freeze(self.decision_lineage))
 
 
 def build_decision(context: RuntimeContext, *, now: float) -> dict[str, Any]:

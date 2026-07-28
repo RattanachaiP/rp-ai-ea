@@ -1,5 +1,15 @@
 # DECISION_FLOW_MAP — Runtime Lineage and Participation Governance Flow
 
+## PR262 V28 Decision Intelligence flow (non-production)
+
+`StructureContext + RegimeContext + TrendContext + MomentumContext + VolatilityContext`
+`+ LiquidityContext + OpportunityContext -> explicit expectancy verification`
+`-> risk eligibility -> deterministic confidence -> BUY / SELL / HOLD DecisionContext`.
+
+The layer never reads raw market or indicator input. BUY or SELL requires every gate;
+missing, degraded, inconsistent, or non-executable evidence returns HOLD. The decision
+is immutable, policy-versioned, explained, lineage-bound, and replay-identified.
+
 ## PR254 read-only validation flow
 
 `operator-selected Demo trace snapshot -> offline lifecycle/stage/chronology and failure-classification validation -> pipeline_validation_report.json`.
@@ -23,7 +33,7 @@ is consumed by Runtime, Strategy, Risk, Writer, Executor, learning, or promotion
 ## Authoritative lineage
 `codex-dev` (single source of truth)
 
-## V28 decision-rebuild approval flow (proposal only)
+## V28 decision-rebuild approval flow (staged construction only)
 
 `Market -> Opportunity -> Positive Edge Verification -> Decision -> Risk -> Publish`
 

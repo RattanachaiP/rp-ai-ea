@@ -2,11 +2,10 @@
 
 ## Status
 
-**Mandatory design extension.** This addendum extends
+**Approved mandatory design extension for staged V28 construction.** This addendum extends
 `V28_DECISION_PHILOSOPHY.md` and is binding on the V28 design review. It is
-architecture only: it authorizes no production behavior, runtime, executor,
-dashboard, payload, or configuration change. The existing V28 approval gate
-remains in force.
+the staged architecture but authorizes no production activation, executor, dashboard,
+payload, or configuration change. Production approval remains separate.
 
 ## Mandatory edge-verification contract
 
