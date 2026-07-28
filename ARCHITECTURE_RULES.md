@@ -56,6 +56,16 @@ may be inferred. The Executor contract may project only an approved plan and has
 order-submission API. PR263 may not inspect raw indicators, reconstruct markets, alter
 Decision or Market Intelligence, invoke the Executor, activate V28, or change V27.
 
+### PR264 Execution Integration authorization
+
+PR264 may validate and atomically publish an immutable PR263 `ExecutionPlan`, validate
+its ready-only `ExecutorContract` and complete replay/Runtime/broker-snapshot lineage,
+and project that contract unchanged into the existing V27 Executor interface. Shadow,
+replay, validation, and explicitly human-approved isolated-demo modes are allowed.
+Every mismatch fails closed before Executor invocation. PR264 owns no `OrderSend`,
+market, Decision, Risk Construction, production activation, or promotion authority;
+production authority remains exclusively with V27.
+
 V28 is a proposal-stage replacement of the AI Decision Engine's thinking model,
 not a V27 optimization. Its authoritative philosophy is documented in
 `docs/v28/V28_DECISION_PHILOSOPHY.md` and its mandatory extension,

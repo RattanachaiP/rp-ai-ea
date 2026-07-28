@@ -13,6 +13,13 @@ from bridge.v28.portfolio_exposure import PortfolioExposure,PortfolioPolicy
 from bridge.v28.position_budget import construct_position_budget
 from bridge.v28.risk_construction import construct_execution_plan
 from bridge.v28.runtime_context import construct_runtime_context
+from bridge.v28.demo_runtime_controller import DemoRuntimeController
+from bridge.v28.execution_bridge import ExecutionBridge
+from bridge.v28.execution_plan_publisher import ExecutionPlanPublisher,publication_for
+from bridge.v28.execution_replay_validator import validate_execution_replay
+from bridge.v28.executor_adapter import adapt_executor_contract
+from bridge.v28.publisher_contract import BrokerSnapshot,RuntimeHealthSnapshot
+from bridge.v28.shadow_executor import ShadowExecutor
 
 NOW="1970-01-01T00:01:41Z"; STATE_TIME="1970-01-01T00:01:40Z"
 def decision_runtime(side="BUY"):
@@ -113,3 +120,49 @@ def test_plan_and_executor_are_replay_safe_immutable_and_tamper_rejected():
 def test_risk_construction_never_reads_raw_indicators():
     v=inputs(); object.__setattr__(v["runtime"],"market",{"symbol":"XAUUSD","sequence_id":11,"raw_indicator":"poison"})
     assert construct_execution_plan(**v).execution_ready
+
+def integration_boundary(plan=None):
+    plan=plan or construct_execution_plan(**inputs()); contract=build_executor_contract(plan)
+    health=RuntimeHealthSnapshot(True,plan.runtime_sequence_id,NOW,0)
+    broker=BrokerSnapshot(plan.symbol,plan.runtime_sequence_id,STATE_TIME,True)
+    return plan,contract,health,broker,publication_for(plan)
+
+def test_pr264_publication_is_exact_immutable_atomic_and_replay_safe(tmp_path):
+    plan,contract,health,broker,publication=integration_boundary()
+    path=tmp_path/"execution_plan.json"; published=ExecutionPlanPublisher(path).publish(plan)
+    assert published==publication and path.exists() and dict(published.payload)==plan.canonical_payload()
+    with pytest.raises(TypeError): published.payload["direction"]="SELL"
+    assert validate_execution_replay(plan,contract,health,broker,published).valid
+
+def test_pr264_adapter_preserves_v27_executor_interface_without_submission():
+    plan,contract,*_=integration_boundary(); snapshot=adapt_executor_contract(contract)
+    assert snapshot.accepted and snapshot.payload["volume"]==plan.approved_volume
+    assert snapshot.payload["stop_loss"]==plan.protective_stop and snapshot.payload["take_profit"]==plan.target
+
+def test_pr264_shadow_buy_sell_and_hold_never_grant_ordersend():
+    for side in ("BUY","SELL"):
+        plan=construct_execution_plan(**inputs(side)); record=ShadowExecutor().execute(plan)
+        assert record.action==side and record.expected_execution and not record.ordersend_permitted
+    invalid=inputs(); invalid["execution_constraints"]=replace(invalid["execution_constraints"],runtime_health_valid=False)
+    record=ShadowExecutor().execute(construct_execution_plan(**invalid))
+    assert record.action=="HOLD" and not record.expected_execution and not record.ordersend_permitted
+
+def test_pr264_fail_closed_replay_health_staleness_and_approval_gate():
+    plan,contract,health,broker,publication=integration_boundary()
+    object.__setattr__(contract,"decision_replay_identity","wrong")
+    assert not validate_execution_replay(plan,contract,health,broker,publication).valid
+    plan,contract,health,broker,publication=integration_boundary()
+    assert not validate_execution_replay(plan,contract,replace(health,healthy=False),broker,publication).valid
+    assert not validate_execution_replay(plan,contract,replace(health,boundary_age_seconds=6),broker,publication).valid
+    class ForbiddenExecutor:
+        def execute(self,_snapshot): raise AssertionError("executor must not be invoked")
+    result=ExecutionBridge(ForbiddenExecutor()).deliver(plan,contract,health,broker,publication)
+    assert not result.delivered and result.reason=="HUMAN_APPROVAL_REQUIRED"
+
+def test_pr264_demo_requires_isolation_and_human_approval_and_has_no_production_mode():
+    plan,contract,health,broker,publication=integration_boundary()
+    controller=DemoRuntimeController(executor=object())
+    assert controller.run("VALIDATION",plan,contract,health,broker,publication).completed
+    assert not controller.run("DEMO",plan,contract,health,broker,publication,human_approved=True).completed
+    with pytest.raises(ValueError,match="PRODUCTION"):
+        controller.run("PRODUCTION",plan,contract,health,broker,publication)

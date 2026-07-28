@@ -610,3 +610,13 @@ PR179 follows PR178 as an offline, immutable governance-recording boundary. It o
 - Architecture: `PR201`; module: `runtime.live_outcome_capture`; component: passive capture of canonical broker-confirmed completed-trade evidence.
 - Each record binds the full Decision-to-result identity and timestamp chain, broker tickets and confirmation, execution values, result values, replay lineage, deterministic identity, and SHA-256 integrity in atomic append-only storage. Missing evidence, invalid chronology, broken lineage, and duplicates fail closed.
 - PR201 performs no analytics, scoring, learning, attribution, AI decision, execution, broker operation, order submission, or position management and changes no production execution path.
+
+## PR264 V28 Execution Integration — IMPLEMENTED, PENDING ACCEPTANCE
+
+- PR264 atomically publishes an exact immutable PR263 `ExecutionPlan`, validates its
+  plan/Decision/Executor/Runtime/broker/publication replay lineage, and projects a
+  ready-only `ExecutorContract` into the unchanged V27 `WriterReadResult` interface.
+- Shadow BUY, SELL, and HOLD, plus replay and validation modes, have no broker dependency.
+  Isolated Demo requires explicit environment selection and human approval.
+- PR264 has no production mode, promotion authority, broker interface, or `OrderSend`.
+  V27 remains the sole production Executor and execution authority.

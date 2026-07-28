@@ -29,6 +29,13 @@ Emergency patches may not infer missing plan values, weaken Decision replay or r
 checks, submit orders through the Executor contract, activate V28, or move market,
 decision, broker-execution, position-management, or exit ownership into PR263.
 
+## PR264 boundary
+
+Execution Integration is not emergency or production-promotion authority. Emergency
+patches may not weaken plan, contract, publication, replay, health, freshness, demo,
+or human-approval gates; add inference or recalculation; bypass the existing V27
+Executor; or grant broker and `OrderSend` authority to a PR264 component.
+
 PR262 Decision Intelligence is an approved V28 construction milestone, not an emergency
 patch or V27 runtime modification. Emergency authority may not weaken its context-only
 input boundary, positive-expectancy gate, replay identity, or fail-closed HOLD behavior.
