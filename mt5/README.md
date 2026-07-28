@@ -38,3 +38,22 @@ V27.2 expands the chart panel from a profile loader into a post-entry interactiv
 Runtime controls are displayed in three columns and can be adjusted with on-chart `+` / `-` buttons, then applied immediately with **Apply Runtime**. **Save JSON** persists the current in-memory profile to `trade_management_dashboard.json` and `dashboard_profiles/<ActiveProfile>.json`; **Reload JSON** reloads the active JSON profile without recompiling.
 
 Visible sections include Profile, Risk, Breakeven, Trailing, Profit Lock, Runner, Time Exit, Partial Close, status telemetry, active exit authority owner, effective management mode, and open-position ticket/profit/protection rows.
+
+## Canonical governed executor (PR237)
+
+`canonical/RP_AI_Governed_Executor.mq5` is the sole consumer of the canonical
+`execution_package.json` boundary. It does not read `decision.json`, construct
+packages, calculate confidence, size lots, or run strategy gates. A package is
+accepted only when its canonical Runtime producer/version/schema capability,
+identity, lineage, freshness, sequence, and complete order facts validate.
+
+Before `OrderSend`, the executor validates symbol availability, terminal and
+symbol trading permission, a fresh broker tick (market open), broker volume
+constraints, free margin, and stop distances. It durably records `ACCEPTED` and `SUBMITTING` before submission, then records
+`SUBMITTED`, `REJECTED`, or `UNKNOWN_OUTCOME` from broker/recovery facts in the
+authoritative `executor_journal.log`. The independent monotonic
+`executor_state.json` retains package lineage and the latest lifecycle status;
+package deletion, state deletion, or a non-adjacent replay cannot authorize the
+UUID again. Every terminal outcome is written to
+`execution_result.json`, while `executor_trace.log` records the governed stage,
+status, failure owner, and reason.
