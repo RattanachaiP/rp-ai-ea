@@ -60,6 +60,10 @@ Risk Engine.
 
 ## PR183 governed advisory Decision Context construction rule
 
+## PR250 governed outcome-evidence acquisition rule
+
+PR250 `learning.outcome_evidence` is the sole operator-controlled acquisition boundary for PR173 input. It admits only exact canonical replay-verifiable `PR250.OUTCOME_EVIDENCE.1.0` manifests, preserves complete normalized rows append-only under `learning_data/outcome_evidence`, and composes one exact evidence UUID into the existing PR173 engine/repository. Acquisition-owned row replay identity is SHA-256 over a documented domain and complete immutable normalized source-event payload; arbitrary digests fail. There is no latest selection, approval, attribution logic, learning policy, mining, Runtime, Strategy, Risk, Writer, Executor, broker, order, position, or exit authority. PR175 approval remains separate.
+
 ## PR248 governed bootstrap composition rule
 
 The canonical learning lineage is PR173 outcome attribution, PR174 learning

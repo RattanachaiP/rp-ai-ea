@@ -1,5 +1,12 @@
 # PR249 PR173 Outcome Evidence Discovery and Governed Acquisition
 
+> **PR250 resolution:** this document records the pre-PR250 discovery state.
+> PR250 now implements the named immutable input, canonical JSON manifest,
+> acquisition-owned deterministic replay digest, append-only raw repository,
+> exact operator CLI, and PR173 owner composition documented in
+> `PR250_GOVERNED_OUTCOME_EVIDENCE_ACQUISITION.md`. Historical findings below
+> remain audit evidence. PR175 human approval remains pending PR251.
+
 ## Scope and conclusion
 
 This is a repository-wide discovery report, not an acquisition design. It records
