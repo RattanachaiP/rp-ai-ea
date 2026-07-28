@@ -72,6 +72,11 @@ neither may be synthesized from an empty clone. Bootstrap inspection, planning,
 and verification are read-only. Construction accepts an exact operator-selected
 upstream snapshot and delegates persistence to the downstream owner engine. It
 must not select latest evidence, approve, activate, or grant trading authority.
+The constructed result identity must come from the owner report and match exactly
+one canonical snapshot; repository order cannot confer identity. PR180 consumes a
+complete exact PR179 snapshot in one owner lifecycle, including multi-record state.
+Read-only verification may validate the unique activation and production startup
+configuration boundary but may not invoke Runtime or any trading subsystem.
 
 PR183 Decision Context construction may occur only through the PR183 owner engine from
 an exact canonical PR182 confidence artifact and its verified repository/snapshot

@@ -67,11 +67,36 @@ python -m learning.bootstrap.operator_bootstrap construct `
 engine. Repeat in lifecycle order for `pr180`, `pr181`, `pr182`, `pr183`, and `pr184`,
 each time using the exact result snapshot UUID from the preceding command. A stopped
 run is resumed by inspection and an explicit exact-identity rerun; deterministic owner
-identities make that rerun idempotent and append-only.
+identities make that rerun idempotent and append-only. The result contains every
+constructed record UUID, the exact owner-report snapshot UUID/digest, new record and
+snapshot UUIDs, and a distinct `duplicate_replay` flag. It never derives a result from
+repository iteration order. For a multi-record PR179 snapshot, PR180 consumes that
+snapshot once and its one owner report binds all selected records and the complete
+source snapshot identity.
+
+`verify` is also read-only. It verifies the full learning repository chain, PR184
+canonical integrity and exact pairs, activation repository integrity, unique owner
+activation resolution, and the non-broker production-startup configuration boundary.
+It reports `ACTIVATION_REQUIRED` and proves startup is blocked when learning is ready
+but activation is absent; after a valid explicit activation it reports the exact
+activated pair. Full prerequisite verification additionally requires an operator-supplied
+canonical JSON environment-observation file and its exact capture timestamp:
+
+```powershell
+$ObservationFile = ".\governed-environment-observations.json"
+$CapturedAt = "2026-07-28T12:00:00Z"
+python -m learning.bootstrap.operator_bootstrap verify --json `
+  --environment-observations-file $ObservationFile `
+  --captured-at $CapturedAt
+```
+
+The command validates but never persists or invents these external observations. It
+then reports production-startup prerequisites ready. It does not start Runtime
+or invoke Strategy, Risk, Writer, Executor, broker, or `OrderSend` behavior.
 
 ## Production readiness checklist
 
-1. Acquire real governed outcome evidence; run the PR173–PR179 owner workflow.
+1. Acquire real governed outcome evidence; run the separate PR173–PR179 owner workflow.
 2. Inspect and explicitly construct PR180 through PR184 in order.
 3. Run PR184 read-only inspection: `python -m learning.decision_intelligence.operator_inspection inspect --json`.
 4. Human-review one exact eligible pair. Do not treat eligibility as approval.

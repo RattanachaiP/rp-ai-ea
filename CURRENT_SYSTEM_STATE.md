@@ -11,9 +11,12 @@ Authoritative branch policy: `codex-dev`
 - `python -m learning.bootstrap.operator_bootstrap` provides non-mutating
   `inspect`, `plan`, and `verify` modes and exact-snapshot `construct` composition
   for the previously missing PR180–PR184 lifecycle entrypoints.
+- PR180 consumes one complete exact PR179 snapshot in one owner-engine operation;
+  construction returns owner-report-bound result identity and separates duplicate
+  replay from actual canonical mutation without repository-order inference.
 - The orchestrator never creates approval or activation. Production readiness
-  remains false until separate PR184 inspection, explicit human approval, owner
-  activation, and production startup verification succeed.
+  verification remains read-only and reports blocked-before-activation or resolves
+  the sole exact valid owner activation and startup prerequisites after activation.
 
 ## PR247 Decision Context Construction Entrypoint — IMPLEMENTED, PENDING ACCEPTANCE
 
