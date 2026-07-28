@@ -45,6 +45,17 @@ expectancy evidence and construct BUY, SELL, or HOLD, but may not read market da
 indicators, reconstruct market context, or grant broker authority. Missing, degraded,
 inconsistent evidence or unauthorized DecisionCandidate fails closed to HOLD; OpportunityContext remains advisory with executable=false. V27 remains unchanged.
 
+### PR263 Risk Construction authorization
+
+PR263 may consume only an immutable PR262 `DecisionContext`, PR260 `RuntimeContext`,
+explicit account and portfolio state, execution constraints, and broker constraints.
+It owns deterministic position budgeting and stop, target, reward/risk, account,
+portfolio, and broker feasibility assessment, then emits one immutable, policy-versioned
+`ExecutionPlan`. Missing or failed requirements make `execution_ready=false`; no value
+may be inferred. The Executor contract may project only an approved plan and has no
+order-submission API. PR263 may not inspect raw indicators, reconstruct markets, alter
+Decision or Market Intelligence, invoke the Executor, activate V28, or change V27.
+
 V28 is a proposal-stage replacement of the AI Decision Engine's thinking model,
 not a V27 optimization. Its authoritative philosophy is documented in
 `docs/v28/V28_DECISION_PHILOSOPHY.md` and its mandatory extension,

@@ -3,6 +3,15 @@
 Date: 2026-07-28 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR263 V28 Risk Construction — IMPLEMENTED, NOT PRODUCTION-ACTIVE
+
+The immutable PR263 layer consumes an already-authorized PR262 DecisionContext plus
+explicit Runtime, account, portfolio, execution, and broker boundary contracts. It
+constructs position budgets, evaluates all execution feasibility gates, and emits a
+deterministic ExecutionPlan. Missing or failed requirements fail closed. The narrow
+ExecutorContract accepts ready plans only; it does not execute orders. V27 and the
+production Executor remain unchanged.
+
 ## PR262 V28 Decision Intelligence — IMPLEMENTED, NOT PRODUCTION-ACTIVE
 
 The immutable PR262 layer consumes only PR261 contexts, verifies explicit historical
