@@ -2,16 +2,18 @@
 
 ## Architecture validation report
 
-PR265 validates the four governed hand-offs from immutable Market/Decision context through
-Risk, Execution, and atomic publication. Checks cover contract identity, policy and replay
-lineage, runtime sequence, freshness, data consistency, ExecutionPlan, ExecutorContract, and
-publication payload integrity.
+PR265 directly validates authoritative Market State, Runtime Foundation, Normalized Market
+Snapshot, all seven Market Intelligence contexts, Opportunity Context, Decision Context, Risk,
+Execution, atomic publication, environment, approval, adapter, and delivery evidence. Each
+stage checks its own replay identity, policy, sequence, symbol, time window, and inbound and
+outbound lineage. Malformed or absent evidence becomes a deterministic FAIL report rather than
+an exception.
 
 ## Replay validation report
 
-The replay checker independently constructs the same artifact at least twice and requires
-both value equality and one identical replay identity. Missing identity or any output drift
-fails certification.
+The replay checker compares explicitly supplied immutable original/replayed artifact pairs.
+It accepts no callable or producer capability, so replay certification cannot invoke a broker,
+Executor, `OrderSend`, or another side effect. Value and replay identity must both match.
 
 ## Shadow execution report
 
@@ -21,10 +23,12 @@ requires identical records. Every record has `mode=SHADOW` and
 
 ## Certification and runtime health summary
 
-Runtime Foundation, Market Intelligence, Decision Intelligence, Risk Construction, and
-Execution Integration each report PASS, WARNING, or FAIL. The aggregate can PASS only when
-every component and supplied validation report passes. WARNING is never promoted to aggregate
-PASS. Any missing or inconsistent evidence results in FAIL and `READINESS_DENIED`.
+Runtime Foundation, Market Intelligence, Decision Intelligence, Risk Construction, Execution
+Integration, and Delivery each report PASS or FAIL from component-owned evidence. WARNING is
+deliberately excluded: anything short of PASS denies readiness. Readiness requires exactly one
+integrity-valid report of every mandatory type, one policy, one campaign, unique report replay
+identities, and identical sequence, Decision, plan, publication, environment, and evaluation
+bindings. Missing, duplicate, forged, or cross-campaign evidence results in FAIL.
 
 ## Authority
 
