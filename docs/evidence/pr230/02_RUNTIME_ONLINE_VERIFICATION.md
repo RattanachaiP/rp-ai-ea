@@ -1,4 +1,4 @@
-# PR230 — Governed Production Startup Stop
+# PR230 — Governed Production Startup Verification
 
 ## Result
 
@@ -77,3 +77,22 @@ created.
 The next operational action is to run the canonical MT5 Writer (and its shared-file
 transport) on a host where the configured publication path is accessible, then repeat
 the same canonical startup command without synthesizing or manually editing telemetry.
+
+---
+
+## Final governance result
+
+| Field | Result |
+|---|---|
+| Startup command | `python -m runtime.production_startup` |
+| Runtime status | **GOVERNED STOP** |
+| Reason | `INSUFFICIENT_UNIQUE_ENVIRONMENT_OBSERVATIONS` |
+| Decision pipeline | **NOT ENTERED** |
+| Decision publication | **NOT PERFORMED** |
+| Executor | **NOT REACHED** |
+| Production | **NOT VERIFIED** |
+| Live | **NOT VERIFIED** |
+
+The governed stop intentionally prevented startup from proceeding because the required
+authentic environment observations were unavailable. This evidence does not establish
+Production Online, Runtime Online, Executor Ready, or Live Verified status.
