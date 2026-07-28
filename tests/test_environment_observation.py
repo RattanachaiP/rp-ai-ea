@@ -43,6 +43,17 @@ def collect(tmp_path, states, *, policy=None):
         clock=feed.wall, monotonic=feed.monotonic, sleep=feed.sleep).collect()
 
 
+def diagnostic_events(tmp_path, states):
+    events = []
+    feed = Feed(tmp_path / "market_state.json", states)
+    producer = GovernedEnvironmentObservationProducer(
+        feed.path, window_seconds=0.03, sample_interval=0.01,
+        clock=feed.wall, monotonic=feed.monotonic, sleep=feed.sleep,
+        diagnostic_sink=events.append,
+    )
+    return producer, events, feed.path
+
+
 def test_policy_based_derivation_is_deterministic_and_direct(tmp_path):
     states = [payload(1, 999.9), payload(2, 999.95, spread_points=50.0,
               slippage_expectation=30.0, market_session_quality=0.8,
@@ -140,3 +151,46 @@ def test_creation_diagnostics_bind_uuid_timestamp_source_digest_and_reason(tmp_p
     assert accepted[-1].digest == result.observation_digest
     assert any(event.status == "REJECTED" and event.reason == "DUPLICATE_SEQUENCE"
                for event in events)
+
+
+def test_stale_rejection_preserves_parseable_publication_lineage(tmp_path):
+    producer, events, source = diagnostic_events(tmp_path, [payload(7, 990.0)])
+    with pytest.raises(EnvironmentObservationError, match="MARKET_STATE_HEARTBEAT_STALE"):
+        producer.collect()
+    rejected = events[-1]
+    assert rejected.status == "REJECTED"
+    assert rejected.reason == "MARKET_STATE_HEARTBEAT_STALE"
+    assert rejected.source == str(source)
+    assert rejected.digest is not None
+    assert rejected.observation_uuid is not None
+    assert rejected.sequence_id == 7
+
+
+def test_identity_rejection_preserves_parseable_publication_lineage(tmp_path):
+    producer, events, source = diagnostic_events(
+        tmp_path, [payload(11, 999.9, producer="OTHER")]
+    )
+    with pytest.raises(EnvironmentObservationError, match="MARKET_STATE_SOURCE_IDENTITY_MISMATCH"):
+        producer.collect()
+    rejected = events[-1]
+    assert rejected.status == "REJECTED"
+    assert rejected.reason == "MARKET_STATE_SOURCE_IDENTITY_MISMATCH"
+    assert rejected.source == str(source)
+    assert rejected.digest is not None
+    assert rejected.observation_uuid is not None
+    assert rejected.sequence_id == 11
+
+
+def test_unreadable_publication_diagnostic_has_no_fabricated_lineage(tmp_path):
+    producer, events, source = diagnostic_events(tmp_path, ["{"])
+    with pytest.raises(EnvironmentObservationError, match="INSUFFICIENT_UNIQUE"):
+        producer.collect()
+    malformed = next(
+        event for event in events
+        if event.reason == "UNREADABLE_OR_MALFORMED_PUBLICATION"
+    )
+    assert malformed.status == "REJECTED"
+    assert malformed.source == str(source)
+    assert malformed.digest is None
+    assert malformed.observation_uuid is None
+    assert malformed.sequence_id is None
