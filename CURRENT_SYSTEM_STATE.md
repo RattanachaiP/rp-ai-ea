@@ -3,6 +3,17 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR245 Decision Intelligence Operator Inspection — IMPLEMENTED, PENDING ACCEPTANCE
+
+- `python -m learning.decision_intelligence.operator_inspection` provides read-only,
+  deterministic human or canonical-JSON evidence for every canonical PR184 record,
+  snapshot, and exact pair. It never selects or activates a candidate.
+- An exact operator-selected pair can produce a separate
+  `PENDING_OPERATOR_APPROVAL` request. After the human supplies an explicit UTC
+  timestamp, the tool can print—but never execute—the exact owner activation command.
+- Inspection evidence is not operator approval, canonical activation, production
+  selection, Runtime authorization, trading authorization, or execution authority.
+
 ## PR244 Decision Intelligence Activation Lifecycle — IMPLEMENTED, PENDING ACCEPTANCE
 
 - PR184 production activation is an explicit owner command binding exact operator-

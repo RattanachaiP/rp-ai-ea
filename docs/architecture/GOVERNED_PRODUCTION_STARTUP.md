@@ -1,5 +1,26 @@
 # Governed production startup
 
+## PR184 operator procedure
+
+Production startup requires the following explicit, fail-closed operator sequence:
+
+1. Construct PR184 Decision Intelligence through its owner engine.
+2. Run the read-only inspection: `python -m learning.decision_intelligence.operator_inspection`
+   (use `--format json` for canonical machine-readable evidence).
+3. Review one exact intelligence/snapshot pair and its complete lineage evidence.
+4. Record the human approval timestamp explicitly in UTC. Inspection does not infer it.
+5. Run `python -m learning.decision_intelligence.operator_activation` with the exact
+   reviewed intelligence UUID, snapshot UUID, owner authority, and approval timestamp.
+6. Run `start_ai_runtime.ps1`.
+
+An optional exact-pair `--approval-request-output` artifact remains
+`PENDING_OPERATOR_APPROVAL`. The optional `--print-activation-command` mode requires
+`--approved-at` and only prints a copyable command; it never executes activation.
+
+**INSPECTION EVIDENCE != OPERATOR APPROVAL != CANONICAL ACTIVATION.** Inspection has no
+production-selection, Runtime, strategy, trading, broker, order, position, exit, or
+execution authority and never modifies the canonical PR184 repository.
+
 ## Boundary and prerequisite
 
 PR184 construction and production activation are separate lifecycle steps. The
