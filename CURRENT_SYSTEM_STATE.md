@@ -8,7 +8,9 @@ Authoritative branch policy: `codex-dev`
 The read-only PR267 layer aggregates identity-bound PR266 qualification evidence into
 immutable production-readiness candidates, append-only candidate registries, audit records,
 and reports. Policy thresholds determine only whether evidence is sufficient to enter human
-review. Forward-only lifecycle records preserve named human review and approval lineage;
+review. Qualification semantics remain owned by PR266; PR267 uses gap-excluding validated
+campaign coverage and observation-per-coverage-hour density. Forward-only lifecycle records
+require governed identities, separated reviewer/approver roles, and monotonic timestamps;
 `APPROVED_FOR_DEPLOYMENT` is a governance record and provides no deployment, Runtime,
 Executor, broker, OrderSend, or production authority. V27 remains the sole production
 execution authority.

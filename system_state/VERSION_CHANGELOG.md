@@ -184,3 +184,7 @@ Added `learning.runtime_knowledge` after PR179 as a fail-closed verification and
 - Added deterministic readiness assessment, human approval lifecycle, and lineage auditor.
 - Preserved read-only operation: approval is recorded but no production, broker, Runtime, or
   deployment authority is granted.
+- Remediated review blockers with immediate integrity failure, explicit readiness-policy
+  binding, governed repository attestations, qualification-evidence progression, authoritative
+  PR266 semantics, gap-excluding coverage, explicit density semantics, independently audited
+  metrics, monotonic lifecycle chronology, governed roles, and self-approval prohibition.

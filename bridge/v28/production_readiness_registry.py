@@ -36,6 +36,7 @@ class ProductionReadinessRegistry:
             raise ValueError("READINESS_REGISTRY_IDENTITY_INVALID")
 
     def append(self, candidate: ProductionReadinessCandidate):
+        ProductionReadinessCandidate(**candidate.__dict__)
         expected = self.candidates[-1].candidate_identity if self.candidates else None
         if candidate.candidate_identity in {item.candidate_identity for item in self.candidates}:
             raise ValueError("READINESS_CANDIDATE_DUPLICATE")
@@ -45,6 +46,15 @@ class ProductionReadinessRegistry:
             raise ValueError("READINESS_CANDIDATE_LINEAGE_BROKEN")
         if candidate.policy.policy_identity != self.policy.policy_identity:
             raise ValueError("READINESS_CANDIDATE_POLICY_MISMATCH")
+        if self.candidates:
+            prior = self.candidates[-1]
+            progressed = (candidate.qualification_registry.generation > prior.qualification_registry.generation and
+                          candidate.qualification_registry.previous_registry_identity ==
+                          prior.qualification_registry.registry_identity and
+                          candidate.qualification_report.campaign_identity != prior.qualification_report.campaign_identity and
+                          candidate.campaign_statistics.run_count > prior.campaign_statistics.run_count)
+            if not progressed:
+                raise ValueError("READINESS_CANDIDATE_EVIDENCE_NOT_PROGRESSED")
         values = dict(generation=self.generation + 1, previous_registry_identity=self.registry_identity,
                       candidates=self.candidates + (candidate,), policy=self.policy)
         return ProductionReadinessRegistry(
