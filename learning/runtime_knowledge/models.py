@@ -171,8 +171,9 @@ class RuntimeKnowledgePackagingReport:
         packages=tuple(self.runtime_packages);object.__setattr__(self,"runtime_packages",packages)
         report_source=self.source_artifact_type=="KNOWLEDGE_REGISTRY_REPORT" and valid_uuid(self.source_registry_report_uuid) and valid_digest(self.source_registry_report_digest) and self.source_registry_uuid is None and self.source_registry_digest is None
         record_source=self.source_artifact_type=="KNOWLEDGE_REGISTRY_RECORD" and valid_uuid(self.source_registry_uuid) and valid_digest(self.source_registry_digest) and self.source_registry_report_uuid is None and self.source_registry_report_digest is None
+        snapshot_source=self.source_artifact_type=="KNOWLEDGE_REGISTRY_SNAPSHOT" and self.source_registry_uuid is None and self.source_registry_digest is None and self.source_registry_report_uuid is None and self.source_registry_report_digest is None
         partition=tuple(getattr(self,n) for n in PARTITION_FIELDS)
-        if (not valid_uuid(self.report_uuid) or not(report_source or record_source) or not all(valid_uuid(getattr(self,n)) for n in ("source_registry_snapshot_uuid","runtime_packaging_policy_uuid","source_registry_admission_policy_uuid","source_promotion_policy_uuid","snapshot_uuid"))
+        if (not valid_uuid(self.report_uuid) or not(report_source or record_source or snapshot_source) or not all(valid_uuid(getattr(self,n)) for n in ("source_registry_snapshot_uuid","runtime_packaging_policy_uuid","source_registry_admission_policy_uuid","source_promotion_policy_uuid","snapshot_uuid"))
             or not all(valid_digest(getattr(self,n)) for n in ("source_registry_snapshot_digest","source_registry_repository_digest","runtime_packaging_policy_digest","source_registry_admission_policy_digest","source_promotion_policy_digest","repository_digest","snapshot_digest"))
             or not all(type(x) is RuntimeKnowledgePackage for x in packages) or any(tuple(getattr(x,n) for n in PARTITION_FIELDS)!=partition for x in packages)
             or self.processed_record_count!=len(packages) or self.new_package_count+self.duplicate_package_count!=len(packages)

@@ -1,7 +1,7 @@
 """PR180 verifies PR179 evidence and prepares advisory packages only."""
 from dataclasses import replace
 from learning.common.immutable import thaw
-from learning.knowledge_registry import KnowledgeRegistryError,KnowledgeRegistryReport,KnowledgeRegistryRepository,RegistryRecord
+from learning.knowledge_registry import KnowledgeRegistryError,KnowledgeRegistryReport,KnowledgeRegistryRepository,KnowledgeRegistrySnapshot,RegistryRecord
 from learning.knowledge_registry.identity import digest as registry_digest,registry_report_uuid
 from .exceptions import RuntimeKnowledgeError
 from .models import PACKAGE_REASONS,PACKAGE_STATE,PARTITION_FIELDS,RuntimeKnowledgePackage,RuntimeKnowledgePackagingReport,RuntimeKnowledgeSnapshot
@@ -17,7 +17,7 @@ class RuntimeKnowledgeGate:
   if type(self.policy) is not RuntimeKnowledgePackagingPolicy:raise RuntimeKnowledgeError("INVALID_RUNTIME_PACKAGING_POLICY")
   if not isinstance(self.runtime_engine_version,str) or not self.runtime_engine_version:raise RuntimeKnowledgeError("RUNTIME_ENGINE_VERSION_MISMATCH")
  def prepare_advisory_package(self,source):
-  if type(source) not in (KnowledgeRegistryReport,RegistryRecord):raise RuntimeKnowledgeError("INVALID_REGISTRY")
+  if type(source) not in (KnowledgeRegistryReport,KnowledgeRegistrySnapshot,RegistryRecord):raise RuntimeKnowledgeError("INVALID_REGISTRY")
   records,source_fields,snapshot,generated=self._verify_source(source);partition=self._partition(records[0]);self._verify_policy(partition)
   if any(tuple(self._partition(x)[n] for n in PARTITION_FIELDS[4:])!=tuple(partition[n] for n in PARTITION_FIELDS[4:]) for x in records):raise RuntimeKnowledgeError("BROKEN_REGISTRY_REPORT_PARTITION")
   existing,previous=self.repository.validate_partition(partition);by_registry={x.source_registry_uuid:x for x in existing};packages=[];new=duplicates=0
@@ -50,6 +50,16 @@ class RuntimeKnowledgeGate:
    records=clean.registry_records;identities=set(snapshot.record_identities)
    if any((x.registry_uuid,x.registry_digest) not in identities for x in records):raise RuntimeKnowledgeError("REGISTRY_REPORT_RECORD_SET_MISMATCH")
    source_fields=dict(source_artifact_type="KNOWLEDGE_REGISTRY_REPORT",source_registry_report_uuid=clean.report_uuid,source_registry_report_digest=registry_digest(clean.to_dict()),source_registry_uuid=None,source_registry_digest=None);generated=clean.generated_at
+  elif type(source) is KnowledgeRegistrySnapshot:
+   snapshot=snap_by.get(source.snapshot_uuid)
+   if snapshot is None or snapshot!=source:raise RuntimeKnowledgeError("REGISTRY_REPORT_SNAPSHOT_MISMATCH")
+   records=[]
+   for identity,content_digest in snapshot.record_identities:
+    record=by.get(identity)
+    if record is None or record.registry_digest!=content_digest:raise RuntimeKnowledgeError("REGISTRY_REPORT_RECORD_SET_MISMATCH")
+    records.append(record)
+   if not records:raise RuntimeKnowledgeError("INVALID_REGISTRY")
+   source_fields=dict(source_artifact_type="KNOWLEDGE_REGISTRY_SNAPSHOT",source_registry_report_uuid=None,source_registry_report_digest=None,source_registry_uuid=None,source_registry_digest=None);generated=snapshot.generated_at
   else:
    try:clean=replace(source)
    except (TypeError,ValueError) as exc:raise RuntimeKnowledgeError("BROKEN_REGISTRY_PROVENANCE") from exc

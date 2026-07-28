@@ -3,6 +3,21 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR248 End-to-End Governed Learning Bootstrap — IMPLEMENTED, PENDING ACCEPTANCE
+
+- Repository audit establishes PR173 immutable outcome evidence as the first
+  learning input, with the separately governed PR175 approved evidence envelope
+  also required. Neither is shipped in a fresh clone or safely fabricable.
+- `python -m learning.bootstrap.operator_bootstrap` provides non-mutating
+  `inspect`, `plan`, and `verify` modes and exact-snapshot `construct` composition
+  for the previously missing PR180–PR184 lifecycle entrypoints.
+- PR180 consumes one complete exact PR179 snapshot in one owner-engine operation;
+  construction returns owner-report-bound result identity and separates duplicate
+  replay from actual canonical mutation without repository-order inference.
+- The orchestrator never creates approval or activation. Production readiness
+  verification remains read-only and reports blocked-before-activation or resolves
+  the sole exact valid owner activation and startup prerequisites after activation.
+
 ## PR247 Decision Context Construction Entrypoint — IMPLEMENTED, PENDING ACCEPTANCE
 
 - Repository-wide discovery confirmed case A: the PR183 owner engine, construction
