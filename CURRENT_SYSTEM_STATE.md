@@ -3,6 +3,18 @@
 Date: 2026-07-28 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR267 V28 Production Readiness Governance — IMPLEMENTED, NOT PRODUCTION-ACTIVE
+
+The read-only PR267 layer aggregates identity-bound PR266 qualification evidence into
+immutable production-readiness candidates, append-only candidate registries, audit records,
+and reports. Policy thresholds determine only whether evidence is sufficient to enter human
+review. Qualification semantics remain owned by PR266; PR267 uses gap-excluding validated
+campaign coverage and observation-per-coverage-hour density. Forward-only lifecycle records
+require governed identities, separated reviewer/approver roles, and monotonic timestamps;
+`APPROVED_FOR_DEPLOYMENT` is a governance record and provides no deployment, Runtime,
+Executor, broker, OrderSend, or production authority. V27 remains the sole production
+execution authority.
+
 ## PR266 V28 Operational Qualification — IMPLEMENTED, NOT PRODUCTION-ACTIVE
 
 The immutable PR266 layer runs identity-bound, expiring, explicitly lineaged long-duration

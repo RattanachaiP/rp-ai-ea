@@ -176,3 +176,15 @@ Added `learning.knowledge_registry` after PR178 as an offline, immutable, append
 Added `learning.runtime_knowledge` after PR179 as a fail-closed verification and advisory packaging boundary. PR180 identifies its immutable packaging policy, reconstructs exact PR179 report or record sources, binds every record to a canonical registry snapshot, retains complete PR179 provenance, and writes deterministic packages and chained repository snapshots append-only.
 
 `ADVISORY_PACKAGE_PREPARED` means only that a canonical immutable package was prepared for a future separately governed selector. PR180 grants no Runtime decision use, selection, ranking, weighting, activation, inference, confidence, bias, scoring, direction, risk, decision-publication, broker, `OrderSend`, position-management, exit, or execution authority.
+# PR267 — Production Readiness Governance
+
+- Added immutable readiness policy and evidence-bound candidate contracts above PR266.
+- Added append-only candidate registry validation with duplicate, policy, generation, and
+  predecessor rejection.
+- Added deterministic readiness assessment, human approval lifecycle, and lineage auditor.
+- Preserved read-only operation: approval is recorded but no production, broker, Runtime, or
+  deployment authority is granted.
+- Remediated review blockers with immediate integrity failure, explicit readiness-policy
+  binding, governed repository attestations, qualification-evidence progression, authoritative
+  PR266 semantics, gap-excluding coverage, explicit density semantics, independently audited
+  metrics, monotonic lifecycle chronology, governed roles, and self-approval prohibition.
