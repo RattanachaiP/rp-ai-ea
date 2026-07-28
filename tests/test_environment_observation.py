@@ -6,7 +6,7 @@ from learning.execution_environment.policy import ENVIRONMENT_DIMENSIONS
 from runtime.environment_observation import (
     EXPECTED_PRODUCER, EXPECTED_PRODUCER_VERSION, EXPECTED_SCHEMA_VERSION,
     EXPECTED_SOURCE_UUID, EnvironmentObservationError, EnvironmentObservationPolicy,
-    GovernedEnvironmentObservationProducer,
+    GovernedEnvironmentObservationProducer, canonical_market_state_path,
 )
 
 
@@ -41,6 +41,17 @@ def collect(tmp_path, states, *, policy=None):
     return GovernedEnvironmentObservationProducer(
         feed.path, window_seconds=0.03, sample_interval=0.01, policy=policy,
         clock=feed.wall, monotonic=feed.monotonic, sleep=feed.sleep).collect()
+
+
+def diagnostic_events(tmp_path, states):
+    events = []
+    feed = Feed(tmp_path / "market_state.json", states)
+    producer = GovernedEnvironmentObservationProducer(
+        feed.path, window_seconds=0.03, sample_interval=0.01,
+        clock=feed.wall, monotonic=feed.monotonic, sleep=feed.sleep,
+        diagnostic_sink=events.append,
+    )
+    return producer, events, feed.path
 
 
 def test_policy_based_derivation_is_deterministic_and_direct(tmp_path):
@@ -112,3 +123,74 @@ def test_policy_records_definitions_thresholds_and_provenance():
     assert all(len(row) == 5 for row in policy.dimensions)
     assert len(policy.policy_digest) == 64
     assert policy.policy_uuid
+
+
+def test_shared_root_resolves_the_writer_and_runtime_publication(monkeypatch, tmp_path):
+    monkeypatch.setenv("RP_AI_SHARED_ROOT", str(tmp_path))
+    assert canonical_market_state_path() == tmp_path / "XAUUSD" / "market_state.json"
+
+
+def test_creation_diagnostics_bind_uuid_timestamp_source_digest_and_reason(tmp_path):
+    events = []
+    feed = Feed(tmp_path / "market_state.json", [
+        payload(1, 999.9), payload(2, 999.95), payload(3, 1000.0), payload(3, 1000.0),
+    ])
+    result = GovernedEnvironmentObservationProducer(
+        feed.path, window_seconds=0.03, sample_interval=0.01,
+        clock=feed.wall, monotonic=feed.monotonic, sleep=feed.sleep,
+        diagnostic_sink=events.append,
+    ).collect()
+    accepted = [event for event in events if event.status == "ACCEPTED"]
+    assert [event.reason for event in accepted] == [
+        "UNIQUE_FRESH_PUBLICATION", "UNIQUE_FRESH_PUBLICATION",
+        "UNIQUE_FRESH_PUBLICATION", "OBSERVATION_WINDOW_COMPLETE",
+    ]
+    assert all(event.observation_uuid and event.digest and event.timestamp.endswith("Z")
+               and event.source == str(feed.path) for event in accepted)
+    assert accepted[-1].observation_uuid == result.observation_uuid
+    assert accepted[-1].digest == result.observation_digest
+    assert any(event.status == "REJECTED" and event.reason == "DUPLICATE_SEQUENCE"
+               for event in events)
+
+
+def test_stale_rejection_preserves_parseable_publication_lineage(tmp_path):
+    producer, events, source = diagnostic_events(tmp_path, [payload(7, 990.0)])
+    with pytest.raises(EnvironmentObservationError, match="MARKET_STATE_HEARTBEAT_STALE"):
+        producer.collect()
+    rejected = events[-1]
+    assert rejected.status == "REJECTED"
+    assert rejected.reason == "MARKET_STATE_HEARTBEAT_STALE"
+    assert rejected.source == str(source)
+    assert rejected.digest is not None
+    assert rejected.observation_uuid is not None
+    assert rejected.sequence_id == 7
+
+
+def test_identity_rejection_preserves_parseable_publication_lineage(tmp_path):
+    producer, events, source = diagnostic_events(
+        tmp_path, [payload(11, 999.9, producer="OTHER")]
+    )
+    with pytest.raises(EnvironmentObservationError, match="MARKET_STATE_SOURCE_IDENTITY_MISMATCH"):
+        producer.collect()
+    rejected = events[-1]
+    assert rejected.status == "REJECTED"
+    assert rejected.reason == "MARKET_STATE_SOURCE_IDENTITY_MISMATCH"
+    assert rejected.source == str(source)
+    assert rejected.digest is not None
+    assert rejected.observation_uuid is not None
+    assert rejected.sequence_id == 11
+
+
+def test_unreadable_publication_diagnostic_has_no_fabricated_lineage(tmp_path):
+    producer, events, source = diagnostic_events(tmp_path, ["{"])
+    with pytest.raises(EnvironmentObservationError, match="INSUFFICIENT_UNIQUE"):
+        producer.collect()
+    malformed = next(
+        event for event in events
+        if event.reason == "UNREADABLE_OR_MALFORMED_PUBLICATION"
+    )
+    assert malformed.status == "REJECTED"
+    assert malformed.source == str(source)
+    assert malformed.digest is None
+    assert malformed.observation_uuid is None
+    assert malformed.sequence_id is None
