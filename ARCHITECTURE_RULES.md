@@ -37,13 +37,21 @@ unavailable and must never be inferred or replaced with a behavioral recommendat
 
 ## V28 thinking-model rebuild gate
 
+### PR262 Decision Intelligence authorization
+
+PR262 is authorized to implement deterministic Decision Intelligence over the seven
+immutable PR261 Market Intelligence contexts. It may verify explicit historical
+expectancy evidence and construct BUY, SELL, or HOLD, but may not read market data or
+indicators, reconstruct market context, or grant broker authority. Missing, degraded,
+inconsistent evidence or unauthorized DecisionCandidate fails closed to HOLD; OpportunityContext remains advisory with executable=false. V27 remains unchanged.
+
 V28 is a proposal-stage replacement of the AI Decision Engine's thinking model,
 not a V27 optimization. Its authoritative philosophy is documented in
 `docs/v28/V28_DECISION_PHILOSOPHY.md` and its mandatory extension,
 `docs/v28/V28_EXPECTANCY_FIRST_ARCHITECTURE_ADDENDUM.md`. No V28
-implementation may begin until both documents are explicitly approved.
+production activation may begin until both documents and the completed staged implementation are explicitly approved.
 
-Until approval, V27 retains its runtime authority and the V27 no-touch AI
+Throughout staged construction, V27 retains its runtime authority and the V27 no-touch AI
 boundary below remains in force. Do not add V27 filters, cooldowns, waiting
 logic, score adjustments, patches, or runtime layers in the name of V28.
 

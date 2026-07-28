@@ -22,6 +22,10 @@ All emergency exit behavior must preserve one effective exit owner and must publ
 
 ## V28 rebuild boundary
 
+PR262 Decision Intelligence is an approved V28 construction milestone, not an emergency
+patch or V27 runtime modification. Emergency authority may not weaken its context-only
+input boundary, positive-expectancy gate, replay identity, or fail-closed HOLD behavior.
+
 The V28 thinking-model rebuild is not an emergency patch. Emergency-patch
 authority cannot be used to implement, tune, or bypass the pending V28 decision
 philosophy. Until explicit approval of `docs/v28/V28_DECISION_PHILOSOPHY.md`
