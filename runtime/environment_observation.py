@@ -240,7 +240,17 @@ class GovernedEnvironmentObservationProducer:
                     self._diagnose(status="REJECTED", reason="DUPLICATE_SEQUENCE",
                                    data=diagnostic_data, digest=digest)
             except EnvironmentObservationError as exc:
-                self._diagnose(status="REJECTED", reason=str(exc), data=data)
+                rejected_digest = (
+                    hashlib.sha256(_canonical(data).encode()).hexdigest()
+                    if isinstance(data, Mapping)
+                    else None
+                )
+                self._diagnose(
+                    status="REJECTED",
+                    reason=str(exc),
+                    data=data,
+                    digest=rejected_digest,
+                )
                 if str(exc) in {"MARKET_STATE_HEARTBEAT_FUTURE", "MARKET_STATE_HEARTBEAT_STALE",
                                 "MARKET_STATE_SOURCE_IDENTITY_MISMATCH", "MARKET_STATE_IDENTITY_CONFLICT"}:
                     raise
