@@ -2,6 +2,8 @@
 
 ## Audit conclusion and true genesis
 
+PR250 now supplies canonical validation, append-only raw retention, and explicit exact-UUID PR173 owner construction. Separately human-approved PR175 envelope admission remains pending PR251, so a fresh clone still cannot fabricate or automatically complete genesis.
+
 A fresh clone contains code, not canonical learning evidence. The first learning
 artifact is a PR173 `KnowledgeOutcomeAttributionReport`, created by the
 `KnowledgeOutcomeAttributionEngine.analyze()` owner operation from operator-supplied
@@ -22,7 +24,7 @@ production sources.
 
 | Stage | Owner / construction API | Canonical repository | Input / exact dependency | Snapshot | Fresh-clone role |
 |---|---|---|---|---|---|
-| PR173 | `KnowledgeOutcomeAttributionEngine.analyze` | `learning_data/outcome_attribution` | external immutable outcome rows | none | genesis, externally supplied |
+| PR173 | PR250 acquisition -> `KnowledgeOutcomeAttributionEngine.analyze` | `learning_data/outcome_evidence`, `learning_data/outcome_attribution` | exact imported external immutable outcome record | none | operator-imported genesis |
 | PR174 | `GovernedLearningPolicyEngine.evaluate` | `learning_data/learning_policy` | exact PR173 report | none | generated |
 | PR175 | `PatternMiningEngine.mine` | `learning_data/pattern_mining` | exact PR174 report + separately approved evidence envelope | none | generated after approval boundary |
 | PR176 | `PatternMemoryEngine.create` | `learning_data/pattern_memory` | exact PR175 report | yes | generated |
@@ -35,8 +37,8 @@ production sources.
 | PR183 | `GovernedDecisionContextEngine.construct_context` | `learning_data/decision_context` | exact PR182 snapshot | yes | generated; PR248 construct |
 | PR184 | `GovernedDecisionIntelligenceEngine.construct_intelligence` | `learning_data/decision_intelligence` | exact PR183 snapshot | yes | generated; PR248 construct and separate activation |
 
-PR173–PR179 owner APIs existed but have no single production ingestion composition;
-the external acquisition/approval boundary remains intentionally explicit. PR180 and
+PR250 supplies PR173 production ingestion composition; PR175 approval/envelope
+admission remains intentionally external and pending PR251. PR180 and
 PR182 lacked operator compositions; PR248 supplies them together with PR181, PR183,
 and PR184 orchestration. PR184 activation, PR185 onward, and production initialization
 remain separate owner workflows.

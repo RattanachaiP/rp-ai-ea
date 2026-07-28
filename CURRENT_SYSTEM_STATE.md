@@ -3,6 +3,12 @@
 Date: 2026-06-12 (UTC)
 Authoritative branch policy: `codex-dev`
 
+## PR250 Governed Outcome Evidence Acquisition — IMPLEMENTED, PENDING ACCEPTANCE
+
+- `learning.outcome_evidence` defines the immutable canonical PR173 manifest and acquisition-owned deterministic row replay provenance.
+- Exact validated imports preserve complete normalized evidence append-only under `learning_data/outcome_evidence`; validate/inspect are read-only and no latest selection exists.
+- Explicit `construct-pr173` invokes/persists through the PR173 owner and verifies exact source/replay binding. PR175 human approval remains pending PR251; trading authority is unchanged.
+
 ## PR248 End-to-End Governed Learning Bootstrap — IMPLEMENTED, PENDING ACCEPTANCE
 
 - Repository audit establishes PR173 immutable outcome evidence as the first

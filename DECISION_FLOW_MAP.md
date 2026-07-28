@@ -1,5 +1,9 @@
 # DECISION_FLOW_MAP — Runtime Lineage and Participation Governance Flow
 
+## PR250 external genesis acquisition
+
+`real governed completed outcomes -> PR250 canonical validation -> exact append-only raw evidence UUID -> explicit PR173 owner construction/report -> PR174`. Validate/inspect are read-only; import/construction require exact path/UUID. No latest selection or PR175 approval exists. PR251 must bind human approval to the PR250 evidence UUID before PR175 mining.
+
 ## Authoritative lineage
 `codex-dev` (single source of truth)
 
