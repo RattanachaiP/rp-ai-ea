@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rp-ai-ea.local/schemas/decision_v28_schema.json",
+  "title": "V28 PR-A backward-compatible decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "brain_version", "runtime_version", "sequence_id", "heartbeat_unix", "published_at", "decision", "direction", "entry_permission", "entry_state", "construction_action", "confidence", "probability", "expected_value", "location_score", "position_budget_total", "position_budget_used", "position_budget_remaining", "decision_reasons", "decision_trace", "fail_safe", "executable", "symbol", "volume", "entry_price", "stop_loss", "take_profit"],
+  "properties": {
+    "schema_version": {"const": "2.0"},
+    "brain_version": {"const": "V28.PR-A"},
+    "runtime_version": {"const": "V28.PR-A"},
+    "sequence_id": {"type": "integer", "minimum": 0},
+    "heartbeat_unix": {"type": "number", "exclusiveMinimum": 0},
+    "published_at": {"type": "string", "format": "date-time"},
+    "decision": {"enum": ["BUY", "SELL", "HOLD"]},
+    "direction": {"enum": ["BUY", "SELL", "NONE"]},
+    "entry_permission": {"type": "boolean"},
+    "entry_state": {"type": "string"},
+    "construction_action": {"type": "string"},
+    "confidence": {"type": "number"}, "probability": {"type": "number"},
+    "expected_value": {"type": "number"}, "location_score": {"type": "number"},
+    "position_budget_total": {"type": "number"}, "position_budget_used": {"type": "number"},
+    "position_budget_remaining": {"type": "number"},
+    "decision_reasons": {"type": "array", "items": {"type": "string"}},
+    "decision_trace": {"type": "array", "items": {"type": "string"}},
+    "fail_safe": {"type": "boolean"}, "executable": {"type": "boolean"},
+    "symbol": {"type": "string", "minLength": 1},
+    "volume": {"type": "number"}, "entry_price": {"type": "number"},
+    "stop_loss": {"type": "number"}, "take_profit": {"type": "number"}
+  }
+}
