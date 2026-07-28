@@ -76,6 +76,14 @@ READY state, approval timestamp, lineage, and compatibility partitions are bound
 its deterministic UUID and digest. Construction, startup, and Runtime may not create,
 infer, repair, replace, or select an activation from repository contents.
 
+PR184 operator inspection is read-only, deterministic evidence. It enumerates every
+canonical intelligence, snapshot, and exact pair without choosing a latest, newest,
+READY, filename-ordered, or timestamp-ordered candidate. Its
+`ELIGIBLE_FOR_OPERATOR_REVIEW` classification is neither approval nor activation and
+grants no production, Runtime, trading, or execution authority. Only explicit human
+review followed by the owner activation command with exact identities and an explicit
+UTC approval timestamp can create the canonical activation.
+
 ## PR185 governed advisory Decision Recommendation rule
 
 **Rule #020 — Advisory Decision Recommendation.** PR185 may consume only immutable,
