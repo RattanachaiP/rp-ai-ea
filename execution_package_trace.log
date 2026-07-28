@@ -1,4 +1,0 @@
-{"event": "ACCEPTED", "owner": "ASSEMBLY", "reason": "verified decision accepted", "timestamp": "2026-07-28T05:51:01.979904Z"}
-{"event": "ASSEMBLED", "owner": "ASSEMBLY", "reason": "execution package constructed", "timestamp": "2026-07-28T05:51:01.981678Z"}
-{"event": "VALID", "owner": "VALIDATION", "reason": "schema and lineage verified", "timestamp": "2026-07-28T05:51:01.982741Z"}
-{"event": "PUBLISHED", "owner": "PUBLICATION", "reason": "atomic replacement complete", "timestamp": "2026-07-28T05:51:01.984810Z"}

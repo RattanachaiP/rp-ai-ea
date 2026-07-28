@@ -3,13 +3,15 @@
 - Execution package assembly: **implemented**
 - Decision publication verification: **implemented**
 - Canonical schema validation: **implemented**
-- UUID and market lineage preservation: **verified**
-- Sequence monotonicity: **enforced**
-- Atomic replacement: **verified**
+- UUID and authoritative market lineage preservation: **verified**
+- Durable sequence monotonicity across package deletion: **enforced**
+- Atomic replacement and POSIX directory durability: **verified**
 - Failure ownership and reason trace: **implemented**
-- Executor-ready controlled package: **true**
+- Runtime lifecycle, final-veto, and execution authorization gates: **enforced**
+- Production-root example artifacts: **none**
+- Health semantics: **observational, non-authoritative**
 - Runtime, strategy, and governance behavior: **unchanged**
 
-`EXECUTION_PACKAGE = VERIFIED`
+`EXECUTION_PACKAGE_BOUNDARY = FAIL_CLOSED`
 
-`EXECUTOR_READY = TRUE`
+`RUNTIME_AUTHORITY = PRESERVED`
