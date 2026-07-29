@@ -11,10 +11,27 @@ calibration, risk characteristics, replay consistency, dataset coverage,
 confidence reliability, and regime robustness. It includes descriptive
 statistics, an aggregate candidate score, explicit qualification evidence, and
 content-addressed input, replay, report, and registry identities. Policies and
-dataset splits are explicit, and no wall clock, random source, or external state
-is read, so identical inputs produce an identical report.
+dataset boundaries are explicit, and no wall clock, random source, or external
+state is read, so identical inputs produce an identical report. Evaluation rows
+have immutable identities and an evaluation dataset carries its own content and
+version identities plus a proof that its source examples do not overlap the
+candidate's ordered training rows. Generalization is calculated only from this
+out-of-training dataset; training metrics are never reused as holdout evidence.
+
+The full evaluation policy is content-addressed into every report and replay
+computation. Governance requires at least 30 independent records and at least
+five records per observed regime by default. Confidence reliability has one
+precise meaning: the Brier score between each immutable pre-outcome confidence
+and the observed binary profitable/non-profitable result. Qualification and
+dimension pass states are reconstructed from those policy thresholds rather
+than accepted from callers. The ordered registry links every entry and registry
+snapshot to its predecessor and defines uniqueness by candidate, evaluation
+dataset, and policy identities.
 
 Qualification is evidence only. Reports are advisory and cannot authorize
 Runtime, deployment, promotion, or production. Evaluation never retrains or
 tunes a model, generates a candidate, changes Runtime, deploys a model, promotes
 a model, or approves production.
+
+The existing V27 Production Executor remains the sole production execution
+authority.
