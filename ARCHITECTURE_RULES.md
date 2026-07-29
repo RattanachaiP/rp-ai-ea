@@ -363,3 +363,14 @@ delivery evidence, and may run broker-free Shadow validation. Every inconsistenc
 aggregate certification `FAIL` and denies readiness. A `PASS` certifies only deterministic
 validation; it grants no production, broker, `OrderSend`, strategy, or promotion authority.
 V27 remains the sole production authority until explicit human approval.
+
+## PR280 Runtime Startup Authorization rule
+
+PR280 consumes only the exact immutable PR279 Executor Acknowledgement Authorization
+and its effective registry evidence. It deterministically authorizes or rejects entry
+into the startup phase under an immutable startup policy and contract, with append-only
+CAS registration, generation replay protection, expiry, revocation, supersession, and
+single-use consumption. Authorization is governance data only: Runtime started,
+Executor invoked, broker access/connection, order submission, and trade execution are
+always false. The Existing V27 Production Executor remains the sole execution authority.
+PR280 is the final authorization boundary and triggers Architecture Freeze v1.0 review.

@@ -146,3 +146,12 @@ End-to-end validation cannot be weakened, bypassed, or converted into production
 Emergency patches may not downgrade a mismatch, fabricate certification evidence, call a
 broker, introduce `OrderSend`, change BUY/SELL/HOLD logic, or modify PR260–PR264 or V27 through
 PR265. Every inconsistency remains a certification failure and V27 retains production authority.
+
+## PR280 boundary
+
+Emergency-patch authority may revoke an unconsumed PR280 authorization through explicit
+immutable governance evidence, but may not bypass or weaken acknowledgement, identity,
+freshness, policy, contract, registry lineage, generation, replay, single-use, revocation,
+supersession, expiry, or emergency-rollback gates. It may not use PR280 to start Runtime,
+invoke the Executor, access broker credentials, connect to a broker, submit orders, execute
+trades, or grant any of those capabilities. V27 remains the sole execution authority.
