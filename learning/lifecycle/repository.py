@@ -49,6 +49,9 @@ class LifecycleRepository:
                 pass
 
     def append(self, transition: LifecycleTransition) -> Path:
+        # Validate artifact-local business rules before touching lock/storage
+        # infrastructure, so filesystem permissions can never mask a bad event.
+        self.validator.validate_artifact(transition)
         with self._lock(transition.knowledge_uuid):
             existing = self.history(transition.knowledge_uuid)
             for prior in existing:

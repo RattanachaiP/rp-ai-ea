@@ -21,8 +21,8 @@ def validate_transition(previous_state: str, new_state: str) -> None:
 
 
 class LifecycleValidator:
-    def validate(self, transition: LifecycleTransition,
-                 history: Iterable[LifecycleTransition] = ()) -> None:
+    def validate_artifact(self, transition: LifecycleTransition) -> datetime:
+        """Validate rules which do not require storage-backed history."""
         for field in ("knowledge_uuid", "triggering_component", "reason", "governance_version", "lifecycle_version"):
             if not isinstance(getattr(transition, field), str) or not getattr(transition, field):
                 raise LifecycleValidationError("REQUIRED_FIELDS")
@@ -39,6 +39,11 @@ class LifecycleValidator:
         except (AttributeError, ValueError) as exc:
             raise LifecycleValidationError("INVALID_TRANSITION_UUID") from exc
         validate_transition(transition.previous_state, transition.new_state)
+        return parsed_timestamp
+
+    def validate(self, transition: LifecycleTransition,
+                 history: Iterable[LifecycleTransition] = ()) -> None:
+        parsed_timestamp = self.validate_artifact(transition)
 
         prior = list(history)
         if not prior:
