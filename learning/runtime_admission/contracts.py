@@ -265,3 +265,23 @@ class RuntimeAdmissionResult:
             self.registry_entry.admission_authorization != self.admission_authorization or
             self.registry_entry.executor_admission_authorization != self.executor_admission_authorization):
             raise ValueError("RUNTIME_ADMISSION_RESULT_BINDING_INVALID")
+
+
+@dataclass(frozen=True)
+class AdmissionAuthorizationRevocation:
+    """Authoritative PR278 invalidation of a previously issued admission."""
+    admission_authorization_identity: str
+    revoked_by: str
+    reason: str
+    revoked_at: str
+    revocation_identity: str = ""
+    def __post_init__(self):
+        _utc(self.revoked_at)
+        if not all(_text(getattr(self, x)) for x in
+                   ("admission_authorization_identity", "revoked_by", "reason")):
+            raise ValueError("ADMISSION_AUTHORIZATION_REVOCATION_INVALID")
+        expected = _id("PR278_ADMISSION_AUTHORIZATION_REVOCATION",
+            {k: v for k, v in self.__dict__.items() if k != "revocation_identity"})
+        if self.revocation_identity and self.revocation_identity != expected:
+            raise ValueError("ADMISSION_AUTHORIZATION_REVOCATION_IDENTITY_INVALID")
+        object.__setattr__(self, "revocation_identity", expected)

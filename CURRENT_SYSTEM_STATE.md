@@ -663,3 +663,17 @@ fail-closed and never activates Production; V27 remains the production authority
   `REQUESTED → VALIDATED → ADMISSION_AUTHORIZED → RECORDED`. It claims no executor
   acknowledgement and never launches Runtime, invokes the Executor, trades, accesses a broker,
   changes strategy, trains AI, or evaluates AI.
+
+## PR279 Executor Acknowledgement Authority — ACTIVE; GOVERNANCE PIPELINE V1 FROZEN
+
+- The existing V27 Production Executor emits a signed, immutable acceptance attestation for the
+  exact PR278 Executor Admission Authorization. PR279 authenticates that executor-origin evidence;
+  it never manufactures acknowledgement.
+- Exact admission-entry membership, current upstream PR278 effectiveness/revocation, authorization,
+  executor instance/session, artifact/contract/environment/policy/authority lineage, freshness, and
+  attestation/nonce replay protections are mandatory and fail closed.
+- Success records acknowledgement only through
+  `AUTHORIZED → ACKNOWLEDGED → RECORDED → ACKNOWLEDGEMENT_COMPLETE`. Operational execution
+  readiness and every runtime, broker, order, trade, strategy, training, and evaluation capability
+  remain false. PR279 completes Governance Pipeline Version 1; another Governance Authority requires
+  Architecture Review.
