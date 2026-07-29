@@ -367,10 +367,11 @@ V27 remains the sole production authority until explicit human approval.
 ## PR280 Runtime Startup Authorization rule
 
 PR280 consumes only the exact immutable PR279 Executor Acknowledgement Authorization
-and its effective registry evidence. It deterministically authorizes or rejects entry
-into the startup phase under an immutable startup policy and contract, with append-only
-CAS registration, generation replay protection, expiry, revocation, supersession, and
-single-use consumption. Authorization is governance data only: Runtime started,
+and its effective registry evidence. It deterministically authorizes or rejects the final
+pre-executor startup handoff under an immutable startup policy and contract, with append-only
+CAS registration, typed status governance, authenticated executor-side single-use consumption,
+generation replay protection, expiry, revocation, and supersession. Authorization is governance
+data only: startup handoff is authorized while Runtime startup remains unproven. Runtime started,
 Executor invoked, broker access/connection, order submission, and trade execution are
 always false. The Existing V27 Production Executor remains the sole execution authority.
 PR280 is the final authorization boundary and triggers Architecture Freeze v1.0 review.

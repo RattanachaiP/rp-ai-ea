@@ -150,8 +150,9 @@ PR265. Every inconsistency remains a certification failure and V27 retains produ
 ## PR280 boundary
 
 Emergency-patch authority may revoke an unconsumed PR280 authorization through explicit
-immutable governance evidence, but may not bypass or weaken acknowledgement, identity,
+immutable typed registry status evidence, but may not bypass or weaken acknowledgement, identity,
 freshness, policy, contract, registry lineage, generation, replay, single-use, revocation,
-supersession, expiry, or emergency-rollback gates. It may not use PR280 to start Runtime,
+supersession, expiry, consumer authentication, consumption nonce, or emergency-rollback gates.
+Bundle-local status authority is forbidden. PR280 may not be used to start Runtime,
 invoke the Executor, access broker credentials, connect to a broker, submit orders, execute
 trades, or grant any of those capabilities. V27 remains the sole execution authority.
