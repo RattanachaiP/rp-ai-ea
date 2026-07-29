@@ -15,3 +15,9 @@ versioned, source-registry bound, integrity validated, and replay validated.
 The append-only Learning Registry records completed Learning Evidence
 contracts. Those contracts explicitly certify that no training occurred and
 that no production behavior was authorized.
+
+Feature and label contracts carry the source outcome and trade identities, and
+each example rejects mixed lineage. Dataset lineage preserves the exact source
+outcome order. Snapshots cross-check dataset version, example order, and count.
+Registry entries form a sequence-checked identity chain, while each registry
+revision proves its immediate predecessor from the complete prior ancestry.
