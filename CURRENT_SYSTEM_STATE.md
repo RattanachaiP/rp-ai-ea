@@ -651,3 +651,15 @@ It verifies runtime sequence, freshness, immutable contracts, policy and replay 
 ExecutionPlan, ExecutorContract, publication, adapter, and delivery integrity. Shadow BUY,
 SELL, and HOLD evidence is broker-free and explicitly forbids `OrderSend`. Certification is
 fail-closed and never activates Production; V27 remains the production authority.
+
+## PR278 Runtime Admission Authority — ACTIVE
+
+- PR278 authenticates the immutable PR277 `ExecutorHandoff` against current PR276 Release
+  Registry, PR277 Activation Registry, executor-policy, and admission-registry governance.
+- It revalidates revocation, rollback, supersession, local activation revocation, complete
+  identity lineage, bounded handoff freshness, and generation-aware replay before atomically
+  authorizing one runtime admission.
+- It records immutable expanded evidence and bounded admission authorizations through
+  `REQUESTED → VALIDATED → ADMISSION_AUTHORIZED → RECORDED`. It claims no executor
+  acknowledgement and never launches Runtime, invokes the Executor, trades, accesses a broker,
+  changes strategy, trains AI, or evaluates AI.
