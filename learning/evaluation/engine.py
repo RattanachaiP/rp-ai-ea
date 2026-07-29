@@ -4,6 +4,7 @@ from .identity import identity_for
 from .models import (DIMENSIONS, DimensionResult, EvaluationDataset, EvaluationPolicy, EvaluationReport,
                      ReplayValidation, StatisticalValidation, qualification)
 from learning.common.immutable import thaw
+from bridge.v28.outcome_analytics import validate_analytics_replay
 
 def _validate(obj): type(obj)(**obj.__dict__)
 
@@ -37,9 +38,11 @@ class ModelEvaluator:
         return stats, scores, identity_for("EVALUATION_COMPUTATION", payload)
 
     def evaluate(self, candidate_registry, candidate, training_evidence, training_learning_registry,
-                 training_analytics, training_dataset, evaluation_dataset: EvaluationDataset) -> EvaluationReport:
+                 training_analytics, training_dataset, evaluation_learning_registry, evaluation_learning_evidence,
+                 evaluation_analytics, evaluation_dataset: EvaluationDataset) -> EvaluationReport:
         for obj in (candidate_registry, candidate, training_evidence, training_learning_registry,
-                    training_analytics, training_dataset, evaluation_dataset): _validate(obj)
+                    training_analytics, training_dataset, evaluation_learning_registry, evaluation_learning_evidence,
+                    evaluation_analytics, evaluation_dataset): _validate(obj)
         candidate_entries = tuple(x for x in candidate_registry.entries if x.candidate.model_identity == candidate.model_identity)
         if len(candidate_entries) != 1 or candidate_entries[0].evidence.evidence_identity != training_evidence.evidence_identity:
             raise ValueError("EVALUATION_CANDIDATE_REGISTRY_BINDING_INVALID")
@@ -63,6 +66,21 @@ class ModelEvaluator:
             raise ValueError("EVALUATION_TRAINING_LINEAGE_INVALID")
         if evaluation_dataset.non_overlap_proof.training_row_identities != candidate.metadata.training_row_identities:
             raise ValueError("EVALUATION_NON_OVERLAP_PROOF_BINDING_INVALID")
+        evaluation_entries = tuple(x for x in evaluation_learning_registry.entries
+            if x.evidence.evidence_identity == evaluation_learning_evidence.evidence_identity)
+        if len(evaluation_entries) != 1:
+            raise ValueError("EVALUATION_EVIDENCE_NOT_REGISTERED")
+        if not validate_analytics_replay(evaluation_learning_evidence, evaluation_analytics):
+            raise ValueError("EVALUATION_ANALYTICS_REPLAY_INVALID")
+        source = evaluation_learning_evidence.dataset
+        if (evaluation_dataset.source_learning_registry_identity != evaluation_learning_registry.registry_identity
+                or evaluation_dataset.source_learning_evidence_identity != evaluation_learning_evidence.evidence_identity
+                or evaluation_dataset.source_analytics_identity != evaluation_analytics.report_identity
+                or evaluation_dataset.source_dataset_identity != source.dataset_identity
+                or evaluation_dataset.source_dataset_version_identity != source.dataset_version_identity
+                or tuple(x.example_identity for x in evaluation_dataset.rows) != tuple(x.example_identity for x in source.examples)
+                or tuple(x.outcome_identity for x in evaluation_dataset.rows) != source.source_outcome_identities):
+            raise ValueError("EVALUATION_DATASET_PROVENANCE_INVALID")
         first_stats, first_scores, first_digest = self._computation(candidate, evaluation_dataset)
         second_stats, second_scores, second_digest = self._computation(candidate, evaluation_dataset)
         replay = ReplayValidation(first_digest, second_digest, first_digest == second_digest and first_stats == second_stats and first_scores == second_scores)

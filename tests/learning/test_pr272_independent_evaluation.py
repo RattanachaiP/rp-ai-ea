@@ -5,9 +5,9 @@ from bridge.v28.offline_learning import build_learning_dataset, create_learning_
 from bridge.v28.outcome_analytics import analyze_learning_evidence
 from bridge.v28.outcome_evidence import publish_outcome_evidence
 from bridge.v28.outcome_registry import create_outcome_registry
-from learning.evaluation import (DatasetNonOverlapProof, EvaluationDataset, EvaluationDatasetLoader, EvaluationPolicy,
- EvaluationRegistry, EvaluationRow, ModelEvaluator, ReplayValidation)
-from learning.training import CandidateRegistry, TrainingConfiguration, TrainingDatasetLoader, TrainingSession
+from learning.evaluation import (DatasetNonOverlapProof, EvaluationDatasetLoader, EvaluationPolicy,
+ EvaluationRegistry, ModelEvaluator, ReplayValidation)
+from learning.training import CandidateRegistry, TrainingConfiguration, TrainingDataset, TrainingRow, TrainingSession
 from tests.test_v28_outcome_intelligence import outcome
 
 
@@ -19,26 +19,25 @@ def learning_authority(name):
 
 @pytest.fixture(scope='module')
 def governed():
-    training=learning_authority('training-source'); td=TrainingDatasetLoader().load(*training)
+    training=learning_authority('evaluation-source')
+    row=TrainingRow(0,'training-outcome','training-example',{'confidence':.5,'spread':1.0},.1)
+    td=TrainingDataset((row,),1,training[0].registry_identity,training[1].evidence_identity,
+      training[2].report_identity,training[1].dataset.dataset_identity,training[1].dataset.dataset_version_identity)
     config=TrainingConfiguration(('confidence','spread'),policy_identity='training-v1',code_version='git:pr271')
     result=TrainingSession(config).run(td); candidates=CandidateRegistry().append(result.candidate,result.evidence)
-    row=EvaluationRow(0,'independent-outcome','independent-example',.25,.7,'independent-regime','independent-example')
-    proof=DatasetNonOverlapProof(tuple(x.row_identity for x in td.rows),tuple(x.example_identity for x in td.rows),
-      (row.source_row_identity,),0)
-    ed=EvaluationDataset((row,),'evaluation-registry','evaluation-evidence','evaluation-analytics',
-      'evaluation-source-dataset','evaluation-source-version',proof)
+    ed=EvaluationDatasetLoader().load(*training,td)
     return candidates,result,training,td,ed
 
 def evaluate(values, policy=None):
     candidates,result,training,td,ed=values
     engine=ModelEvaluator(policy or EvaluationPolicy('evaluation-governance-v2'))
-    inputs=(candidates,result.candidate,result.evidence,*training[::2],td,ed)
+    inputs=(candidates,result.candidate,result.evidence,training[0],training[2],td,*training,ed)
     return engine,inputs,engine.evaluate(*inputs)
 
 def test_independent_dataset_and_exact_training_lineage(governed):
     _,_,training,td,ed=governed
-    assert ed.source_learning_registry_identity=='evaluation-registry'
-    assert ed.source_learning_evidence_identity=='evaluation-evidence'
+    assert ed.source_learning_registry_identity==training[0].registry_identity
+    assert ed.source_learning_evidence_identity==training[1].evidence_identity
     assert ed.non_overlap_proof.training_row_identities==tuple(x.row_identity for x in td.rows)
     assert ed.non_overlap_proof.overlap_count==0
     engine,inputs,report=evaluate(governed)
@@ -49,13 +48,37 @@ def test_independent_dataset_and_exact_training_lineage(governed):
 def test_cross_dataset_overlap_duplicate_rows_and_lineage_fail_closed(governed):
     _,result,training,td,ed=governed
     with pytest.raises(ValueError,match='OVERLAP'):
-        EvaluationDatasetLoader().load(*training,td)
+        EvaluationDatasetLoader().load(*training,replace(td,rows=(replace(td.rows[0],
+          outcome_identity=training[1].dataset.examples[0].outcome_identity,
+          example_identity=training[1].dataset.examples[0].example_identity,row_identity=''),),dataset_identity=''))
     with pytest.raises(ValueError,match='DATASET_INVALID'):
         replace(ed,rows=(ed.rows[0],ed.rows[0]),dataset_identity='')
     candidates=CandidateRegistry().append(result.candidate,result.evidence)
     engine=ModelEvaluator(EvaluationPolicy('evaluation-governance-v2'))
     with pytest.raises(ValueError,match='IDENTITY'):
-        engine.evaluate(candidates,result.candidate,result.evidence,training[0],replace(training[2],report_identity='forged'),td,ed)
+        engine.evaluate(candidates,result.candidate,result.evidence,training[0],replace(training[2],report_identity='forged'),
+          td,*training,ed)
+
+def test_evaluation_side_authorities_are_mandatory(governed):
+    engine,inputs,_=evaluate(governed); *prefix,registry,evidence,analytics,dataset=inputs
+    forged=replace(dataset,source_learning_registry_identity='arbitrary-registry',
+      source_learning_evidence_identity='arbitrary-evidence',source_analytics_identity='arbitrary-analytics',dataset_identity='')
+    with pytest.raises(ValueError,match='PROVENANCE'):
+        engine.evaluate(*prefix,registry,evidence,analytics,forged)
+    with pytest.raises(ValueError,match='NOT_REGISTERED'):
+        engine.evaluate(*prefix,create_learning_registry(),evidence,analytics,dataset)
+    original=analytics.source_learning_evidence_identity
+    object.__setattr__(analytics,'source_learning_evidence_identity','different-evidence')
+    with pytest.raises(ValueError,match='IDENTITY|REPLAY'):
+        engine.evaluate(*prefix,registry,evidence,analytics,dataset)
+    object.__setattr__(analytics,'source_learning_evidence_identity',original)
+
+def test_non_overlap_proof_cannot_mix_identity_domains(governed):
+    *_,td,ed=governed
+    mismatched=DatasetNonOverlapProof(ed.non_overlap_proof.training_row_identities,
+      ed.non_overlap_proof.training_example_identities,('source-row-domain-value',),0)
+    with pytest.raises(ValueError,match='PROOF_BINDING'):
+        replace(ed,non_overlap_proof=mismatched,dataset_identity='')
 
 def test_policy_dimensions_statistics_and_qualification_cannot_be_forged(governed):
     engine,inputs,report=evaluate(governed)

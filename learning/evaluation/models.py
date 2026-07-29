@@ -1,6 +1,6 @@
 """Immutable, self-validating contracts for independent evaluation (PR272)."""
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from math import isclose, isfinite, sqrt
 from typing import Mapping
 from learning.common.immutable import freeze, thaw
@@ -56,23 +56,23 @@ class EvaluationRow:
 @dataclass(frozen=True)
 class DatasetNonOverlapProof:
     training_row_identities: tuple[str, ...]; training_example_identities: tuple[str, ...]
-    evaluation_source_row_identities: tuple[str, ...]
+    evaluation_example_identities: tuple[str, ...]
     overlap_count: int; proof_identity: str = ""
     def __post_init__(self):
-        training, examples, evaluation = tuple(self.training_row_identities), tuple(self.training_example_identities), tuple(self.evaluation_source_row_identities)
+        training, examples, evaluation = tuple(self.training_row_identities), tuple(self.training_example_identities), tuple(self.evaluation_example_identities)
         if (not training or not examples or not evaluation or len(training) != len(examples)
                 or any(len(set(x)) != len(x) for x in (training, examples, evaluation))
                 or not all(_text(x) for x in training + examples + evaluation) or type(self.overlap_count) is not int
                 or self.overlap_count != len(set(examples) & set(evaluation)) or self.overlap_count != 0):
             raise ValueError("EVALUATION_DATASET_OVERLAP_INVALID")
         object.__setattr__(self, "training_row_identities", training); object.__setattr__(self, "training_example_identities", examples)
-        object.__setattr__(self, "evaluation_source_row_identities", evaluation)
+        object.__setattr__(self, "evaluation_example_identities", evaluation)
         expected = identity_for("DATASET_NON_OVERLAP_PROOF", self.canonical_payload())
         if self.proof_identity and self.proof_identity != expected: raise ValueError("NON_OVERLAP_PROOF_IDENTITY_INVALID")
         object.__setattr__(self, "proof_identity", expected)
     def canonical_payload(self): return {"training_row_identities": self.training_row_identities,
         "training_example_identities": self.training_example_identities,
-        "evaluation_source_row_identities": self.evaluation_source_row_identities, "overlap_count": self.overlap_count}
+        "evaluation_example_identities": self.evaluation_example_identities, "overlap_count": self.overlap_count}
 
 @dataclass(frozen=True)
 class EvaluationDataset:
@@ -93,7 +93,7 @@ class EvaluationDataset:
             raise ValueError("EVALUATION_DATASET_INVALID")
         for row in rows: EvaluationRow(**row.__dict__)
         DatasetNonOverlapProof(**self.non_overlap_proof.__dict__)
-        if tuple(x.source_row_identity for x in rows) != self.non_overlap_proof.evaluation_source_row_identities:
+        if tuple(x.example_identity for x in rows) != self.non_overlap_proof.evaluation_example_identities:
             raise ValueError("EVALUATION_DATASET_PROOF_BINDING_INVALID")
         expected = identity_for("EVALUATION_DATASET", self.canonical_payload())
         if self.dataset_identity and self.dataset_identity != expected: raise ValueError("EVALUATION_DATASET_IDENTITY_INVALID")

@@ -17,6 +17,11 @@ have immutable identities and an evaluation dataset carries its own content and
 version identities plus a proof that its source examples do not overlap the
 candidate's ordered training rows. Generalization is calculated only from this
 out-of-training dataset; training metrics are never reused as holdout evidence.
+The evaluator also reconstructs the evaluation-side Learning Registry, Learning
+Evidence, and Outcome Analytics inputs, verifies analytics replay, requires the
+evidence to occur exactly once in that registry, and binds every source identity
+and ordered example in the evaluation dataset to those authorities. A dataset
+whose internal identities merely agree with one another is not authoritative.
 
 The full evaluation policy is content-addressed into every report and replay
 computation. Governance requires at least 30 independent records and at least
