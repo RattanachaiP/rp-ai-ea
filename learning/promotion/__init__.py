@@ -2,14 +2,16 @@
 from .authority import PromotionAuthority, PromotionValidationError
 from .contracts import (
     PROMOTION_DECISIONS, PROMOTION_GATES, PROMOTION_SCHEMA_VERSION,
-    GovernanceQueueEntry, PromotionApprovalRequest, PromotionEvidence,
+    GovernanceQueueEntry, PromotionApprovalRequest, PromotionEvidence, QualificationBundle,
     PromotionGate, PromotionPolicy, PromotionReport, PromotionResult,
 )
-from .registry import PromotionRegistry, PromotionRegistryEntry
+from .registry import (GovernanceQueueRegistry, GovernanceQueueRegistryEntry,
+                       PromotionRegistry, PromotionRegistryEntry)
 
 __all__ = [
     "PROMOTION_DECISIONS", "PROMOTION_GATES", "PROMOTION_SCHEMA_VERSION",
-    "GovernanceQueueEntry", "PromotionApprovalRequest", "PromotionAuthority",
+    "GovernanceQueueEntry", "GovernanceQueueRegistry", "GovernanceQueueRegistryEntry",
+    "PromotionApprovalRequest", "PromotionAuthority", "QualificationBundle",
     "PromotionEvidence", "PromotionGate", "PromotionPolicy", "PromotionRegistry",
     "PromotionRegistryEntry", "PromotionReport", "PromotionResult",
     "PromotionValidationError",

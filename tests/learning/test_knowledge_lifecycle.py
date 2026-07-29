@@ -107,3 +107,22 @@ def test_interrupted_temporary_file_is_ignored(tmp_path):
     storage.directory.mkdir(parents=True)
     (storage.directory / ".transition_crash.json.partial.tmp").write_text('{"partial":', encoding="utf-8")
     assert storage.all() == []
+
+
+def test_business_validation_precedes_lock_infrastructure_without_weakening_locking(tmp_path, monkeypatch):
+    repo = LifecycleRepository(tmp_path)
+    called = False
+    def forbidden_lock(_):
+        nonlocal called
+        called = True
+        raise PermissionError("lock directory unavailable")
+    monkeypatch.setattr(repo, "_lock", forbidden_lock)
+    with pytest.raises(LifecycleValidationError, match="INVALID_LIFECYCLE_TRANSITION"):
+        event(repo, "DRAFT", "ACTIVE", timestamp="2026-07-24T00:00:00Z",
+              transition_uuid="00000000-0000-4000-8000-000000000099")
+    assert not called
+    # The normal repository still serializes and atomically rejects competitors.
+    healthy = LifecycleRepository(tmp_path)
+    event(healthy, "DRAFT", "VERIFIED", timestamp="2026-07-24T00:00:00Z",
+          transition_uuid="00000000-0000-4000-8000-000000000100")
+    assert healthy.current_state("knowledge-1") == "VERIFIED"

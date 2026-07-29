@@ -1,106 +1,54 @@
-"""Pure promotion authority consuming only qualification artifacts and policy."""
-from __future__ import annotations
-
-from .contracts import (PROMOTION_GATES, GovernanceQueueEntry, PromotionApprovalRequest,
-                        PromotionEvidence, PromotionGate, PromotionPolicy, PromotionReport,
-                        PromotionResult)
-
-
-class PromotionValidationError(ValueError):
-    """A malformed input crossed the promotion trust boundary."""
-
-
-def _validate(value: object) -> None:
-    try:
-        type(value)(**value.__dict__)
-    except (AttributeError, TypeError, ValueError) as exc:
-        raise PromotionValidationError("PROMOTION_INPUT_INVALID") from exc
-
+"""Pure promotion authority consuming one authoritative qualification bundle."""
+from .contracts import (PROMOTION_GATES, GovernanceQueueEntry, PromotionApprovalRequest, PromotionEvidence,
+    PromotionGate, PromotionPolicy, PromotionReport, PromotionResult, QualificationBundle)
+from .identity import identity_for
+class PromotionValidationError(ValueError): pass
+def _validate(v):
+    try: type(v)(**v.__dict__)
+    except (AttributeError,TypeError,ValueError) as exc: raise PromotionValidationError("PROMOTION_INPUT_INVALID") from exc
 
 class PromotionAuthority:
-    """Authorize governance eligibility; never deploy, approve, or modify runtime."""
-
-    def __init__(self, policy: PromotionPolicy) -> None:
-        _validate(policy)
-        self.policy = policy
-
-    def assess(self, qualification_registry, qualification_report,
-               qualification_evidence) -> PromotionResult:
-        for value in (qualification_registry, qualification_report, qualification_evidence):
-            _validate(value)
-
-        entries = tuple(x for x in qualification_registry.entries
-                        if x.report.report_identity == qualification_report.report_identity)
-        unique_entry = len(entries) == 1 and entries[0].report == qualification_report
-        evidence_bound = (qualification_report.qualification_evidence == qualification_evidence
-                          and qualification_evidence.evidence_identity ==
-                          qualification_report.qualification_evidence.evidence_identity)
-        policy_accepted = qualification_report.policy.policy_identity in self.policy.accepted_qualification_policy_identities
-        qualification_valid = (qualification_report.decision == "PASS"
-            if self.policy.require_qualification_pass else qualification_report.decision in ("PASS", "CONDITIONAL"))
-        governance_ready = (qualification_report.governance_eligible
-                            if self.policy.require_governance_eligible else True)
-        candidate_integrity = (qualification_report.candidate_identity == qualification_evidence.candidate_identity
-            and qualification_report.evaluation_report_identity == qualification_evidence.evaluation_report_identity
-            and qualification_report.policy.policy_identity == qualification_evidence.qualification_policy_identity)
-        lineage_valid = (unique_entry and qualification_report.candidate_registry_identity
-                         and qualification_report.evaluation_registry_identity
-                         and qualification_registry.registry_identity != "")
-        facts = {
-            "qualification_validity": (qualification_valid,
-                {"qualification_decision": qualification_report.decision,
-                 "qualification_report_identity": qualification_report.report_identity}),
-            "promotion_policy_compliance": (policy_accepted,
-                {"qualification_policy_identity": qualification_report.policy.policy_identity,
-                 "promotion_policy_identity": self.policy.policy_identity}),
-            "evidence_completeness": (evidence_bound,
-                {"qualification_evidence_identity": qualification_evidence.evidence_identity,
-                 "report_evidence_identity": qualification_report.qualification_evidence.evidence_identity}),
-            "candidate_integrity": (candidate_integrity,
-                {"candidate_identity": qualification_report.candidate_identity,
-                 "evidence_candidate_identity": qualification_evidence.candidate_identity}),
-            "registry_lineage_validation": (bool(lineage_valid),
-                {"qualification_registry_identity": qualification_registry.registry_identity,
-                 "matching_entries": len(entries)}),
-            "governance_readiness": (governance_ready,
-                {"qualification_governance_eligible": qualification_report.governance_eligible}),
-            "human_review_requirement": (self.policy.require_human_review,
-                {"required": self.policy.require_human_review, "approval_status": "PENDING"}),
-            # This gate authorizes only the promotion authority's eligibility
-            # decision. A policy-owned, non-critical readiness condition may
-            # therefore remain CONDITIONAL; this is never deployment authority.
-            "promotion_authorization": (qualification_valid and policy_accepted and evidence_bound
-                and candidate_integrity and bool(lineage_valid),
-                {"scope": "DEPLOYMENT_GOVERNANCE_ELIGIBILITY_ONLY",
-                 "deployment_authorized": False, "production_authorized": False}),
-        }
-        gates = tuple(PromotionGate(name, bool(facts[name][0]),
-            "GATE_PASSED" if facts[name][0] else "GATE_FAILED", facts[name][1])
-            for name in PROMOTION_GATES)
-        failed = {x.gate for x in gates if not x.passed}
-        decision = ("ELIGIBLE" if not failed else "CONDITIONAL"
-                    if failed <= set(self.policy.conditional_gates) else "REJECTED")
-        evidence = PromotionEvidence(qualification_report.candidate_identity,
-            qualification_report.report_identity, qualification_evidence.evidence_identity,
-            qualification_registry.registry_identity, self.policy.policy_identity, gates)
-        report = PromotionReport(qualification_report.candidate_identity,
-            qualification_report.report_identity, qualification_registry.registry_identity,
-            self.policy, evidence, decision, decision in ("ELIGIBLE", "CONDITIONAL"))
-        if not report.governance_queue_eligible:
-            return PromotionResult(report, None, None)
-        request = PromotionApprovalRequest(report.report_identity, report.candidate_identity,
-                                           self.policy.policy_identity)
-        queue = GovernanceQueueEntry(report.report_identity, request.request_identity,
-                                     report.candidate_identity, report.decision)
-        return PromotionResult(report, request, queue)
-
-    promote = assess
-
-    def replay(self, expected: PromotionResult, qualification_registry,
-               qualification_report, qualification_evidence) -> bool:
-        try:
-            _validate(expected)
-            return self.assess(qualification_registry, qualification_report,
-                               qualification_evidence) == expected
-        except (PromotionValidationError, TypeError, ValueError, AttributeError, KeyError):
-            return False
+    """Determine governance-entry eligibility; never authorize or perform deployment."""
+    def __init__(self,policy:PromotionPolicy): _validate(policy); self.policy=policy
+    def assess(self,bundle:QualificationBundle)->PromotionResult:
+        _validate(bundle); q=bundle.qualification_report; qe=bundle.qualification_evidence
+        policy_ok=q.policy.policy_identity in self.policy.accepted_qualification_policy_identities
+        qualification_ok=q.decision=="PASS" if self.policy.require_qualification_pass else q.decision in ("PASS","CONDITIONAL")
+        governance_ready=q.governance_eligible if self.policy.require_governance_eligible else True
+        evidence_ok=q.qualification_evidence==qe and qe.evidence_identity==q.qualification_evidence.evidence_identity
+        candidate_ok=(q.candidate_identity==bundle.candidate.model_identity==qe.candidate_identity and
+            q.evaluation_report_identity==bundle.evaluation_report.report_identity==qe.evaluation_report_identity)
+        # QualificationBundle reconstruction has already proven every exact object,
+        # entry, predecessor, registry identity, and cross-layer binding.
+        lineage_ok=True
+        routing_identity=identity_for("PROMOTION_REVIEW_ROUTING",{"qualification_bundle_identity":bundle.bundle_identity,
+            "promotion_policy_identity":self.policy.policy_identity,"human_approval_authority_identity":self.policy.human_approval_authority_identity,
+            "governance_policy_identity":self.policy.governance_policy_identity,"required_reviewer_role":self.policy.required_reviewer_role})
+        routing_ok=bool(routing_identity)
+        eligibility=qualification_ok and policy_ok and evidence_ok and candidate_ok and lineage_ok and routing_ok and governance_ready
+        facts={
+          "qualification_validity":(qualification_ok,{"decision":q.decision,"report_identity":q.report_identity}),
+          "promotion_policy_compliance":(policy_ok,{"qualification_policy_identity":q.policy.policy_identity,"promotion_policy_identity":self.policy.policy_identity}),
+          "evidence_completeness":(evidence_ok,{"qualification_evidence_identity":qe.evidence_identity}),
+          "candidate_integrity":(candidate_ok,{"candidate_identity":bundle.candidate.model_identity,"candidate_registry_identity":bundle.candidate_registry.registry_identity}),
+          "registry_lineage_validation":(lineage_ok,{"bundle_identity":bundle.bundle_identity,"candidate_registry_identity":bundle.candidate_registry.registry_identity,
+             "evaluation_registry_identity":bundle.evaluation_registry.registry_identity,"qualification_registry_identity":bundle.qualification_registry.registry_identity}),
+          "governance_readiness":(governance_ready,{"qualification_governance_eligible":q.governance_eligible}),
+          "review_routing_integrity":(routing_ok,{"human_approval_authority_identity":self.policy.human_approval_authority_identity,
+             "governance_policy_identity":self.policy.governance_policy_identity,"required_reviewer_role":self.policy.required_reviewer_role,
+             "review_routing_identity":routing_identity}),
+          "governance_entry_eligibility":(eligibility,{"scope":"GOVERNANCE_ENTRY_ONLY","deployment_authorized":False,"production_authorized":False})}
+        gates=tuple(PromotionGate(x,bool(facts[x][0]),"GATE_PASSED" if facts[x][0] else "GATE_FAILED",facts[x][1]) for x in PROMOTION_GATES)
+        failed={x.gate for x in gates if not x.passed}; decision="ELIGIBLE" if not failed else "CONDITIONAL" if failed<=set(self.policy.conditional_gates) else "REJECTED"
+        evidence=PromotionEvidence(bundle.bundle_identity,q.candidate_identity,q.report_identity,bundle.qualification_registry.registry_identity,self.policy.policy_identity,gates)
+        report=PromotionReport(q.candidate_identity,bundle.bundle_identity,q.report_identity,bundle.qualification_registry.registry_identity,self.policy,evidence,decision,decision=="ELIGIBLE",decision=="CONDITIONAL")
+        if decision!="ELIGIBLE": return PromotionResult(report,None,None)
+        request=PromotionApprovalRequest(report.report_identity,report.candidate_identity,self.policy.policy_identity,
+            self.policy.human_approval_authority_identity,self.policy.governance_policy_identity,self.policy.required_reviewer_role,routing_identity)
+        queue=GovernanceQueueEntry(report.report_identity,request.request_identity,report.candidate_identity,self.policy.governance_policy_identity,
+            self.policy.human_approval_authority_identity,self.policy.required_reviewer_role,routing_identity)
+        return PromotionResult(report,request,queue)
+    promote=assess
+    def replay(self,expected,bundle):
+        try: _validate(expected); return self.assess(bundle)==expected
+        except (PromotionValidationError,TypeError,ValueError,AttributeError,KeyError): return False
