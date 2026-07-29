@@ -677,3 +677,18 @@ fail-closed and never activates Production; V27 remains the production authority
   readiness and every runtime, broker, order, trade, strategy, training, and evaluation capability
   remain false. PR279 completes Governance Pipeline Version 1; another Governance Authority requires
   Architecture Review.
+
+## PR280 Runtime Startup Authorization Authority — ACTIVE; FINAL PRE-EXECUTOR BOUNDARY
+
+- PR280 verifies the exact immutable PR279 authorization, evidence, registry membership,
+  effectiveness, freshness, identity lineage, startup policy and contract before issuing
+  a bounded, single-use final pre-executor handoff artifact. `startup_handoff_authorized`
+  grants only permission for the authenticated V27 Executor consumer to accept that artifact.
+- All 22 gates are critical and deterministic. Successful and rejected outcomes have
+  immutable evidence, lifecycle records, append-only registry entries, predecessor/CAS
+  validation, generation-aware replay protection, typed status subjects, and immutable
+  consumption attestations. Revocation, supersession, expiry, emergency rollback, wrong
+  consumer/session/generation/nonce, duplicate authorization, and duplicate consumption fail closed.
+- PR280 never starts Runtime or invokes the Executor. Broker, order, trade, and actual
+  runtime-start states remain explicitly false. V27 remains the sole execution authority;
+  further runtime-entry authorities require formal Architecture Freeze v1.0 review.

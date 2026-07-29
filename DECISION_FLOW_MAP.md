@@ -660,3 +660,17 @@ PR265 observes and deterministically replays those boundaries without changing t
 outputs. Any identity, sequence, freshness, data, policy, publication, or delivery mismatch
 produces certification `FAIL` and `READINESS_DENIED`. Shadow validation terminates in a
 broker-free record. No PR265 result can authorize production or `OrderSend`.
+
+## PR280 Runtime Startup Authorization flow
+
+`PR279 Executor Acknowledgement Authorization + exact acknowledgement registry entry`
+`-> immutable startup policy/contract + current governance status + canonical timestamp`
+`-> 22 mandatory fail-closed gates -> STARTUP_AUTHORIZED or STARTUP_REJECTED`
+`-> immutable evidence/lifecycle ending at REGISTERED + append-only CAS startup registry`
+`-> final pre-executor handoff artifact`
+`-> authenticated, exact, nonce-bound V27 Executor consumption evidence`.
+
+PR280 authorizes only the startup handoff request; it does not authorize or prove actual
+Runtime startup. It produces governance data only and does not launch a process, start Runtime, invoke
+the Executor, connect to a broker, submit an order, or execute a trade. Those actions
+remain exclusively in the Existing V27 Production Executor.
