@@ -2,13 +2,15 @@
 
 ## Final governance boundary
 
-PR276 establishes the final governance authority before Production Runtime. The authority
-consumes only the Deployment Readiness Report, Deployment Manifest, Release Request, Human
-Approval Record, Release Policy, and a canonical assessment timestamp. It does not train,
+PR276 establishes the final governance authority before Production Runtime. Its authoritative
+bundle binds the exact Deployment Result and effective Deployment Registry entry, approval
+and approval registry, Deployment Artifact and artifact-registry proof, rollback
+artifact/manifest/registry proof, Release Policy, final governance approval and registry,
+target V27 runtime instance, and assessment timestamp. It does not train,
 evaluate, qualify, promote, deploy, access a broker, execute trades, or modify strategy or
 learning. Its outputs are immutable governance records, not executable runtime machinery.
 
-The input bundle binds the exact identities of all five authoritative inputs. A missing or
+The input bundle binds the exact identities of every authoritative input. A missing or
 malformed input is rejected at the bundle boundary; an intact but ineligible or mismatched
 input produces a fail-closed `PRODUCTION_RELEASE_REJECTED` decision.
 
@@ -38,8 +40,15 @@ false. Rejected decisions emit none of these three outputs.
 
 The append-only Release Registry verifies predecessor lineage and accepts approved decisions
 only. Exact replay is idempotent. The registry rejects a second distinct certificate for the
-same `(release request, deployment manifest, target environment, runtime contract)` activation
+same `(release request, deployment manifest, artifact, target environment, runtime contract,
+release policy, executor, activation generation)` activation
 scope, ensuring exactly one certificate can authorize a Production Runtime activation.
+
+Activation authorization binds the V27 executor identity and version, runtime instance,
+environment, contract, artifact, policy, generation, and exclusive validity window. The
+append-only Runtime Activation Registry enforces the lifecycle `AUTHORIZED → REGISTERED →
+ACTIVATION_PENDING → ACTIVATION_CONSUMED → ACTIVE / REVOKED / ROLLED_BACK`, rejects replay,
+and supports certificate revocation, activation revocation, and emergency rollback records.
 
 All policies, bundles, gate evidence, certificates, manifests, authorizations, decisions,
 registry entries, and registry snapshots have deterministic content identities. Nested
