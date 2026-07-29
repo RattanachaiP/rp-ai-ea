@@ -1,7 +1,7 @@
 """PR278 Runtime Admission Authority public boundary."""
 from .authority import RuntimeAdmissionAuthority,RuntimeAdmissionError
 from .contracts import (ADMISSION_CHECKS,ADMISSION_SCHEMA_VERSION,LIFECYCLE,
-    AdmissionLifecycleTransition,AdmissionRegistryEntry,AdmissionValidation,
+    AdmissionAuthorizationRevocation,AdmissionLifecycleTransition,AdmissionRegistryEntry,AdmissionValidation,
     ExecutorAdmissionAuthorization,ExecutorAdmissionPolicy,ExecutorDescriptor,
     RuntimeAdmissionAuthorization,RuntimeAdmissionEvidence,
     RuntimeAdmissionGovernanceBundle,RuntimeAdmissionResult)

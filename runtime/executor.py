@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from bridge.decision_writer import WriterReadResult
 from runtime.broker_safety import BrokerOrderResult, BrokerOutcome, BrokerSafety, ExecutionInstruction, MT5ExecutionInterface, OrderRequest
+from runtime.executor_acceptance import produce_executor_acceptance_attestation
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,11 @@ class Executor:
         self._id_factory = id_factory or (lambda: f"exec-{time_ns():x}-{uuid4().hex}")
         self._logger = logger or (lambda _event, _data: None)
         self._processed_sequences: set[int] = set()
+
+    @staticmethod
+    def attest_admission_acceptance(**values):
+        """Produce PR279 acceptance evidence without starting Runtime or using the broker."""
+        return produce_executor_acceptance_attestation(**values)
 
     def execute(self, snapshot: WriterReadResult) -> ExecutionResult:
         """Execute exactly one immutable snapshot and never read ``decision.json``."""
