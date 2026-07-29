@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from math import isfinite
 from typing import Callable
 
-from .offline_learning import LearningDataset, LearningEvidenceContract
+from .offline_learning import LearningDataset, LearningEvidenceContract, LearningSnapshot
 from .pipeline_validator import certification_identity
 
 ANALYTICS_SCHEMA_VERSION = "V28.OUTCOME_ANALYTICS.1.0"
@@ -44,6 +44,10 @@ class PerformanceSummary:
         for value in (self.total_net_profit, self.mean_net_profit,
                       self.total_r_multiple, self.expectancy_r):
             _validate_number(value)
+        expected_net = self.total_net_profit / self.count if self.count else 0.0
+        expected_r = self.total_r_multiple / self.count if self.count else 0.0
+        if self.mean_net_profit != expected_net or self.expectancy_r != expected_r:
+            raise ValueError("OUTCOME_ANALYTICS_SUMMARY_ARITHMETIC_INVALID")
 
 
 @dataclass(frozen=True)
@@ -76,18 +80,29 @@ class CalibrationBucket:
     lower_bound: float
     upper_bound: float
     count: int
+    confidence_sum: float
+    observed_wins: int
     mean_confidence: float
     observed_win_rate: float
     absolute_error: float
+    upper_bound_inclusive: bool
 
     def __post_init__(self) -> None:
-        for value in (self.lower_bound, self.upper_bound, self.mean_confidence,
+        for value in (self.lower_bound, self.upper_bound, self.confidence_sum, self.mean_confidence,
                       self.observed_win_rate, self.absolute_error):
             _validate_number(value)
-        if not (0 <= self.lower_bound < self.upper_bound <= 1) or self.count < 1:
+        if (not (0 <= self.lower_bound < self.upper_bound <= 1) or self.count < 0 or
+                not 0 <= self.observed_wins <= self.count or
+                type(self.upper_bound_inclusive) is not bool):
             raise ValueError("OUTCOME_ANALYTICS_CALIBRATION_INVALID")
         if not (0 <= self.mean_confidence <= 1 and 0 <= self.observed_win_rate <= 1):
             raise ValueError("OUTCOME_ANALYTICS_CALIBRATION_INVALID")
+        expected_confidence = self.confidence_sum / self.count if self.count else 0.0
+        expected_win_rate = self.observed_wins / self.count if self.count else 0.0
+        if (self.mean_confidence != expected_confidence or
+                self.observed_win_rate != expected_win_rate or
+                self.absolute_error != abs(self.mean_confidence - self.observed_win_rate)):
+            raise ValueError("OUTCOME_ANALYTICS_CALIBRATION_ARITHMETIC_INVALID")
 
 
 @dataclass(frozen=True)
@@ -106,7 +121,14 @@ class ErrorClass:
 @dataclass(frozen=True)
 class OutcomeAnalyticsReport:
     source_dataset_identity: str
+    source_dataset_version_identity: str
     source_learning_evidence_identity: str
+    source_learning_snapshot: LearningSnapshot
+    source_outcome_identities: tuple[str, ...]
+    source_example_identities: tuple[str, ...]
+    source_example_lineage: tuple[tuple[str, str], ...]
+    source_record_count: int
+    losing_outcome_identities: tuple[str, ...]
     expectancy: PerformanceSummary
     win_loss_distribution: PerformanceSummary
     drawdown: DrawdownAnalysis
@@ -127,6 +149,7 @@ class OutcomeAnalyticsReport:
         return {key: getattr(self, key) for key in self.__dataclass_fields__ if key != "report_identity"}
 
     def __post_init__(self) -> None:
+        LearningSnapshot(**self.source_learning_snapshot.__dict__)
         PerformanceSummary(**self.expectancy.__dict__)
         PerformanceSummary(**self.win_loss_distribution.__dict__)
         DrawdownAnalysis(**self.drawdown.__dict__)
@@ -142,10 +165,70 @@ class OutcomeAnalyticsReport:
                 self.candidates_generated is not False or self.runtime_mutated is not False or
                 self.production_authorized is not False):
             raise ValueError("OUTCOME_ANALYTICS_AUTHORITY_INVALID")
+        snapshot = self.source_learning_snapshot
+        if (self.source_dataset_identity != snapshot.dataset_identity or
+                self.source_dataset_version_identity != snapshot.dataset_version_identity or
+                self.source_example_identities != snapshot.example_identities or
+                self.source_example_lineage != tuple(zip(self.source_outcome_identities,
+                                                          self.source_example_identities)) or
+                self.source_record_count != snapshot.record_count or
+                self.source_record_count != len(self.source_outcome_identities) or
+                len(set(self.source_outcome_identities)) != self.source_record_count or
+                len(set(self.source_example_identities)) != self.source_record_count):
+            raise ValueError("OUTCOME_ANALYTICS_LINEAGE_INVALID")
         if self.expectancy != self.win_loss_distribution:
             raise ValueError("OUTCOME_ANALYTICS_SUMMARY_MISMATCH")
+        if self.expectancy.count != self.source_record_count:
+            raise ValueError("OUTCOME_ANALYTICS_SOURCE_COUNT_INVALID")
+        if (self.drawdown.ending_cumulative_net != self.expectancy.total_net_profit or
+                self.drawdown.ending_cumulative_r != self.expectancy.total_r_multiple):
+            raise ValueError("OUTCOME_ANALYTICS_DRAWDOWN_TOTAL_INVALID")
+        self._validate_groups(self.regime_performance, "REGIME")
+        self._validate_groups(self.opportunity_performance, "OPPORTUNITY")
+        self._validate_calibration()
+        self._validate_errors()
         if self.report_identity != _identity("REPORT", self.canonical_payload()):
             raise ValueError("OUTCOME_ANALYTICS_IDENTITY_INVALID")
+
+    def _validate_groups(self, groups: tuple[GroupPerformance, ...], name: str) -> None:
+        names = tuple(group.group for group in groups)
+        if names != tuple(sorted(set(names))):
+            raise ValueError(f"OUTCOME_ANALYTICS_{name}_GROUP_ORDER_INVALID")
+        if sum(group.performance.count for group in groups) != self.source_record_count:
+            raise ValueError(f"OUTCOME_ANALYTICS_{name}_GROUP_COUNT_INVALID")
+
+    def _validate_calibration(self) -> None:
+        previous_upper = None
+        for index, bucket in enumerate(self.confidence_calibration):
+            # Canonical deciles are [lower, upper), except [0.9, 1.0].
+            expected_lower, expected_upper = index / 10, (index + 1) / 10
+            if (bucket.lower_bound != expected_lower or bucket.upper_bound != expected_upper or
+                    bucket.upper_bound_inclusive is not (index == 9) or
+                    (previous_upper is not None and bucket.lower_bound != previous_upper)):
+                raise ValueError("OUTCOME_ANALYTICS_CALIBRATION_ORDER_INVALID")
+            previous_upper = bucket.upper_bound
+        if sum(bucket.count for bucket in self.confidence_calibration) != self.source_record_count:
+            raise ValueError("OUTCOME_ANALYTICS_CALIBRATION_COUNT_INVALID")
+
+    def _validate_errors(self) -> None:
+        names = tuple(error.classification for error in self.error_classification)
+        if names != tuple(sorted(set(names))):
+            raise ValueError("OUTCOME_ANALYTICS_ERROR_CLASS_ORDER_INVALID")
+        flattened = tuple(identity for error in self.error_classification
+                          for identity in error.outcome_identities)
+        if (len(set(flattened)) != len(flattened) or
+                set(flattened) - set(self.source_outcome_identities) or
+                set(self.losing_outcome_identities) - set(self.source_outcome_identities) or
+                len(set(self.losing_outcome_identities)) != len(self.losing_outcome_identities) or
+                set(flattened) != set(self.losing_outcome_identities)):
+            raise ValueError("OUTCOME_ANALYTICS_ERROR_LINEAGE_INVALID")
+        source_order = {identity: index for index, identity in enumerate(self.source_outcome_identities)}
+        if (self.losing_outcome_identities != tuple(sorted(self.losing_outcome_identities,
+                                                           key=source_order.__getitem__)) or
+                any(error.outcome_identities != tuple(sorted(error.outcome_identities,
+                                                              key=source_order.__getitem__))
+                    for error in self.error_classification)):
+            raise ValueError("OUTCOME_ANALYTICS_ERROR_ORDER_INVALID")
 
 
 def _summary(examples: tuple) -> PerformanceSummary:
@@ -181,12 +264,21 @@ def _calibration(dataset: LearningDataset) -> tuple[CalibrationBucket, ...]:
         index = min(int(example.features.confidence * 10), 9)
         buckets.setdefault(index, []).append(example)
     result = []
-    for index in sorted(buckets):
-        values = buckets[index]
-        confidence = sum(x.features.confidence for x in values) / len(values)
-        win_rate = sum(x.label.trade_result["net_profit"] > 0 for x in values) / len(values)
+    for index in range(10):
+        values = buckets.get(index, [])
+        # Empty buckets remain explicit so decile semantics and ordering are
+        # unambiguous. Their descriptive rates are zero.
+        if not values:
+            result.append(CalibrationBucket(index / 10, (index + 1) / 10, 0,
+                                            0.0, 0, 0.0, 0.0, 0.0, index == 9))
+            continue
+        confidence_sum = sum(x.features.confidence for x in values)
+        wins = sum(x.label.trade_result["net_profit"] > 0 for x in values)
+        confidence = confidence_sum / len(values)
+        win_rate = wins / len(values)
         result.append(CalibrationBucket(index / 10, (index + 1) / 10, len(values),
-                                        confidence, win_rate, abs(confidence - win_rate)))
+                                        confidence_sum, wins, confidence, win_rate,
+                                        abs(confidence - win_rate), index == 9))
     return tuple(result)
 
 
@@ -207,9 +299,18 @@ def analyze_learning_evidence(evidence: LearningEvidenceContract) -> OutcomeAnal
     dataset = evidence.dataset
     LearningDataset(**dataset.__dict__)
     summary = _summary(dataset.examples)
+    losing = tuple(example.outcome_identity for example in dataset.examples
+                   if example.label.trade_result["net_profit"] < 0)
     values = dict(
         source_dataset_identity=dataset.dataset_identity,
+        source_dataset_version_identity=dataset.dataset_version_identity,
         source_learning_evidence_identity=evidence.evidence_identity,
+        source_learning_snapshot=evidence.snapshot,
+        source_outcome_identities=dataset.source_outcome_identities,
+        source_example_identities=tuple(example.example_identity for example in dataset.examples),
+        source_example_lineage=tuple((example.outcome_identity, example.example_identity)
+                                     for example in dataset.examples),
+        source_record_count=len(dataset.examples), losing_outcome_identities=losing,
         expectancy=summary, win_loss_distribution=summary, drawdown=_drawdown(dataset),
         regime_performance=_groups(dataset, lambda x: x.features.regime.get("state", "UNKNOWN")),
         opportunity_performance=_groups(dataset, lambda x: x.features.opportunity.get("archetype", "UNKNOWN")),
