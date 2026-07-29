@@ -4,7 +4,18 @@ from dataclasses import dataclass
 from .outcome_contract import OutcomeRecord
 from .pipeline_validator import certification_identity
 
-REGISTRY_SCHEMA_VERSION = "V28.OUTCOME_REGISTRY.1.0"
+REGISTRY_SCHEMA_VERSION = "V28.OUTCOME_REGISTRY.1.1"
+
+
+def _registry_values(entries):
+    """Derive the complete ancestry; callers cannot supply an unproven predecessor."""
+    previous = None if not entries else _registry_identity(entries[:-1])
+    return {"entries": tuple(entries), "previous_registry_identity": previous,
+            "schema_version": REGISTRY_SCHEMA_VERSION}
+
+
+def _registry_identity(entries):
+    return certification_identity("V28_OUTCOME_REGISTRY", _registry_values(entries))
 
 
 @dataclass(frozen=True)
@@ -36,8 +47,10 @@ class OutcomeRegistry:
         return {key: getattr(self, key) for key in self.__dataclass_fields__ if key != "registry_identity"}
 
     def __post_init__(self):
-        if self.schema_version != REGISTRY_SCHEMA_VERSION or (not self.entries) != (self.previous_registry_identity is None):
+        if self.schema_version != REGISTRY_SCHEMA_VERSION:
             raise ValueError("OUTCOME_REGISTRY_VERSION_OR_LINEAGE_INVALID")
+        if self.previous_registry_identity != _registry_values(self.entries)["previous_registry_identity"]:
+            raise ValueError("OUTCOME_REGISTRY_PREDECESSOR_INVALID")
         seen = set()
         for index, entry in enumerate(self.entries, 1):
             OutcomeRegistryEntry(**entry.__dict__)
@@ -57,9 +70,8 @@ class OutcomeRegistry:
         previous = self.entries[-1].entry_identity if self.entries else None
         values = {"sequence": len(self.entries) + 1, "previous_entry_identity": previous, "outcome": outcome}
         entry = OutcomeRegistryEntry(**values, entry_identity=certification_identity("V28_OUTCOME_REGISTRY_ENTRY", values))
-        registry_values = {"entries": self.entries + (entry,), "previous_registry_identity": self.registry_identity,
-                           "schema_version": self.schema_version}
-        return OutcomeRegistry(**registry_values, registry_identity=certification_identity("V28_OUTCOME_REGISTRY", registry_values))
+        registry_values = _registry_values(self.entries + (entry,))
+        return OutcomeRegistry(**registry_values, registry_identity=_registry_identity(self.entries + (entry,)))
 
     @property
     def expectancy_dataset(self) -> tuple[OutcomeRecord, ...]:
@@ -68,5 +80,5 @@ class OutcomeRegistry:
 
 
 def create_outcome_registry() -> OutcomeRegistry:
-    values = {"entries": (), "previous_registry_identity": None, "schema_version": REGISTRY_SCHEMA_VERSION}
-    return OutcomeRegistry(**values, registry_identity=certification_identity("V28_OUTCOME_REGISTRY", values))
+    values = _registry_values(())
+    return OutcomeRegistry(**values, registry_identity=_registry_identity(()))

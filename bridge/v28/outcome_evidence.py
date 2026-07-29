@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from .outcome_registry import OutcomeRegistry
 from .pipeline_validator import certification_identity
 
-EVIDENCE_CONTRACT_VERSION = "V28.OUTCOME_EVIDENCE.1.0"
+EVIDENCE_CONTRACT_VERSION = "V28.OUTCOME_EVIDENCE.1.1"
 
 
 @dataclass(frozen=True)

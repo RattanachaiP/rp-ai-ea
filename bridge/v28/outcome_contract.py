@@ -11,11 +11,13 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from .execution_plan import parse_utc
+from .outcome_governance import OutcomeGovernanceEvidence
 from .pipeline_validator import certification_identity
 
-OUTCOME_SCHEMA_VERSION = "V28.OUTCOME_RECORD.1.0"
+OUTCOME_SCHEMA_VERSION = "V28.OUTCOME_RECORD.1.1"
 OUTCOME_POLICY_REFERENCE = "V28_OUTCOME_INTELLIGENCE_POLICY@1.0.0"
 EXIT_REASONS = frozenset({"STOP_LOSS", "TAKE_PROFIT", "MANUAL", "STRATEGY_EXIT", "BROKER_CLOSE", "MARKET_CLOSE", "OTHER"})
+SNAPSHOT_ROLES = frozenset({"RUNTIME", "MARKET_STATE", "OPPORTUNITY", "DECISION", "RISK", "EXECUTION"})
 
 
 def _finite(value: Any, *, positive: bool = False, nonnegative: bool = False) -> None:
@@ -37,22 +39,28 @@ def _freeze(value: Any) -> Any:
 class EvidenceSnapshot:
     """Opaque snapshot preserves upstream evidence without re-owning its semantics."""
     source_identity: str
+    evidence_role: str
+    pipeline_identity: str
     captured_payload: Mapping[str, Any]
     snapshot_identity: str
 
     def canonical_payload(self) -> dict[str, Any]:
-        return {"source_identity": self.source_identity, "captured_payload": self.captured_payload}
+        return {"source_identity": self.source_identity, "evidence_role": self.evidence_role,
+                "pipeline_identity": self.pipeline_identity, "captured_payload": self.captured_payload}
 
     def __post_init__(self) -> None:
-        if not self.source_identity or not isinstance(self.captured_payload, Mapping):
+        if (not self.source_identity or self.evidence_role not in SNAPSHOT_ROLES or
+                not self.pipeline_identity or not isinstance(self.captured_payload, Mapping)):
             raise ValueError("OUTCOME_SNAPSHOT_INVALID")
         object.__setattr__(self, "captured_payload", _freeze(self.captured_payload))
         if self.snapshot_identity != certification_identity("V28_OUTCOME_EVIDENCE_SNAPSHOT", self.canonical_payload()):
             raise ValueError("OUTCOME_SNAPSHOT_IDENTITY_INVALID")
 
 
-def create_evidence_snapshot(*, source_identity: str, captured_payload: Mapping[str, Any]) -> EvidenceSnapshot:
-    values = {"source_identity": source_identity, "captured_payload": _freeze(captured_payload)}
+def create_evidence_snapshot(*, source_identity: str, evidence_role: str, pipeline_identity: str,
+                             captured_payload: Mapping[str, Any]) -> EvidenceSnapshot:
+    values = {"source_identity": source_identity, "evidence_role": evidence_role,
+              "pipeline_identity": pipeline_identity, "captured_payload": _freeze(captured_payload)}
     return EvidenceSnapshot(**values, snapshot_identity=certification_identity("V28_OUTCOME_EVIDENCE_SNAPSHOT", values))
 
 
@@ -74,7 +82,7 @@ class EntryEvidence:
         if not self.order_identity:
             raise ValueError("ENTRY_EVIDENCE_INVALID")
         for value in (self.requested_price, self.filled_price): _finite(value, positive=True)
-        for value in (self.spread, self.slippage): _finite(value, nonnegative=True)
+        _finite(self.spread, nonnegative=True); _finite(self.slippage)
         if self.evidence_identity != certification_identity("V28_OUTCOME_ENTRY_EVIDENCE", self.canonical_payload()):
             raise ValueError("ENTRY_EVIDENCE_IDENTITY_INVALID")
 
@@ -97,7 +105,7 @@ class ExitEvidence:
         if not self.deal_identity or self.exit_reason not in EXIT_REASONS:
             raise ValueError("EXIT_EVIDENCE_INVALID")
         for value in (self.requested_price, self.filled_price): _finite(value, positive=True)
-        _finite(self.slippage, nonnegative=True)
+        _finite(self.slippage)
         if self.evidence_identity != certification_identity("V28_OUTCOME_EXIT_EVIDENCE", self.canonical_payload()):
             raise ValueError("EXIT_EVIDENCE_IDENTITY_INVALID")
 
@@ -169,15 +177,40 @@ def create_trade_result(*, gross_profit: float, commission: float, swap: float,
 
 
 @dataclass(frozen=True)
+class TradeExecutionFacts:
+    """Authoritative owner of trade/plan fields projected onto an OutcomeRecord."""
+    trade_identity: str; symbol: str; direction: str; position_size: float
+    stop_loss: float; take_profit: float; execution_plan_identity: str; facts_identity: str
+
+    def canonical_payload(self):
+        return {key: getattr(self, key) for key in self.__dataclass_fields__ if key != "facts_identity"}
+
+    def __post_init__(self):
+        if (not self.trade_identity or not self.symbol or self.direction not in {"BUY", "SELL"} or
+                not self.execution_plan_identity):
+            raise ValueError("TRADE_EXECUTION_FACTS_INVALID")
+        for value in (self.position_size, self.stop_loss, self.take_profit): _finite(value, positive=True)
+        if self.facts_identity != certification_identity("V28_TRADE_EXECUTION_FACTS", self.canonical_payload()):
+            raise ValueError("TRADE_EXECUTION_FACTS_IDENTITY_INVALID")
+
+
+def create_trade_execution_facts(**values: Any) -> TradeExecutionFacts:
+    return TradeExecutionFacts(**values, facts_identity=certification_identity("V28_TRADE_EXECUTION_FACTS", values))
+
+
+@dataclass(frozen=True)
 class OutcomeRecord:
     trade_identity: str; symbol: str; direction: str
     entry_time: str; exit_time: str; entry_price: float; exit_price: float
     stop_loss: float; take_profit: float; position_size: float
     spread: float; slippage: float; lifecycle: TradeLifecycleRecord; result: TradeResult
+    execution_facts: TradeExecutionFacts; pipeline_identity: str
     runtime_snapshot: EvidenceSnapshot; market_regime_snapshot: EvidenceSnapshot
     opportunity_snapshot: EvidenceSnapshot; decision_snapshot: EvidenceSnapshot
     risk_snapshot: EvidenceSnapshot; execution_snapshot: EvidenceSnapshot
-    confidence: float; execution_plan_identity: str; qualification_identity: str; readiness_identity: str
+    confidence: float; runtime_identity: str; market_state_identity: str; opportunity_identity: str
+    decision_identity: str; risk_identity: str; execution_plan_identity: str
+    governance_evidence: OutcomeGovernanceEvidence; qualification_identity: str; readiness_identity: str
     outcome_identity: str; policy_reference: str = OUTCOME_POLICY_REFERENCE
     schema_version: str = OUTCOME_SCHEMA_VERSION
 
@@ -186,6 +219,8 @@ class OutcomeRecord:
 
     def __post_init__(self) -> None:
         TradeLifecycleRecord(**self.lifecycle.__dict__); TradeResult(**self.result.__dict__)
+        TradeExecutionFacts(**self.execution_facts.__dict__)
+        OutcomeGovernanceEvidence(**self.governance_evidence.__dict__)
         snapshots = (self.runtime_snapshot, self.market_regime_snapshot, self.opportunity_snapshot,
                      self.decision_snapshot, self.risk_snapshot, self.execution_snapshot)
         for snapshot in snapshots: EvidenceSnapshot(**snapshot.__dict__)
@@ -196,6 +231,12 @@ class OutcomeRecord:
             raise ValueError("OUTCOME_IDENTITY_FIELDS_INVALID")
         if self.lifecycle.trade_identity != self.trade_identity:
             raise ValueError("OUTCOME_LIFECYCLE_MISMATCH")
+        facts = self.execution_facts
+        if (self.trade_identity, self.symbol, self.direction, self.position_size, self.stop_loss,
+                self.take_profit, self.execution_plan_identity) != (
+                facts.trade_identity, facts.symbol, facts.direction, facts.position_size, facts.stop_loss,
+                facts.take_profit, facts.execution_plan_identity):
+            raise ValueError("OUTCOME_EXECUTION_FACTS_MISMATCH")
         if (self.entry_time, self.exit_time, self.entry_price, self.exit_price) != (
                 self.lifecycle.entry.observed_at, self.lifecycle.exit.observed_at,
                 self.lifecycle.entry.filled_price, self.lifecycle.exit.filled_price):
@@ -204,12 +245,20 @@ class OutcomeRecord:
         if self.result.holding_time_seconds != expected_holding:
             raise ValueError("OUTCOME_HOLDING_TIME_MISMATCH")
         for value in (self.entry_price, self.exit_price, self.stop_loss, self.take_profit, self.position_size): _finite(value, positive=True)
-        for value in (self.spread, self.slippage): _finite(value, nonnegative=True)
+        _finite(self.spread, nonnegative=True); _finite(self.slippage)
         _finite(self.confidence, nonnegative=True)
         if self.confidence > 1 or self.spread != self.lifecycle.entry.spread or self.slippage != self.lifecycle.entry.slippage + self.lifecycle.exit.slippage:
             raise ValueError("OUTCOME_EXECUTION_FIELDS_INVALID")
-        if self.execution_snapshot.source_identity != self.execution_plan_identity:
-            raise ValueError("OUTCOME_EXECUTION_LINEAGE_INVALID")
+        expected = (("RUNTIME", self.runtime_identity), ("MARKET_STATE", self.market_state_identity),
+                    ("OPPORTUNITY", self.opportunity_identity), ("DECISION", self.decision_identity),
+                    ("RISK", self.risk_identity), ("EXECUTION", self.execution_plan_identity))
+        for snapshot, (role, source) in zip(snapshots, expected):
+            if (snapshot.evidence_role, snapshot.source_identity, snapshot.pipeline_identity) != (
+                    role, source, self.pipeline_identity):
+                raise ValueError("OUTCOME_SNAPSHOT_LINEAGE_INVALID")
+        if (self.qualification_identity != self.governance_evidence.qualification_report.replay_identity or
+                self.readiness_identity != self.governance_evidence.readiness_report.report_identity):
+            raise ValueError("OUTCOME_GOVERNANCE_PROJECTION_MISMATCH")
         if self.outcome_identity != certification_identity("V28_OUTCOME_RECORD", self.canonical_payload()):
             raise ValueError("OUTCOME_RECORD_IDENTITY_INVALID")
 
