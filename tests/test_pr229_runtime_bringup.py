@@ -148,3 +148,23 @@ def test_runtime_shared_root_override_and_default_restoration(monkeypatch, tmp_p
     engine = importlib.reload(engine)
     assert engine.COMMON_SHARED_ROOT == DEFAULT_SHARED_ROOT
     assert engine.BASE_PATH == DEFAULT_SHARED_ROOT / "XAUUSD"
+
+
+def test_demo_runtime_does_not_require_offline_execution_package(engine, monkeypatch, tmp_path):
+    monkeypatch.delenv("RP_EXECUTION_PACKAGE_UUID", raising=False)
+    monkeypatch.setattr(engine, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(engine, "FILE_PATH", tmp_path / "market_state.json")
+    monkeypatch.setattr(engine, "OUTPUT_PATH", tmp_path / "decision.json")
+    monkeypatch.setattr(
+        engine,
+        "ExecutionPackageConsumer",
+        lambda: pytest.fail("offline execution package must not gate Demo startup"),
+    )
+    monkeypatch.setattr(
+        engine,
+        "read_market",
+        lambda: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        engine.run()
